@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>adaptive-fps · 帧率自适应渲染</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 330px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hud {
+      position: fixed;
+      bottom: 12px;
+      left: 14px;
+      padding: 10px 14px;
+      background: rgba(11, 14, 20, .78);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 8px;
+      font: 12.5px/1.75 ui-monospace, Menlo, Consolas, monospace;
+      pointer-events: none;
+    }
+
+    .hud .level {
+      font-weight: 700;
+    }
+
+    .lil-gui.root {
+      --width: 260px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+
+      .hud {
+        font-size: 11px;
+        padding: 8px 10px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>帧率自适应策略</b>：实时统计 FPS，连续低于阈值时降低 pixelRatio 保流畅；
+    持续高负载缓解后再逐级升回画质。<br />
+    用右侧滑块加大物体数量给 GPU 施压，观察自动调节过程。
+  </div>
+  <div class="hud" id="hud"></div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 6, 14)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x202020, 0.9))
+    const dir = new THREE.DirectionalLight(0xffffff, 2)
+    dir.position.set(5, 10, 6)
+    scene.add(dir)
+
+    const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5)
+    // 颜色通过 InstancedMesh.setColorAt 逐实例写入（instanceColor），无需 vertexColors
+    const material = new THREE.MeshStandardMaterial({
+      roughness: 0.5, metalness: 0.1
+    })
+
+    let mesh = null
+    const dummy = new THREE.Object3D()
+    const color = new THREE.Color()
+
+    // 创建 N 个实例，并给每个实例随机位置与颜色
+    function buildCubes(count) {
+      if (mesh) {
+        scene.remove(mesh)
+        mesh.dispose()
+      }
+      mesh = new THREE.InstancedMesh(geometry, material, count)
+      const side = Math.ceil(Math.cbrt(count))
+      let i = 0
+      for (let x = 0; x < side && i < count; x++) {
+        for (let y = 0; y < side && i < count; y++) {
+          for (let z = 0; z < side && i < count; z++) {
+            dummy.position.set(x - side / 2, y + 0.4, z - side / 2)
+            dummy.rotation.set(Math.random(), Math.random(), 0)
+            dummy.updateMatrix()
+            mesh.setMatrixAt(i, dummy.matrix)
+            mesh.setColorAt(i, color.setHSL(i / count, 0.7, 0.55))
+            i++
+          }
+        }
+      }
+      scene.add(mesh)
+    }
+    buildCubes(800)
+
+    const params = {
+      count: 800,
+      autoAdapt: true,
+      pixelRatio: Math.min(devicePixelRatio, 2)
+    }
+    const gui = new GUI({ title: '性能调节' })
+    gui.add(params, 'count', [200, 800, 2000, 5000, 10000]).name('实例数量').onChange(v => buildCubes(v))
+    gui.add(params, 'autoAdapt').name('自动调节画质')
+    gui.add({
+      reset() {
+        params.pixelRatio = Math.min(devicePixelRatio, 2)
+        renderer.setPixelRatio(params.pixelRatio)
+        lowStreak = highStreak = 0
+      }
+    }, 'reset').name('恢复最高画质')
+
+    // 画质档位（像素比从高到低）
+    const levels = [2, 1.5, 1, 0.75]
+    let levelIndex = levels.indexOf(Math.min(devicePixelRatio, 2))
+    if (levelIndex < 0) levelIndex = 2
+    let lowStreak = 0
+    let highStreak = 0
+
+    const hud = document.getElementById('hud')
+    let frames = 0
+    let statTime = performance.now()
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const dt = clock.getDelta()
+      if (mesh) mesh.rotation.y += dt * 0.15
+      controls.update()
+      renderer.render(scene, camera)
+
+      // —— FPS 统计（每 0.5 秒采样一次） ——
+      frames++
+      const now = performance.now()
+      if (now - statTime >= 500) {
+        const fps = Math.round((frames * 1000) / (now - statTime))
+        frames = 0
+        statTime = now
+
+        if (params.autoAdapt) {
+          if (fps < 45) {
+            lowStreak++; highStreak = 0
+            // 连续 2 次低帧：降一档
+            if (lowStreak >= 2 && levelIndex < levels.length - 1) {
+              levelIndex++
+              params.pixelRatio = levels[levelIndex]
+              renderer.setPixelRatio(params.pixelRatio)
+              lowStreak = 0
+            }
+          } else if (fps >= 57) {
+            highStreak++; lowStreak = 0
+            // 连续 6 次高帧（约 3 秒）：升一档，避免抖动
+            if (highStreak >= 6 && levelIndex > 0) {
+              levelIndex--
+              params.pixelRatio = levels[levelIndex]
+              renderer.setPixelRatio(params.pixelRatio)
+              highStreak = 0
+            }
+          } else {
+            lowStreak = highStreak = 0
+          }
+        }
+
+        const quality = ['高', '中高', '中', '低'][levelIndex]
+        const qColor = ['#4ade80', '#a3e635', '#fbbf24', '#f87171'][levelIndex]
+        const info = renderer.info.render
+        hud.innerHTML =
+          `FPS: <b>${fps}</b>　画质: <span class="level" style="color:${qColor}">${quality}</span>` +
+          `　pixelRatio: ${params.pixelRatio}<br>` +
+          `draw calls: ${info.calls}　三角形: ${info.triangles.toLocaleString()}`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

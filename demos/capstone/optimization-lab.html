@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>性能优化实验台 · capstone</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070c;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
+  #app { position: fixed; inset: 0; }
+  #hud { position: fixed; top: 14px; left: 14px; z-index: 10;
+    padding: 10px 14px; background: rgba(11,14,20,.78); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px; color: #cbd5e1; font: 12px/1.7 ui-monospace, Menlo, Consolas, monospace;
+    pointer-events: none; }
+  #hud b { color: #7ee08a; }
+  #tip { position: fixed; left: 14px; bottom: 14px; z-index: 10; color: #64748b;
+    font-size: 12px; pointer-events: none; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud">
+  物体数 <b id="count">0</b><br />
+  draw calls <b id="calls">0</b><br />
+  三角形 <b id="tris">0</b><br />
+  FPS <b id="fps">--</b><br />
+  模式 <b id="mode">--</b>
+</div>
+<div id="tip">用右上角面板切换渲染模式，观察 draw calls 与 FPS 的变化</div>
+
+<script type="module">
+// ===================================================================
+// 性能优化实验台
+// 目标：用同一个"2000 个小立方体"场景，对比三种渲染策略的性能差异
+//   1) individual：每个立方体一个 Mesh（draw call = 物体数，最差）
+//   2) instanced  ：一个 InstancedMesh 画完（draw call ≈ 1）
+//   3) merged     ：合并成一个 BufferGeometry（draw call ≈ 1，无逐实例开销）
+// 另提供两个开关：视锥剔除(frustumCulled)、以及 LOD 远近分级演示
+// ===================================================================
+
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+/* ---------- 基础三件套 ---------- */
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x05070c)
+scene.fog = new THREE.FogExp2(0x05070c, 0.018)
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200)
+camera.position.set(26, 20, 30)
+
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setSize(innerWidth, innerHeight)
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+document.getElementById('app').appendChild(renderer.domElement)
+
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.enableDamping = true
+controls.maxPolarAngle = Math.PI / 2 - 0.03
+
+/* ---------- 灯光 ---------- */
+scene.add(new THREE.HemisphereLight(0x9db8ff, 0x10141f, 0.8))
+const sun = new THREE.DirectionalLight(0xffffff, 1.8)
+sun.position.set(20, 30, 12)
+scene.add(sun)
+
+/* ---------- 地面 ---------- */
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(120, 120),
+  new THREE.MeshStandardMaterial({ color: 0x141b28, roughness: 1 })
+)
+ground.rotation.x = -Math.PI / 2
+scene.add(ground)
+
+/* ---------- 生成 N 个随机但固定的摆放数据 ----------
+ * 用一个数组保存所有实例的"变换"，三种渲染模式共用同一批数据，
+ * 这样切换模式时布局完全一致，性能对比才公平。 */
+const COUNT = 2000
+const transforms = []
+{
+  // 简单的可复现伪随机（线性同余），保证每次刷新布局一致
+  let seed = 123456
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296
+    return seed / 4294967296
+  }
+  for (let i = 0; i < COUNT; i++) {
+    transforms.push({
+      x: (rand() - 0.5) * 80,
+      z: (rand() - 0.5) * 80,
+      s: 0.4 + rand() * 0.7,          // 每块大小略有差异
+      ry: rand() * Math.PI * 2,
+      // 高度颜色：低=蓝，高=黄
+      hue: 0.58 - rand() * 0.16 + (rand() > 0.85 ? 0.12 : 0)
+    })
+  }
+}
+
+/* ---------- 一个"容器 Group"，切换模式时只清它 ---------- */
+const field = new THREE.Group()
+scene.add(field)
+
+// InstancedMesh 需要一个临时 Object3D 来组装矩阵
+const dummy = new THREE.Object3D()
+const tmpColor = new THREE.Color()
+
+function clearField() {
+  // dispose 旧几何体/材质，避免显存泄漏（切换模式时尤其重要）
+  for (const child of field.children) {
+    child.traverse(o => {
+      if (o.isMesh) {
+        o.geometry?.dispose()
+        if (Array.isArray(o.material)) o.material.forEach(m => m.dispose())
+        else o.material?.dispose()
+      }
+    })
+  }
+  field.clear()
+}
+
+/* ---------- 模式 1：每个立方体一个独立 Mesh ----------
+ * 每个 Mesh 都是一次 draw call，CPU 提交开销随物体数线性增长。
+ * 物体共享同一个 geometry/material 以省内存，但 draw call 数量不变。 */
+function buildIndividual() {
+  clearField()
+  const geometry = new THREE.BoxGeometry(1, 1, 1)
+  const material = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1 })
+  for (const t of transforms) {
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(t.x, t.s / 2, t.z)
+    mesh.scale.setScalar(t.s)
+    mesh.rotation.y = t.ry
+    // 注意：共享材质时不能给每个 mesh 单独改 material.color，
+    // 想逐块着色需要 vertexColors 或独立材质（会进一步增加开销）
+    field.add(mesh)
+  }
+}
+
+/* ---------- 模式 2：InstancedMesh（推荐用于大量重复物体）----------
+ * 同一份几何体，N 个实例各自有矩阵（位置/旋转/缩放）和颜色，
+ * 整批只需约 1 次 draw call，是草地、人群、建筑群的标准方案。 */
+function buildInstanced() {
+  clearField()
+  const geometry = new THREE.BoxGeometry(1, 1, 1)
+  const material = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1 })
+  const instanced = new THREE.InstancedMesh(geometry, material, COUNT)
+  transforms.forEach((t, i) => {
+    dummy.position.set(t.x, t.s / 2, t.z)
+    dummy.rotation.set(0, t.ry, 0)
+    dummy.scale.setScalar(t.s)
+    dummy.updateMatrix()                       // Object3D 参数 → 4x4 矩阵
+    instanced.setMatrixAt(i, dummy.matrix)
+    // 逐实例颜色写进 instanceColor（材质不需要开 vertexColors）
+    instanced.setColorAt(i, tmpColor.setHSL(t.hue, 0.6, 0.55))
+  })
+  instanced.instanceMatrix.needsUpdate = true
+  if (instanced.instanceColor) instanced.instanceColor.needsUpdate = true
+  field.add(instanced)
+}
+
+/* ---------- 模式 3：合并几何体 BufferGeometryUtils ----------
+ * 把所有立方体烘焙进一个静态几何体，绘制也只要 1 次 draw call。
+ * 缺点：合并后是"死的"，无法单独移动/着色（颜色烘焙进顶点色）。
+ * 适合永远静止的环境（建筑群远景、碎石）。需要 addon。 */
+async function buildMerged() {
+  clearField()
+  const { mergeGeometries } = await import(
+    'three/addons/utils/BufferGeometryUtils.js')
+  const src = new THREE.BoxGeometry(1, 1, 1)
+  const chunks = []
+  for (const t of transforms) {
+    const g = src.clone()
+    g.scale(t.s, t.s, t.s)
+    g.rotateY(t.ry)
+    g.translate(t.x, t.s / 2, t.z)
+    // 给每个顶点写颜色，合并后靠 vertexColors 显示
+    const n = g.attributes.position.count
+    const col = new THREE.Color().setHSL(t.hue, 0.6, 0.55)
+    const arr = new Float32Array(n * 3).fill(0).map((_, i) =>
+      i % 3 === 0 ? col.r : i % 3 === 1 ? col.g : col.b)
+    g.setAttribute('color', new THREE.BufferAttribute(arr, 3))
+    chunks.push(g)
+  }
+  const merged = mergeGeometries(chunks, false)  // false=不使用索引合并
+  src.dispose()
+  chunks.forEach(c => c.dispose())
+  const mesh = new THREE.Mesh(
+    merged,
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.1 })
+  )
+  field.add(mesh)
+}
+
+/* ---------- LOD 演示：少量高模 + 远处自动切低模 ----------
+ * THREE.LOD 按相机距离在多个细节层级间切换，远距离用更粗糙的几何体。
+ * 这里单独放 6 个 LOD 塔，开启时可在近距离/远距离观察切换。 */
+let lodGroup = null
+function buildLOD(enabled) {
+  if (lodGroup) { scene.remove(lodGroup); lodGroup = null }
+  if (!enabled) return
+  lodGroup = new THREE.Group()
+  const high = new THREE.CylinderGeometry(0.8, 1, 4, 24)      // 近处高模
+  const mid  = new THREE.CylinderGeometry(0.8, 1, 4, 10)
+  const low  = new THREE.CylinderGeometry(0.8, 1, 4, 5)       // 远处低模
+  for (let i = 0; i < 6; i++) {
+    const lod = new THREE.LOD()
+    const mk = geo => new THREE.Mesh(geo,
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.5, flatShading: true }))
+    lod.addLevel(mk(high), 0)    // 距离 0~18 用高模
+    lod.addLevel(mk(mid), 18)    // 18~38 用中模
+    lod.addLevel(mk(low), 38)    // 38 以外用低模
+    lod.position.set(-40 + i * 16, 2, -34)
+    lodGroup.add(lod)
+  }
+  scene.add(lodGroup)
+}
+
+/* ---------- 控制面板 ---------- */
+const params = {
+  mode: 'instanced',
+  frustumCulled: true,
+  lod: false,
+  autoRotate: true
+}
+const gui = new GUI({ title: '性能优化' })
+gui.add(params, 'mode', ['individual', 'instanced', 'merged'])
+  .name('渲染模式').onChange(applyMode)
+gui.add(params, 'frustumCulled').name('视锥剔除').onChange(v => {
+  // 视锥剔除：屏幕外的物体不送 GPU。关掉它可模拟"无剔除"的浪费
+  field.traverse(o => { if (o.isMesh) o.frustumCulled = v })
+})
+gui.add(params, 'lod').name('启用 LOD 塔').onChange(buildLOD)
+gui.add(params, 'autoRotate').name('自动旋转')
+
+async function applyMode() {
+  if (params.mode === 'individual') buildIndividual()
+  else if (params.mode === 'instanced') buildInstanced()
+  else await buildMerged()
+  // 切换后同步视锥剔除开关
+  field.traverse(o => { if (o.isMesh) o.frustumCulled = params.frustumCulled })
+}
+applyMode()
+buildLOD(false)
+
+/* ---------- FPS 采样（0.5s 窗口）+ HUD ---------- */
+const elCount = document.getElementById('count')
+const elCalls = document.getElementById('calls')
+const elTris = document.getElementById('tris')
+const elFps = document.getElementById('fps')
+const elMode = document.getElementById('mode')
+
+let frames = 0
+let statTime = performance.now()
+const clock = new THREE.Timer()
+clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+renderer.setAnimationLoop(() => {
+  clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+  const dt = clock.getDelta()
+
+  if (params.autoRotate) {
+    // 绕场景缓慢环绕相机目标，制造"大量物体进出视锥体"的情况，
+    // 此时开关 frustumCulled 的差异最明显
+    const t = clock.getElapsed() * 0.08
+    camera.position.x = Math.cos(t) * 34
+    camera.position.z = Math.sin(t) * 34
+    camera.lookAt(0, 2, 0)
+  }
+
+  if (lodGroup) lodGroup.children.forEach(lod => lod.rotation.y += dt * 0.3)
+  controls.update()
+  renderer.render(scene, camera)
+
+  frames++
+  const now = performance.now()
+  if (now - statTime >= 500) {
+    const fps = Math.round((frames * 1000) / (now - statTime))
+    const info = renderer.info.render
+    let meshCount = 0
+    field.traverse(o => { if (o.isMesh) meshCount++ })
+    elCount.textContent = meshCount.toLocaleString()
+    elCalls.textContent = info.calls
+    elTris.textContent = info.triangles.toLocaleString()
+    elFps.textContent = fps
+    elMode.textContent = params.mode
+    frames = 0
+    statTime = now
+  }
+})
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight
+  camera.updateProjectionMatrix()
+  renderer.setSize(innerWidth, innerHeight)
+})
+</script>
+</body>
+</html>

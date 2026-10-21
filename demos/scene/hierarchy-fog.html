@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>hierarchy-fog · 层级变换与雾</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 320px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>层级变换</b>：大蓝球是“父节点”，小球是它的“子节点”。<br />
+    父节点旋转/平移时，子节点会跟随；子节点同时还能绕父节点自转公转。<br />
+    <b>雾 Fog</b>：远处物体逐渐与背景色融合，可调节距离与浓度。
+  </div>
+  <div class="hint">尝试在面板里暂停父节点，观察子节点运动变化</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 6, 22)   // 线性雾：6 开始，22 全融
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 3.2, 7.5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6))
+    const light = new THREE.DirectionalLight(0xffffff, 1.6)
+    light.position.set(4, 6, 3)
+    scene.add(light)
+
+    // —— 父节点 Group ——
+    const parent = new THREE.Group()
+    scene.add(parent)
+
+    const parentBall = new THREE.Mesh(
+      new THREE.SphereGeometry(0.9, 40, 30),
+      new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.35 })
+    )
+    parent.add(parentBall)
+    parent.add(new THREE.AxesHelper(1.8))
+
+    // —— 子节点：放在父节点局部坐标 x=2 处 ——
+    const child = new THREE.Mesh(
+      new THREE.SphereGeometry(0.35, 24, 18),
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3 })
+    )
+    child.position.x = 2
+    parent.add(child)
+
+    // 轨道圈（放在 xz 平面，半径 2）
+    const orbitPts = []
+    for (let i = 0; i <= 128; i++) {
+      const a = (i / 128) * Math.PI * 2
+      orbitPts.push(new THREE.Vector3(Math.cos(a) * 2, 0, Math.sin(a) * 2))
+    }
+    parent.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(orbitPts),
+      new THREE.LineBasicMaterial({ color: 0x475569 })
+    ))
+
+    // 远处一排柱子，用来直观看雾的浓淡
+    const pillarGeo = new THREE.BoxGeometry(0.5, 1, 0.5)
+    for (let i = 0; i < 10; i++) {
+      const pillar = new THREE.Mesh(
+        pillarGeo,
+        new THREE.MeshStandardMaterial({ color: 0x64748b })
+      )
+      pillar.position.set(0, 0.5, -4 - i * 1.6)
+      scene.add(pillar)
+    }
+    scene.add(new THREE.GridHelper(40, 40, 0x334155, 0x1e293b))
+
+    // —— GUI ——
+    const params = {
+      parentSpin: true,
+      parentSpeed: 0.6,
+      childOrbit: true,
+      childSpeed: 2.2,
+      fogEnabled: true,
+      fogNear: 6,
+      fogFar: 22
+    }
+    const gui = new GUI({ title: '层级与雾' })
+    gui.add(params, 'parentSpin').name('父节点自转')
+    gui.add(params, 'parentSpeed', 0, 3, 0.05).name('父自转速度')
+    gui.add(params, 'childOrbit').name('子节点公转')
+    gui.add(params, 'childSpeed', 0, 6, 0.1).name('子公转速度')
+    const fogFolder = gui.addFolder('雾 Fog')
+    fogFolder.add(params, 'fogEnabled').name('启用雾')
+    fogFolder.add(params, 'fogNear', 0, 20, 0.5).name('near 起点')
+    fogFolder.add(params, 'fogFar', 5, 40, 0.5).name('far 终点')
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const dt = clock.getDelta()
+      if (params.parentSpin) parent.rotation.y += dt * params.parentSpeed
+      if (params.childOrbit) {
+        // 子节点在父局部空间中绕 y 轴公转
+        const a = Math.atan2(child.position.z, child.position.x) + dt * params.childSpeed
+        child.position.set(Math.cos(a) * 2, 0, Math.sin(a) * 2)
+        child.rotation.y += dt * 2
+      }
+
+      scene.fog = params.fogEnabled
+        ? new THREE.Fog(0x0b0e14, params.fogNear, params.fogFar)
+        : null
+
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

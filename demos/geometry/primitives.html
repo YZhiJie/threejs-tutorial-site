@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>primitives · 内置几何体陈列</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>BufferGeometry 内置几何体</b>：Three.js 用“顶点 + 面”描述形状，
+    内置几何体只是预先生成好的 BufferGeometry。<br />
+    共有 12 种常用几何体，按参数细分还能变化出更多形态。
+  </div>
+  <div class="hint">拖拽旋转 · 滚轮缩放查看全部几何体</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 5, 11)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.6, 0)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 0.9))
+    const dir = new THREE.DirectionalLight(0xffffff, 1.8)
+    dir.position.set(5, 8, 6)
+    scene.add(dir)
+    scene.add(new THREE.GridHelper(16, 16, 0x334155, 0x1e293b))
+
+    // 12 种内置几何体（构造函数 + 构造参数）
+    const items = [
+      ['BoxGeometry',        () => new THREE.BoxGeometry(1, 1, 1)],
+      ['SphereGeometry',     () => new THREE.SphereGeometry(0.62, 32, 24)],
+      ['PlaneGeometry',      () => new THREE.PlaneGeometry(1.1, 1.1)],
+      ['CylinderGeometry',   () => new THREE.CylinderGeometry(0.45, 0.45, 1.1, 32)],
+      ['ConeGeometry',       () => new THREE.ConeGeometry(0.55, 1.1, 32)],
+      ['TorusGeometry',      () => new THREE.TorusGeometry(0.48, 0.17, 18, 48)],
+      ['TorusKnotGeometry',  () => new THREE.TorusKnotGeometry(0.45, 0.15, 100, 16)],
+      ['IcosahedronGeometry', () => new THREE.IcosahedronGeometry(0.65, 0)],
+      ['DodecahedronGeometry', () => new THREE.DodecahedronGeometry(0.65, 0)],
+      ['OctahedronGeometry', () => new THREE.OctahedronGeometry(0.65, 0)],
+      ['CapsuleGeometry',    () => new THREE.CapsuleGeometry(0.4, 0.5, 8, 20)],
+      ['RingGeometry',       () => new THREE.RingGeometry(0.35, 0.65, 32)]
+    ]
+
+    // 用 Canvas 生成文字 Sprite，作为悬浮名称标签
+    function makeLabel(text) {
+      const cv = document.createElement('canvas')
+      cv.width = 256; cv.height = 64
+      const ctx = cv.getContext('2d')
+      ctx.fillStyle = 'rgba(11,14,20,0.75)'
+      ctx.beginPath()
+      ctx.roundRect(4, 8, 248, 48, 10)
+      ctx.fill()
+      ctx.font = '600 22px -apple-system, sans-serif'
+      ctx.fillStyle = '#7cc4ff'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(text, 128, 33)
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false
+      }))
+      sprite.scale.set(1.5, 0.375, 1)
+      return sprite
+    }
+
+    const meshes = []
+    items.forEach(([name, make], i) => {
+      const col = i % 4
+      const row = Math.floor(i / 4)
+      const x = (col - 1.5) * 2.8
+      const z = (row - 1) * 2.6
+
+      const mesh = new THREE.Mesh(
+        make(),
+        new THREE.MeshStandardMaterial({
+          color: new THREE.Color().setHSL(i / items.length, 0.65, 0.6),
+          roughness: 0.45,
+          side: THREE.DoubleSide,   // Plane / Ring 也能从背面看到
+          flatShading: i === 7 || i === 8 || i === 9
+        })
+      )
+      mesh.position.set(x, 0.95, z)
+      scene.add(mesh)
+      meshes.push(mesh)
+
+      const label = makeLabel(name)
+      label.position.set(x, 0.05, z)
+      scene.add(label)
+    })
+
+    renderer.setAnimationLoop(() => {
+      meshes.forEach((m, i) => {
+        m.rotation.y += 0.006 + i * 0.0002
+        m.rotation.x += 0.002
+      })
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

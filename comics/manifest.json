@@ -1,0 +1,21 @@
+{
+  "series": "Three.js 漫画剧场 · 霓虹墨 Neon Ink",
+  "version": "1.0.0",
+  "canvas": { "width": 1200, "height": 840 },
+  "panels": { "count": 4, "width": 572, "height": 361 },
+  "characters": ["像素酱", "标签君", "码叔"],
+  "episodes": [
+    { "ep": 0, "slug": "EP.00-prerequisites", "title": "学前必备：开跑前的检查清单", "part": "guide/00-prerequisites/index.md" },
+    { "ep": 1, "slug": "EP.01-first-scene", "title": "第一个三维场景", "part": "guide/01-intro/basics.md" },
+    { "ep": 2, "slug": "EP.02-scene-graph", "title": "场景图与层级矩阵", "part": "guide/02-scene/basics.md" },
+    { "ep": 3, "slug": "EP.03-camera-frustum", "title": "相机与视锥体", "part": "guide/03-camera/basics.md" },
+    { "ep": 4, "slug": "EP.04-render-loop", "title": "渲染循环与帧率自由", "part": "guide/04-renderer/basics.md" },
+    { "ep": 5, "slug": "EP.05-buffer-geometry", "title": "几何体与顶点流", "part": "guide/05-geometry/basics.md" },
+    { "ep": 6, "slug": "EP.06-material-pbr", "title": "材质与 PBR 光影", "part": "guide/06-material/basics.md" },
+    { "ep": 7, "slug": "EP.07-texture-uv", "title": "纹理 UV 与流动", "part": "guide/07-texture/basics.md" },
+    { "ep": 8, "slug": "EP.08-light-shadow", "title": "灯光与阴影映射", "part": "guide/08-light/basics.md" },
+    { "ep": 9, "slug": "EP.09-animation-mixer", "title": "缓动与动画混合器", "part": "guide/09-animation/basics.md" },
+    { "ep": 10, "slug": "EP.10-raycaster-picking", "title": "射线拾取与拖拽", "part": "guide/10-interaction/basics.md" },
+    { "ep": 11, "slug": "EP.11-capstone-performance", "title": "综合实战与性能优化", "part": "guide/11-capstone/basics.md" }
+  ]
+}

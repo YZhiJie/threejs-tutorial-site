@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>wrapping · 环绕模式 / 过滤 / 各向异性</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 350px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 270px; }
+    @media (max-width: 600px) { .info { max-width: 200px; font-size: 12px; } .lil-gui.root { --width: 190px; } }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>纹理采样三件套</b><br />
+    <b>wrapS/wrapT</b>：UV 超出 0~1 时怎么办（夹住/重复/镜像）<br />
+    <b>magFilter/minFilter</b>：放大/缩小时如何取色（最近邻像素感 / 线性平滑 / 多级渐远）<br />
+    <b>anisotropy</b>：斜视时减少模糊（纹理上的数字最容易看出差别）
+  </div>
+  <div class="hint">放大 repeat 后把平面转到斜视角度，再切换各向异性</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 2.6, 4.6)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 1))
+
+    // 高对比度数字纹理：采样瑕疵在文字上最明显
+    function makeNumberCanvas() {
+      const cv = document.createElement('canvas')
+      cv.width = cv.height = 256
+      const g = cv.getContext('2d')
+      g.fillStyle = '#f8fafc'
+      g.fillRect(0, 0, 256, 256)
+      g.fillStyle = '#0f172a'
+      g.fillRect(0, 0, 128, 128)
+      g.fillStyle = '#2563eb'
+      g.fillRect(128, 128, 128, 128)
+      g.strokeStyle = '#ef4444'
+      g.lineWidth = 6
+      g.strokeRect(3, 3, 250, 250)
+      g.fillStyle = '#f8fafc'
+      g.font = 'bold 84px -apple-system, sans-serif'
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText('88', 128, 136)
+      return cv
+    }
+
+    const maxAniso = renderer.capabilities.getMaxAnisotropy()
+    const texture = new THREE.CanvasTexture(makeNumberCanvas())
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+    texture.repeat.set(4, 4)
+    texture.anisotropy = 1
+
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(4.6, 4.6),
+      new THREE.MeshStandardMaterial({ map: texture, side: THREE.DoubleSide, roughness: 0.7 })
+    )
+    plane.rotation.x = -Math.PI / 2
+    scene.add(plane)
+
+    const wrapModes = {
+      ClampToEdge: THREE.ClampToEdgeWrapping,
+      Repeat: THREE.RepeatWrapping,
+      MirroredRepeat: THREE.MirroredRepeatWrapping
+    }
+    const filters = {
+      Nearest: THREE.NearestFilter,
+      Linear: THREE.LinearFilter,
+      NearestMipmapNearest: THREE.NearestMipmapNearestFilter,
+      LinearMipmapLinear: THREE.LinearMipmapLinearFilter
+    }
+    const params = {
+      wrapS: 'Repeat',
+      wrapT: 'Repeat',
+      repeatX: 4,
+      repeatY: 4,
+      magFilter: 'Linear',
+      minFilter: 'LinearMipmapLinear',
+      anisotropy: 1
+    }
+    const gui = new GUI({ title: '纹理采样' })
+    gui.add(params, 'wrapS', Object.keys(wrapModes)).name('wrapS 水平').onChange(v => {
+      texture.wrapS = wrapModes[v]
+    })
+    gui.add(params, 'wrapT', Object.keys(wrapModes)).name('wrapT 垂直').onChange(v => {
+      texture.wrapT = wrapModes[v]
+    })
+    gui.add(params, 'repeatX', 1, 10, 1).name('repeat.x').onChange(v => texture.repeat.x = v)
+    gui.add(params, 'repeatY', 1, 10, 1).name('repeat.y').onChange(v => texture.repeat.y = v)
+    gui.add(params, 'magFilter', ['Nearest', 'Linear']).name('放大过滤').onChange(v => {
+      texture.magFilter = filters[v]
+      texture.needsUpdate = true          // 切换过滤模式需重新构建纹理
+    })
+    gui.add(params, 'minFilter', Object.keys(filters)).name('缩小过滤').onChange(v => {
+      texture.minFilter = filters[v]
+      texture.needsUpdate = true
+    })
+    gui.add(params, 'anisotropy', 1, maxAniso, 1)
+      .name(`各向异性(最大${maxAniso})`)
+      .onChange(v => { texture.anisotropy = v })
+
+    renderer.setAnimationLoop(() => {
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

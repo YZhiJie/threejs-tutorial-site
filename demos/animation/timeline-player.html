@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>timeline-player · 可交互时间轴播放器</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 340px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .panel {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+      width: min(680px, 92vw); padding: 12px 16px;
+      background: rgba(17,22,30,.92); border: 1px solid rgba(255,255,255,.1);
+      border-radius: 12px; backdrop-filter: blur(8px);
+    }
+    .row { display: flex; align-items: center; gap: 10px; }
+    .row button {
+      padding: 6px 14px; font-size: 13px; color: #e6edf3;
+      background: #2563eb; border: none; border-radius: 7px; cursor: pointer;
+    }
+    .row button.ghost { background: #1f2937; border: 1px solid rgba(255,255,255,.12); }
+    input[type="range"] { flex: 1; accent-color: #60a5fa; }
+    .time {
+      font: 12px ui-monospace, Menlo, Consolas, monospace;
+      min-width: 86px; text-align: right; color: #9fb4d4;
+    }
+    .track {
+      position: relative; height: 26px; margin-top: 10px;
+      background: #11161e; border-radius: 6px; overflow: hidden;
+    }
+    .track .block {
+      position: absolute; top: 4px; bottom: 4px;
+      background: linear-gradient(90deg, rgba(96,165,250,.35), rgba(96,165,250,.15));
+      border-left: 2px solid #60a5fa; border-right: 2px solid #60a5fa;
+    }
+    .track .kf {
+      position: absolute; top: 8px; width: 8px; height: 10px;
+      background: #fbbf24; transform: translateX(-4px); border-radius: 1px;
+    }
+    .track .playhead {
+      position: absolute; top: 0; bottom: 0; width: 2px; background: #ef4444;
+    }
+    .label { font-size: 11px; color: #9fb4d4; margin-top: 4px; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>手动驱动 Mixer 做时间轴</b>：不使用自动播放，而是直接设置
+    action.time，再 mixer.update(0) 求值。<br />
+    这样动画时间可以被拖动条任意<b>跳转、暂停、回放、变速</b>，
+    黄色菱形就是关键帧位置。
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <button id="play">▶ 播放</button>
+      <button class="ghost" id="stop">⏹ 回到起点</button>
+      <input id="scrub" type="range" min="0" max="1000" value="0" />
+      <span class="time" id="time">0.00 / 4.00s</span>
+    </div>
+    <div class="track" id="track">
+      <div class="playhead" id="playhead" style="left:0%"></div>
+    </div>
+    <div class="label">时间轴：蓝色块为动画片段，黄色菱形为 position 关键帧，红线为播放头</div>
+    <div class="row" style="margin-top:8px">
+      <span style="font-size:12px;color:#9fb4d4">速度</span>
+      <input id="speed" type="range" min="-2" max="2" step="0.1" value="1" style="max-width:160px" />
+      <span class="time" id="speedLabel">1.0×</span>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.6, 6.5)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.8, 0)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 0.8))
+    const sun = new THREE.DirectionalLight(0xffffff, 2)
+    sun.position.set(3, 6, 4)
+    sun.castShadow = true
+    scene.add(sun)
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(12, 6),
+      new THREE.MeshStandardMaterial({ color: 0x232b38, roughness: 0.9 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.position.z = -0.5
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    // 三个彩色方块沿同一轨道在关键帧之间运动
+    const DURATION = 4
+    const trackTimes = [0, 1, 2, 3, 4]
+    function makeClip(z, color, xOffset, yBounce) {
+      const group = new THREE.Group()
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(0.7, 0.7, 0.7),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.4 })
+      )
+      box.castShadow = true
+      group.add(box)
+      group.position.set(xOffset, 0.35, z)
+      scene.add(group)
+
+      // 5 个位置关键帧：左右移动 + 高低起伏
+      const values = []
+      trackTimes.forEach((t, i) => {
+        values.push(Math.sin(i * 1.2) * 1.8, yBounce ? (i % 2) * 1.2 + 0.35 : 0.35, 0)
+      })
+      const clip = new THREE.AnimationClip('move', DURATION, [
+        new THREE.VectorKeyframeTrack('.position', trackTimes, values)
+      ])
+      return { group, clip, color }
+    }
+
+    const mixer = new THREE.AnimationMixer(scene)
+    mixer.stopAllAction()
+    const tracks = [
+      makeClip(-1.2, 0x60a5fa, 0, true),
+      makeClip(0, 0xf472b6, 0, false),
+      makeClip(1.2, 0x34d399, 0, true)
+    ]
+    // 每个动画片段绑定到各自的 group：用 mixer.clipAction(clip, root)
+    const actions = tracks.map(t => {
+      const action = mixer.clipAction(t.clip, t.group)
+      action.play()
+      action.paused = true            // 由时间轴手动驱动
+      action.time = 0
+      return action
+    })
+    mixer.update(0)
+
+    /* ---------- UI ---------- */
+    const scrub = document.getElementById('scrub')
+    const playBtn = document.getElementById('play')
+    const stopBtn = document.getElementById('stop')
+    const speedInput = document.getElementById('speed')
+    const speedLabel = document.getElementById('speedLabel')
+    const timeLabel = document.getElementById('time')
+    const trackEl = document.getElementById('track')
+    const playhead = document.getElementById('playhead')
+
+    // 绘制片段块（占满 0~100%）
+    const block = document.createElement('div')
+    block.className = 'block'
+    block.style.left = '0%'
+    block.style.width = '100%'
+    trackEl.appendChild(block)
+    // 绘制关键帧菱形
+    trackTimes.forEach(t => {
+      const kf = document.createElement('div')
+      kf.className = 'kf'
+      kf.style.left = `${(t / DURATION) * 100}%`
+      kf.title = `关键帧 ${t}s`
+      trackEl.appendChild(kf)
+    })
+
+    let playing = false
+    let timeScale = 1
+    let currentTime = 0
+
+    function seek(t) {
+      currentTime = THREE.MathUtils.clamp(t, 0, DURATION)
+      actions.forEach(a => {
+        a.time = currentTime
+      })
+      mixer.update(0)                       // 用 0 步长只求值，不推进内部时钟
+      const pct = (currentTime / DURATION) * 100
+      playhead.style.left = `${pct}%`
+      scrub.value = String(pct * 10)
+      timeLabel.textContent = `${currentTime.toFixed(2)} / ${DURATION.toFixed(2)}s`
+    }
+
+    playBtn.addEventListener('click', () => {
+      playing = !playing
+      playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放'
+    })
+    stopBtn.addEventListener('click', () => {
+      playing = false
+      playBtn.textContent = '▶ 播放'
+      seek(0)
+    })
+    scrub.addEventListener('input', () => {
+      playing = false
+      playBtn.textContent = '▶ 播放'
+      seek(Number(scrub.value) / 1000 * DURATION)
+    })
+    speedInput.addEventListener('input', () => {
+      timeScale = Number(speedInput.value)
+      speedLabel.textContent = `${timeScale.toFixed(1)}×`
+    })
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const dt = clock.getDelta()
+      if (playing) {
+        let next = currentTime + dt * timeScale
+        // 到末尾或倒放到起点时停下（也可以选择循环）
+        if (next >= DURATION) { next = DURATION; playing = false; playBtn.textContent = '▶ 播放' }
+        if (next <= 0) { next = 0; playing = false; playBtn.textContent = '▶ 播放' }
+        seek(next)
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

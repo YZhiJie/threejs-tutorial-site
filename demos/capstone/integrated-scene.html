@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>integrated-scene · 综合场景：迷你科幻基地</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #05070b;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 340px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hud {
+      position: fixed;
+      right: 14px;
+      bottom: 12px;
+      padding: 10px 14px;
+      background: rgba(11, 14, 20, .78);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 8px;
+      font: 12.5px/1.8 ui-monospace, Menlo, Consolas, monospace;
+      pointer-events: none;
+      white-space: pre;
+    }
+
+    .toolbar {
+      position: fixed;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+    }
+
+    .toolbar button {
+      padding: 7px 16px;
+      font-size: 13px;
+      color: #e6edf3;
+      background: #1f2937;
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .toolbar button.on {
+      background: #2563eb;
+      border-color: #2563eb;
+    }
+
+    #tooltip {
+      position: fixed;
+      display: none;
+      pointer-events: none;
+      z-index: 10;
+      padding: 6px 12px;
+      background: rgba(37, 99, 235, .95);
+      border-radius: 6px;
+      font-size: 12.5px;
+      transform: translate(14px, 14px);
+    }
+
+    .lil-gui.root {
+      --width: 260px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 190px;
+        font-size: 11.5px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+
+      .hud {
+        display: none;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div id="tooltip"></div>
+  <div class="info">
+    <b>综合场景整合</b>：雾 + 阴影灯光 + InstancedMesh 建筑（1 次 draw call）
+    + 旋转雷达 + 漂浮粒子 + Raycaster 悬停拾取 + 实时性能 HUD。<br />
+    悬停建筑查看编号，点击切换顶部信标颜色。
+  </div>
+  <div class="hud" id="hud"></div>
+  <div class="toolbar">
+    <button id="btnRotate" class="on">🔄 自动环绕</button>
+    <button id="btnPause">⏸ 暂停</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x05070b)
+    scene.fog = new THREE.FogExp2(0x05070b, 0.028)      // 指数雾，基地外围自然消隐
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(14, 10, 16)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFShadowMap
+    renderer.domElement.style.touchAction = 'none'
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const orbit = new OrbitControls(camera, renderer.domElement)
+    orbit.enableDamping = true
+    orbit.target.set(0, 1.5, 0)
+    orbit.maxPolarAngle = Math.PI / 2.1
+    orbit.autoRotate = true
+    orbit.autoRotateSpeed = 0.6
+
+    /* ---------- 灯光 ---------- */
+    scene.add(new THREE.HemisphereLight(0x8ab4ff, 0x0a0d13, 0.55))
+    const moon = new THREE.DirectionalLight(0xcfe4ff, 2)
+    moon.position.set(-10, 16, 6)
+    moon.castShadow = true
+    moon.shadow.mapSize.set(2048, 2048)
+    moon.shadow.camera.left = -16
+    moon.shadow.camera.right = 16
+    moon.shadow.camera.top = 16
+    moon.shadow.camera.bottom = -16
+    moon.shadow.camera.far = 60
+    moon.shadow.bias = -0.0003
+    scene.add(moon)
+
+    /* ---------- 地面平台 ---------- */
+    const platform = new THREE.Mesh(
+      new THREE.CylinderGeometry(14, 14.6, 0.6, 72),
+      new THREE.MeshStandardMaterial({ color: 0x1a2230, roughness: 0.75, metalness: 0.3 })
+    )
+    platform.position.y = -0.3
+    platform.receiveShadow = true
+    scene.add(platform)
+    const grid = new THREE.GridHelper(28, 28, 0x38bdf8, 0x1b2738)
+    grid.position.y = 0.01
+    scene.add(grid)
+
+      // 能量环线（贴地的发光圆环）
+      // 注意：行首是数组字面量，上一行必须以分号结尾，
+      // 否则会被解析成 scene.add(grid)[12].forEach 触发 ASI 错误
+      ;[4, 8, 12].forEach(r => {
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(r - 0.03, r + 0.03, 96),
+          new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+        )
+        ring.rotation.x = -Math.PI / 2
+        ring.position.y = 0.02
+        scene.add(ring)
+      })
+
+    /* ---------- 建筑群：InstancedMesh ---------- */
+    const BUILDINGS = 26
+    const buildingMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.35 }),
+      BUILDINGS
+    )
+    buildingMesh.castShadow = buildingMesh.receiveShadow = true
+    buildingMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+
+    const dummy = new THREE.Object3D()
+    const color = new THREE.Color()
+    const buildingData = []
+    let placed = 0
+    let guard = 0
+    while (placed < BUILDINGS && guard++ < 500) {
+      const angle = Math.random() * Math.PI * 2
+      const radius = 2.5 + Math.random() * 10
+      const w = 0.8 + Math.random() * 1.2
+      const h = 1 + Math.random() * 4.5
+      const d = 0.8 + Math.random() * 1.2
+      const x = Math.cos(angle) * radius
+      const z = Math.sin(angle) * radius
+      // 避免与中心太近
+      if (radius < 2.2) continue
+
+      dummy.position.set(x, h / 2, z)
+      dummy.scale.set(w, h, d)
+      dummy.rotation.y = Math.random() * Math.PI
+      dummy.updateMatrix()
+      buildingMesh.setMatrixAt(placed, dummy.matrix)
+      color.setHSL(0.58 + Math.random() * 0.08, 0.25, 0.22 + Math.random() * 0.18)
+      buildingMesh.setColorAt(placed, color)
+      buildingData.push({ x, z, w, h, d, rotY: dummy.rotation.y })
+      placed++
+    }
+
+    // 每栋楼顶部一个信标小球（普通 Mesh 组，用于点击变色）
+    const beacons = buildingData.map((b, i) => {
+      const beacon = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 12, 8),
+        new THREE.MeshBasicMaterial({ color: 0xf43f5e })
+      )
+      beacon.position.set(b.x, b.h + 0.15, b.z)
+      beacon.userData = { buildingIndex: i, name: `建筑 B-${String(i + 1).padStart(2, '0')}` }
+      scene.add(beacon)
+      return beacon
+    })
+    scene.add(buildingMesh)
+
+    /* ---------- 中央雷达 ---------- */
+    const radar = new THREE.Group()
+    const mast = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.12, 2.4, 16),
+      new THREE.MeshStandardMaterial({ color: 0x8b98ab, metalness: 0.8, roughness: 0.3 })
+    )
+    mast.position.y = 1.2
+    const dishPivot = new THREE.Group()
+    dishPivot.position.y = 2.6
+    const dish = new THREE.Mesh(
+      new THREE.ConeGeometry(1.1, 0.4, 32, 1, true),
+      new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.7, roughness: 0.3, side: THREE.DoubleSide })
+    )
+    dish.rotation.x = Math.PI / 2
+    const sweep = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 3, 0.02),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.7 })
+    )
+    sweep.position.x = 1.5
+    dishPivot.add(dish, sweep)
+    mast.castShadow = true
+    radar.add(mast, dishPivot)
+    radar.position.y = 0
+    scene.add(radar)
+
+    /* ---------- 漂浮粒子（尘埃） ---------- */
+    const DUST = 600
+    const dustGeo = new THREE.BufferGeometry()
+    const dustPos = new Float32Array(DUST * 3)
+    for (let i = 0; i < DUST; i++) {
+      dustPos[i * 3] = (Math.random() - 0.5) * 26
+      dustPos[i * 3 + 1] = Math.random() * 9 + 0.2
+      dustPos[i * 3 + 2] = (Math.random() - 0.5) * 26
+    }
+    dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3))
+    const dust = new THREE.Points(
+      dustGeo,
+      new THREE.PointsMaterial({ color: 0x9fd8ff, size: 0.06, transparent: true, opacity: 0.7 })
+    )
+    scene.add(dust)
+
+    /* ---------- 交互：信标/建筑悬停拾取 ---------- */
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    const tooltip = document.getElementById('tooltip')
+    const hud = document.getElementById('hud')
+    let hoveredBeacon = null
+
+    renderer.domElement.addEventListener('pointermove', e => {
+      const rect = renderer.domElement.getBoundingClientRect()
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hits = raycaster.intersectObjects(beacons, false)
+      if (hits.length) {
+        const b = hits[0].object
+        tooltip.style.display = 'block'
+        tooltip.style.left = `${e.clientX}px`
+        tooltip.style.top = `${e.clientY}px`
+        tooltip.textContent = `${b.userData.name} · 高度 ${buildingData[b.userData.buildingIndex].h.toFixed(1)}（点击切换信标）`
+        renderer.domElement.style.cursor = 'pointer'
+        if (hoveredBeacon !== b) {
+          if (hoveredBeacon) hoveredBeacon.scale.setScalar(1)
+          hoveredBeacon = b
+          b.scale.setScalar(1.6)
+        }
+      } else {
+        tooltip.style.display = 'none'
+        renderer.domElement.style.cursor = 'default'
+        if (hoveredBeacon) { hoveredBeacon.scale.setScalar(1); hoveredBeacon = null }
+      }
+    })
+
+    let downX = 0, downY = 0
+    renderer.domElement.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY })
+    renderer.domElement.addEventListener('click', e => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return
+      const rect = renderer.domElement.getBoundingClientRect()
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hits = raycaster.intersectObjects(beacons, false)
+      if (hits.length) {
+        const mat = hits[0].object.material
+        mat.color.setHex(mat.color.getHex() === 0xf43f5e ? 0x22c55e : 0xf43f5e)
+      }
+    })
+
+    /* ---------- 控制面板与 HUD ---------- */
+    const params = { fog: 0.028, dust: true, autoRotate: true, radarSpeed: 1 }
+    const gui = new GUI({ title: '综合场景' })
+    gui.add(params, 'fog', 0, 0.08, 0.002).name('雾浓度').onChange(v => scene.fog.density = v)
+    gui.add(params, 'dust').name('显示粒子').onChange(v => dust.visible = v)
+    gui.add(params, 'autoRotate').name('自动环绕').onChange(v => orbit.autoRotate = v)
+    gui.add(params, 'radarSpeed', 0, 4, 0.1).name('雷达转速')
+
+    let paused = false
+    document.getElementById('btnPause').addEventListener('click', e => {
+      paused = !paused
+      e.target.textContent = paused ? '▶ 继续' : '⏸ 暂停'
+      e.target.classList.toggle('on', paused)
+    })
+    document.getElementById('btnRotate').addEventListener('click', e => {
+      params.autoRotate = !params.autoRotate
+      orbit.autoRotate = params.autoRotate
+      e.target.classList.toggle('on', params.autoRotate)
+    })
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    let frames = 0
+    let statT = performance.now()
+
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const dt = paused ? 0 : clock.getDelta()
+      const t = clock.getElapsed()
+
+      dishPivot.rotation.y += dt * params.radarSpeed * 2
+      dishPivot.rotation.x = Math.sin(t * 0.6) * 0.35 - 0.3
+      dust.rotation.y += dt * 0.02
+      beacons.forEach((b, i) => {
+        const s = 1 + Math.sin(t * 3 + i) * 0.18
+        if (b !== hoveredBeacon) b.scale.setScalar(s)
+      })
+
+      orbit.update()
+      renderer.render(scene, camera)
+
+      frames++
+      const now = performance.now()
+      if (now - statT >= 500) {
+        const fps = Math.round((frames * 1000) / (now - statT))
+        frames = 0
+        statT = now
+        const info = renderer.info.render
+        hud.textContent =
+          `FPS: ${fps}\n` +
+          `draw calls: ${info.calls}\n` +
+          `三角形: ${info.triangles.toLocaleString()}\n` +
+          `建筑实例: ${BUILDINGS}`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

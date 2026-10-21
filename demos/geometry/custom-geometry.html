@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>custom-geometry · 自定义 BufferGeometry</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 340px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>手写一个金字塔 BufferGeometry</b><br />
+    每个几何体本质上是几类<b>顶点属性数组</b>：<br />
+    position（位置）/ normal（朝向，决定受光）/ color（顶点色）。<br />
+    每 3 个顶点组成一个三角形面；4 个侧面共 12 个顶点。
+  </div>
+  <div class="hint">线框模式下可清楚看到 4 个三角形侧面</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(2.4, 1.8, 3.4)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 0.7))
+    const dir = new THREE.DirectionalLight(0xffffff, 2)
+    dir.position.set(3, 5, 4)
+    scene.add(dir)
+    scene.add(new THREE.AxesHelper(1.6))
+    scene.add(new THREE.GridHelper(6, 12, 0x334155, 0x1e293b))
+
+    /*
+     * 金字塔：底面正方形 4 个角 + 1 个顶点。
+     * 4 个侧面，每个面 3 个顶点（侧面各自独立，便于平滑/平面着色）。
+     */
+    const apex = [0, 1.1, 0]
+    const corners = [
+      [-0.8, 0, -0.8],
+      [0.8, 0, -0.8],
+      [0.8, 0, 0.8],
+      [-0.8, 0, 0.8]
+    ]
+    // 每面的底面两角 + 顶点
+    const faces = [
+      [corners[0], corners[1], apex],
+      [corners[1], corners[2], apex],
+      [corners[2], corners[3], apex],
+      [corners[3], corners[0], apex]
+    ]
+    const faceColors = [
+      [0.90, 0.35, 0.35],   // 红
+      [0.35, 0.70, 0.90],   // 蓝
+      [0.45, 0.80, 0.45],   // 绿
+      [0.95, 0.75, 0.30]    // 黄
+    ]
+
+    const positions = []
+    const colors = []
+    faces.forEach((face, fi) => {
+      face.forEach(p => {
+        positions.push(p[0], p[1], p[2])
+        colors.push(...faceColors[fi])         // 同一面 3 个顶点同色
+      })
+    })
+
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+    geometry.computeVertexNormals()            // 由位置自动算出法线，光照才正确
+    geometry.computeBoundingSphere()
+
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: true,                      // 启用 color 属性
+      roughness: 0.4,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+      wireframe: false
+    })
+    const pyramid = new THREE.Mesh(geometry, material)
+    scene.add(pyramid)
+
+    // 叠加一层纯线框，方便观察三角面结构
+    const wire = new THREE.LineSegments(
+      new THREE.WireframeGeometry(geometry),
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 })
+    )
+    pyramid.add(wire)
+
+    const params = { wireframe: false, overlay: true, spin: true }
+    const gui = new GUI({ title: '几何体属性' })
+    gui.add(params, 'wireframe').name('实体线框化').onChange(v => material.wireframe = v)
+    gui.add(params, 'overlay').name('白色结构线').onChange(v => wire.visible = v)
+    gui.add(params, 'spin').name('自动旋转')
+
+    renderer.setAnimationLoop(() => {
+      if (params.spin) pyramid.rotation.y += 0.006
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

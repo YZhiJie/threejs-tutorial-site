@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vector-lab · 点积与叉积交互实验室（不依赖 Three.js）</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    canvas {
+      display: block;
+      touch-action: none;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 360px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.7;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .row {
+      font-variant-numeric: tabular-nums;
+      font-size: 12.5px;
+    }
+
+    .row .num-a {
+      color: #7cc4ff;
+    }
+
+    .row .num-b {
+      color: #ffa94d;
+    }
+
+    .note {
+      margin-top: 4px;
+      font-size: 11.5px;
+      color: #9fb4d4;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0 8px;
+      margin-left: 6px;
+      border-radius: 999px;
+      font-size: 11px;
+      line-height: 18px;
+      vertical-align: 1px;
+    }
+
+    .badge.pos {
+      color: #51cf66;
+      background: rgba(81, 207, 102, .12);
+      border: 1px solid rgba(81, 207, 102, .35);
+    }
+
+    .badge.neg {
+      color: #ff6b6b;
+      background: rgba(255, 107, 107, .12);
+      border: 1px solid rgba(255, 107, 107, .35);
+    }
+
+    .badge.zero {
+      color: #9fb4d4;
+      background: rgba(159, 180, 212, .1);
+      border: 1px solid rgba(159, 180, 212, .3);
+    }
+
+    .ctrls {
+      margin-top: 8px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: auto;
+    }
+
+    .ctrls label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+
+    .ctrls input {
+      accent-color: #7cc4ff;
+      margin: 0;
+    }
+
+    .ctrls button {
+      background: rgba(124, 196, 255, .1);
+      color: #7cc4ff;
+      border: 1px solid rgba(124, 196, 255, .35);
+      border-radius: 6px;
+      padding: 2px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .ctrls button:hover {
+      background: rgba(124, 196, 255, .2);
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        max-width: 250px;
+        font-size: 12px;
+      }
+
+      .row {
+        font-size: 11.5px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="stage"></canvas>
+
+  <div class="info">
+    <b>vector-lab · 点积与叉积实验室（零依赖）</b>
+    <div class="row">A <span class="num-a" id="va"></span> · B <span class="num-b" id="vb"></span> · θ = <span
+        id="vth"></span></div>
+    <div class="row">A·B = ax·bx + ay·by = <span id="vdot"></span><span id="bdot" class="badge"></span></div>
+    <div class="row">A×B(z) = ax·by − ay·bx = <span id="vcross"></span><span id="bcross" class="badge"></span></div>
+    <div class="note">点积判夹角（同向/垂直/反向）；叉积 = 平行四边形有向面积，z 轴朝屏幕外（朝向你）为正。虚线是 B 在 A 上的投影。</div>
+    <div class="ctrls">
+      <label><input type="checkbox" id="ckProj" checked>投影</label>
+      <label><input type="checkbox" id="ckPara" checked>面积</label>
+      <label><input type="checkbox" id="ckArc" checked>夹角弧</label>
+      <button id="btnReset" type="button">重置</button>
+    </div>
+  </div>
+
+  <div class="hint">拖拽 A（蓝）/ B（橙）箭头端点改变向量</div>
+
+  <script>
+    // 学前预备演示：不依赖 Three.js，把"点积与叉积"的几何意义画出来。
+    // 对应教程《0 学前必备》3D 数学小节 —— new THREE.Vector3().dot() / .cross() 的内部就是这几行算术。
+
+    // ---------- 0. 画布与高分屏适配 ----------
+    const canvas = document.getElementById('stage')
+    const ctx = canvas.getContext('2d')
+    const UNIT = 52  // 世界坐标 1 单位 = 52 像素
+    let cw = 0, ch = 0, ox = 0, oy = 0
+    function fit() {
+      const dpr = Math.min(window.devicePixelRatio, 2)
+      cw = window.innerWidth; ch = window.innerHeight
+      canvas.width = cw * dpr; canvas.height = ch * dpr
+      canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px'
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ox = Math.round(cw * 0.38); oy = Math.round(ch * 0.56)  // 世界原点在屏幕上的位置
+    }
+    fit()
+    window.addEventListener('resize', fit)
+
+    // ---------- 1. 两支向量（世界坐标，y 轴朝上） ----------
+    const COL = { a: '#7cc4ff', b: '#ffa94d' }
+    const INIT = { a: [2.4, 0.8], b: [1.2, 1.9] }
+    let A = [...INIT.a], B = [...INIT.b]
+
+    const toScreen = ([x, y]) => [ox + x * UNIT, oy - y * UNIT]  // 屏幕y向下，翻转
+    const toWorld = (sx, sy) => [(sx - ox) / UNIT, (oy - sy) / UNIT]
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
+
+    // ---------- 2. 绘制辅助 ----------
+    function line(x1, y1, x2, y2) {
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
+    }
+    // DOM 文本只在变化时写入，避免每帧无谓重排
+    function setText(el, s) { if (el.__v !== s) { el.__v = s; el.textContent = s } }
+
+    function drawGrid() {
+      ctx.lineWidth = 1
+      const x0 = Math.ceil((0 - ox) / UNIT), x1 = Math.floor((cw - ox) / UNIT)
+      const yTop = Math.ceil(oy / UNIT), yBot = Math.floor((oy - ch) / UNIT)
+      for (let x = x0; x <= x1; x++) {              // 竖网格线 + X 轴
+        ctx.strokeStyle = x === 0 ? 'rgba(230,237,243,.25)' : 'rgba(230,237,243,.06)'
+        line(ox + x * UNIT, 0, ox + x * UNIT, ch)
+      }
+      for (let y = yBot; y <= yTop; y++) {          // 横网格线 + Y 轴
+        ctx.strokeStyle = y === 0 ? 'rgba(230,237,243,.25)' : 'rgba(230,237,243,.06)'
+        line(0, oy - y * UNIT, cw, oy - y * UNIT)
+      }
+      ctx.fillStyle = 'rgba(230,237,243,.4)'
+      ctx.font = '12px ui-monospace, Menlo, monospace'
+      ctx.fillText('X', cw - 16, oy - 8)
+      ctx.fillText('Y', ox + 8, 16)
+    }
+
+    function drawParallelogram() {
+      // A 与 B 张成的平行四边形：面积 = |A×B| —— 叉积的几何本质
+      const sa = toScreen(A), sb = toScreen(B)
+      const sd = [sa[0] + sb[0] - ox, sa[1] + sb[1] - oy]  // A+B 端点
+      ctx.beginPath()
+      ctx.moveTo(ox, oy); ctx.lineTo(sa[0], sa[1])
+      ctx.lineTo(sd[0], sd[1]); ctx.lineTo(sb[0], sb[1])
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(178,148,255,.10)'
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(178,148,255,.35)'
+      ctx.setLineDash([4, 4]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([])
+    }
+
+    function drawProjection() {
+      // B 在 A 上的投影：t = (A·B) / |A|²，投影长 = A·B / |A|
+      const la2 = A[0] * A[0] + A[1] * A[1]
+      if (la2 < 1e-6) return
+      const t = (B[0] * A[0] + B[1] * A[1]) / la2
+      const F = [A[0] * t, A[1] * t], sf = toScreen(F), sb = toScreen(B)
+      ctx.lineWidth = 2
+      ctx.strokeStyle = COL.a; ctx.setLineDash([6, 4])
+      line(ox, oy, sf[0], sf[1])                    // 投影段（A 色）
+      ctx.strokeStyle = 'rgba(230,237,243,.35)'; ctx.lineWidth = 1
+      line(sb[0], sb[1], sf[0], sf[1])              // B 端点到垂足的虚线
+      ctx.setLineDash([])
+      ctx.fillStyle = COL.a
+      ctx.beginPath(); ctx.arc(sf[0], sf[1], 3.5, 0, Math.PI * 2); ctx.fill()
+    }
+
+    function drawArc() {
+      // 夹角弧：从 A 方向扫到 B 方向，取较小的一侧
+      const ra = Math.atan2(-A[1], A[0])  // 世界角 → 屏幕角（y 翻转）
+      const rb = Math.atan2(-B[1], B[0])
+      let sweep = rb - ra
+      while (sweep > Math.PI) sweep -= 2 * Math.PI
+      while (sweep < -Math.PI) sweep += 2 * Math.PI
+      ctx.beginPath()
+      ctx.arc(ox, oy, 30, ra, ra + sweep, sweep < 0)
+      ctx.strokeStyle = 'rgba(230,237,243,.55)'; ctx.lineWidth = 1.5; ctx.stroke()
+      const mid = ra + sweep / 2
+      ctx.fillStyle = 'rgba(230,237,243,.6)'
+      ctx.font = '12px ui-monospace, Menlo, monospace'
+      ctx.fillText('θ', ox + Math.cos(mid) * 44 - 3, oy + Math.sin(mid) * 44 + 4)
+    }
+
+    function drawVector(v, color, label) {
+      const [tx, ty] = toScreen(v)
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.lineCap = 'round'
+      line(ox, oy, tx, ty)
+      // 箭头（三角形）
+      const ang = Math.atan2(ty - oy, tx - ox)
+      ctx.beginPath()
+      ctx.moveTo(tx, ty)
+      ctx.lineTo(tx - 13 * Math.cos(ang - 0.42), ty - 13 * Math.sin(ang - 0.42))
+      ctx.lineTo(tx - 13 * Math.cos(ang + 0.42), ty - 13 * Math.sin(ang + 0.42))
+      ctx.closePath(); ctx.fillStyle = color; ctx.fill()
+      // 端点拖拽手柄：悬停/按住时放大实心
+      const active = (drag === label || hover === label)
+      ctx.beginPath(); ctx.arc(tx, ty, active ? 9 : 5.5, 0, Math.PI * 2)
+      ctx.fillStyle = active ? color : '#0b0e14'; ctx.fill()
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke()
+      // 标签
+      ctx.fillStyle = color
+      ctx.font = '600 13px ui-monospace, Menlo, monospace'
+      ctx.fillText(label, tx + 10, ty - 10)
+    }
+
+    // ---------- 3. 面板数值：点积 / 叉积 / 夹角 ----------
+    const $ = id => document.getElementById(id)
+    const elA = $('va'), elB = $('vb'), elTh = $('vth')
+    const elDot = $('vdot'), elDotB = $('bdot'), elCr = $('vcross'), elCrB = $('bcross')
+    const ckProj = $('ckProj'), ckPara = $('ckPara'), ckArc = $('ckArc')
+
+    const fmt = v => (v >= 0 ? '+' : '-') + Math.abs(v).toFixed(2)
+    function badge(el, text, cls) {
+      setText(el, text)
+      const c = 'badge ' + cls
+      if (el.__c !== c) { el.__c = c; el.className = c }
+    }
+
+    function updatePanel() {
+      const dot = A[0] * B[0] + A[1] * B[1]          // 点积 = ax·bx + ay·by
+      const cross = A[0] * B[1] - A[1] * B[0]        // 叉积 z 分量 = ax·by − ay·bx
+      const la = Math.hypot(A[0], A[1]), lb = Math.hypot(B[0], B[1])
+      const cosT = la * lb > 1e-6 ? clamp(dot / (la * lb), -1, 1) : 1
+      const th = Math.acos(cosT) * 180 / Math.PI     // 反解夹角
+
+      setText(elA, `(${A[0].toFixed(2)}, ${A[1].toFixed(2)})`)
+      setText(elB, `(${B[0].toFixed(2)}, ${B[1].toFixed(2)})`)
+      setText(elTh, th.toFixed(1) + '°')
+      setText(elDot, fmt(dot))
+      if (Math.abs(th - 90) < 1) badge(elDotB, '垂直', 'zero')
+      else if (dot > 0) badge(elDotB, '同向 · 锐角', 'pos')
+      else badge(elDotB, '反向 · 钝角', 'neg')
+
+      setText(elCr, fmt(cross))
+      const zeroish = Math.abs(cross) < 0.02 * la * lb
+      if (zeroish) badge(elCrB, '共线 · 面积 0', 'zero')
+      else if (cross > 0) badge(elCrB, 'B 在 A 逆时针侧', 'pos')
+      else badge(elCrB, 'B 在 A 顺时针侧', 'neg')
+    }
+
+    // ---------- 4. 渲染一帧 + 循环 ----------
+    let drag = null, hover = null  // 提前声明：drawVector 的手柄高亮依赖它们（避免 TDZ 报错）
+    function draw() {
+      ctx.clearRect(0, 0, cw, ch)
+      drawGrid()
+      if (ckPara.checked) drawParallelogram()
+      if (ckProj.checked) drawProjection()
+      if (ckArc.checked) drawArc()
+      drawVector(A, COL.a, 'A')
+      drawVector(B, COL.b, 'B')
+      updatePanel()
+    }
+    function tick() { draw(); requestAnimationFrame(tick) }
+    tick()
+
+    // ---------- 5. 交互：拖拽端点改向量 ----------
+    function hitTest(sx, sy) {
+      const ta = toScreen(A), tb = toScreen(B)
+      if (Math.hypot(sx - ta[0], sy - ta[1]) < 16) return 'A'
+      if (Math.hypot(sx - tb[0], sy - tb[1]) < 16) return 'B'
+      return null
+    }
+    canvas.addEventListener('pointerdown', e => {
+      const h = hitTest(e.clientX, e.clientY)
+      if (h) { drag = h; canvas.setPointerCapture(e.pointerId); canvas.style.cursor = 'grabbing' }
+    })
+    canvas.addEventListener('pointermove', e => {
+      if (!drag) {
+        hover = hitTest(e.clientX, e.clientY)
+        canvas.style.cursor = hover ? 'grab' : 'default'
+        return
+      }
+      const [wx, wy] = toWorld(e.clientX, e.clientY)
+      let v = [clamp(wx, -6.5, 6.5), clamp(wy, -4.2, 4.2)]
+      const l = Math.hypot(v[0], v[1])
+      if (l < 0.25) v = l > 1e-6 ? [v[0] / l * 0.25, v[1] / l * 0.25] : [0.25, 0]  // 最短 0.25，避免零向量
+      if (drag === 'A') A = v; else B = v
+    })
+    const endDrag = () => { drag = null; canvas.style.cursor = hover ? 'grab' : 'default' }
+    canvas.addEventListener('pointerup', endDrag)
+    canvas.addEventListener('pointercancel', endDrag)
+
+    // ---------- 6. 开关与重置 ----------
+    $('btnReset').addEventListener('click', () => { A = [...INIT.a]; B = [...INIT.b] })
+  </script>
+</body>
+
+</html>

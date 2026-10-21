@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>lights · 五种光源对比</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 360px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 270px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>五种内置光源</b><br />
+    Ambient 环境光（均匀平铺）/ Directional 方向光（平行，像太阳）/
+    Point 点光源（灯泡，向四面八方）/ Spot 聚光灯（锥形，像舞台灯）/
+    Hemisphere 半球光（天空↔地面双色）。<br />
+    黄色标记是光源位置，光线会绕场景转动。
+  </div>
+  <div class="hint">在面板中切换光源类型，观察阴影形状与衰减</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 2.6, 7)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.6, 0)
+
+    // 地面与物体
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(16, 16),
+      new THREE.MeshStandardMaterial({ color: 0x2a3240, roughness: 0.95 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    scene.add(ground)
+
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.7, 40, 28),
+      new THREE.MeshStandardMaterial({ color: 0xf4f4f5, roughness: 0.45 })
+    )
+    sphere.position.set(-1.8, 0.7, 0)
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(1.1, 1.1, 1.1),
+      new THREE.MeshStandardMaterial({ color: 0x60a5fa, roughness: 0.45 })
+    )
+    box.position.set(0, 0.55, 0.6)
+    const knot = new THREE.Mesh(
+      new THREE.TorusKnotGeometry(0.5, 0.16, 120, 20),
+      new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.35 })
+    )
+    knot.position.set(1.8, 0.8, -0.2)
+    scene.add(sphere, box, knot)
+
+    // 光源标记球
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfde047 })
+    )
+    scene.add(marker)
+
+    /* ---- 创建五种光源（同一时间只启用选中的一种）---- */
+    const ambient = new THREE.AmbientLight(0xffffff, 1.2)
+    const hemi = new THREE.HemisphereLight(0xbfe3ff, 0x3a2f22, 1.4)
+    const dir = new THREE.DirectionalLight(0xffffff, 2.2)
+    const point = new THREE.PointLight(0xffe9b0, 60, 0, 2)   // decay=2 物理衰减
+    const spot = new THREE.SpotLight(0xfff0d0, 160, 0, Math.PI / 6, 0.25, 2)
+    spot.target.position.set(0, 0.4, 0)
+    scene.add(spot.target)
+    const lights = { ambient, hemi, dir, point, spot }
+
+    // 光源范围/方向辅助线
+    const helpers = []
+    helpers.push(new THREE.DirectionalLightHelper(dir, 1.2, 0xfde047))
+    helpers.push(new THREE.PointLightHelper(point, 0.25, 0xfde047))
+    helpers.push(new THREE.SpotLightHelper(spot, 0xfde047))
+    helpers.forEach(h => h.visible = false)
+    helpers.forEach(h => scene.add(h))
+
+    const params = {
+      type: 'Directional 方向光',
+      orbit: true,
+      speed: 0.7
+    }
+    const gui = new GUI({ title: '光源类型' })
+    gui.add(params, 'type', [
+      'Ambient 环境光', 'Hemisphere 半球光', 'Directional 方向光',
+      'Point 点光源', 'Spot 聚光灯'
+    ]).onChange(applyLight)
+    gui.add(params, 'orbit').name('光源旋转')
+    gui.add(params, 'speed', 0, 3, 0.05).name('旋转速度')
+
+    function applyLight(name) {
+      // 先全部移除并隐藏辅助线，再把当前选中的光源加回场景
+      Object.values(lights).forEach(l => scene.remove(l))
+      helpers.forEach(h => { h.visible = false })
+      if (name.startsWith('Ambient')) scene.add(ambient)
+      if (name.startsWith('Hemisphere')) scene.add(hemi)
+      if (name.startsWith('Directional')) { scene.add(dir); helpers[0].visible = true }
+      if (name.startsWith('Point')) { scene.add(point); helpers[1].visible = true }
+      if (name.startsWith('Spot')) { scene.add(spot); helpers[2].visible = true }
+    }
+    applyLight(params.type)
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const t = clock.getElapsed()
+      if (params.orbit) {
+        const a = t * params.speed
+        const x = Math.cos(a) * 4.2
+        const z = Math.sin(a) * 4.2
+        dir.position.set(x, 4.5, z)
+        point.position.set(x, 2.6, z)
+        spot.position.set(x * 0.8, 4.5, z * 0.8)
+      }
+      const isPointType = params.type.startsWith('Point')
+      const isSpotType = params.type.startsWith('Spot')
+      marker.visible = isPointType || isSpotType
+      marker.position.copy(isSpotType ? spot.position : point.position)
+
+      sphere.rotation.y += 0.005
+      knot.rotation.y += 0.01
+      helpers.forEach(h => h.update && h.update())
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

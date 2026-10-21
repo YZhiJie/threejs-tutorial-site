@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>solar-system · 太阳系层级模型</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #05060a;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 330px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .toolbar {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+    }
+
+    .toolbar button {
+      padding: 7px 16px;
+      font-size: 13px;
+      color: #e6edf3;
+      background: rgba(59, 130, 246, .85);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .toolbar button:hover {
+      background: rgba(59, 130, 246, 1);
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>太阳系 = 一棵三层场景树</b><br />
+    太阳（自转）→ 地球轨道节点（公转，地球挂在上面自转）→
+    月球轨道节点（跟随地球，月球绕其公转）。<br />
+    用 Group 做“公转节点”，旋转 Group 即可带动子物体。
+  </div>
+  <div class="toolbar"><button id="pause">⏸ 暂停</button></div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x05060a)
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(0, 7, 13)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.maxPolarAngle = Math.PI / 2 + 0.25
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.18))
+    // 太阳位置的点光源（r155+ 物理光照，decay 衰减，需要较大强度）
+    const sunLight = new THREE.PointLight(0xfff2c4, 260, 0, 2)
+    scene.add(sunLight)
+
+    /* ---------- 工具：画一条圆形轨道线 ---------- */
+    function makeOrbit(radius, color = 0x334155) {
+      const pts = []
+      for (let i = 0; i <= 160; i++) {
+        const a = (i / 160) * Math.PI * 2
+        pts.push(new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius))
+      }
+      return new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 })
+      )
+    }
+
+    /* ---------- 第 1 层：太阳 ---------- */
+    const sun = new THREE.Mesh(
+      new THREE.SphereGeometry(1.4, 48, 32),
+      // emissive 自发光：本身不照亮别人（照亮靠 PointLight），但看起来是亮的
+      new THREE.MeshStandardMaterial({
+        color: 0xffb703, emissive: 0xffb703, emissiveIntensity: 1.2, roughness: 1
+      })
+    )
+    scene.add(sun)
+
+    /* ---------- 第 2 层：地球公转节点 ---------- */
+    const earthOrbit = new THREE.Group()
+    scene.add(earthOrbit)
+    scene.add(makeOrbit(5))
+
+    const earth = new THREE.Mesh(
+      new THREE.SphereGeometry(0.55, 40, 28),
+      new THREE.MeshStandardMaterial({ color: 0x2f80ed, roughness: 0.7, metalness: 0.05 })
+    )
+    earth.position.x = 5
+    earthOrbit.add(earth)
+
+    /* ---------- 第 3 层：月球公转节点（挂在地球上！） ---------- */
+    const moonOrbit = new THREE.Group()
+    earth.add(moonOrbit)
+
+    const moon = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 24, 16),
+      new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.9 })
+    )
+    moon.position.x = 1.1
+    moonOrbit.add(moon)
+
+    // 月球轨道圈也挂在地球上，自然跟随
+    earth.add(makeOrbit(1.1, 0x475569))
+
+    // 星空背景（点云）
+    const starCount = 1200
+    const starPos = new Float32Array(starCount * 3)
+    for (let i = 0; i < starCount; i++) {
+      const r = 60 + Math.random() * 40
+      const theta = Math.random() * Math.PI * 2
+      const phi = Math.acos(2 * Math.random() - 1)
+      starPos[i * 3] = r * Math.sin(phi) * Math.cos(theta)
+      starPos[i * 3 + 1] = r * Math.cos(phi)
+      starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta)
+    }
+    const starGeo = new THREE.BufferGeometry()
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3))
+    const stars = new THREE.Points(
+      starGeo,
+      new THREE.PointsMaterial({ color: 0xffffff, size: 0.18, sizeAttenuation: true })
+    )
+    scene.add(stars)
+
+    /* ---------- 参数与循环 ---------- */
+    const params = { timeScale: 1, showOrbits: true, showStars: true }
+    const gui = new GUI({ title: '太阳系参数' })
+    gui.add(params, 'timeScale', 0, 5, 0.05).name('时间流速')
+    gui.add(params, 'showOrbits').name('显示轨道线').onChange(v => {
+      scene.traverse(obj => {
+        if (obj.isLine) obj.visible = v
+      })
+    })
+    gui.add(params, 'showStars').name('显示星空')
+
+    let paused = false
+    document.getElementById('pause').addEventListener('click', e => {
+      paused = !paused
+      e.target.textContent = paused ? '▶ 继续' : '⏸ 暂停'
+    })
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const dt = paused ? 0 : clock.getDelta() * params.timeScale
+      sun.rotation.y += dt * 0.25
+      earthOrbit.rotation.y += dt * 0.5     // 地球公转
+      earth.rotation.y += dt * 1.6         // 地球自转
+      moonOrbit.rotation.y += dt * 2.2     // 月球公转（跟随地球轨道）
+      if (stars) stars.visible = params.showStars
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

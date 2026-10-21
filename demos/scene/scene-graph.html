@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>scene-graph · 场景图与 3D 坐标</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 320px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .coords {
+      position: fixed; bottom: 12px; left: 14px; padding: 8px 12px;
+      background: rgba(11,14,20,.72); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px; font: 12px/1.7 ui-monospace, Menlo, Consolas, monospace;
+      pointer-events: none; white-space: pre;
+    }
+    .hint {
+      position: fixed; bottom: 12px; right: 14px; padding: 6px 14px;
+      background: rgba(11,14,20,.72); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 999px; font-size: 12px; color: #9fb4d4; pointer-events: none;
+    }
+    @media (max-width: 600px) { .info { max-width: 210px; font-size: 12px; } .coords { display: none; } }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>Scene 场景图</b>：scene 是树的根，每个 Mesh 是树上的节点。<br />
+    物体位置 (x, y, z) 是相对父节点的坐标。<br />
+    <b style="color:#ff5f57">红=X</b>、<b style="color:#4ec96a">绿=Y</b>、<b style="color:#5aaaff">蓝=Z</b>，
+    交点即原点 (0,0,0)。
+  </div>
+  <div class="coords" id="coords"></div>
+  <div class="hint">拖拽环绕原点观察</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(4, 3, 5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.6, 0)
+
+    // 全局坐标轴与网格（挂在 scene 根上，坐标即世界坐标）
+    scene.add(new THREE.AxesHelper(3))
+    scene.add(new THREE.GridHelper(8, 16, 0x334155, 0x1e293b))
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55))
+    const light = new THREE.DirectionalLight(0xffffff, 1.6)
+    light.position.set(4, 6, 3)
+    scene.add(light)
+
+    // 在场景图不同节点上放置物体，并给每个物体挂自己的小坐标轴
+    const entries = [
+      { name: '立方体 A', geo: new THREE.BoxGeometry(1, 1, 1), pos: [2, 0.5, 0], color: 0x60a5fa },
+      { name: '球体 B',  geo: new THREE.SphereGeometry(0.6, 32, 24), pos: [-2, 0.6, -1], color: 0xf472b6 },
+      { name: '圆环 C',  geo: new THREE.TorusGeometry(0.5, 0.18, 16, 48), pos: [0, 0.7, 2], color: 0x34d399 }
+    ]
+    const meshes = entries.map(e => {
+      const mesh = new THREE.Mesh(
+        e.geo,
+        new THREE.MeshStandardMaterial({ color: e.color, roughness: 0.4 })
+      )
+      mesh.position.set(...e.pos)
+      mesh.castShadow = true
+      mesh.add(new THREE.AxesHelper(1.2))   // 子级辅助对象跟随物体
+      scene.add(mesh)
+      return { name: e.name, mesh }
+    })
+
+    const coordsEl = document.getElementById('coords')
+    const v = new THREE.Vector3()
+
+    renderer.setAnimationLoop(() => {
+      meshes.forEach(({ mesh }, i) => {
+        mesh.rotation.y += 0.006 * (i + 1)
+      })
+      controls.update()
+      renderer.render(scene, camera)
+
+      // getWorldPosition 读取物体在世界坐标系中的真实位置
+      coordsEl.textContent = meshes
+        .map(({ name, mesh }) => {
+          mesh.getWorldPosition(v)
+          return `${name}: (${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)})`
+        })
+        .join('\n')
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

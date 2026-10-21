@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>quality · 抗锯齿 / 像素比 / 色调映射</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 260px; }
+    @media (max-width: 600px) { .info { max-width: 200px; font-size: 12px; } .lil-gui.root { --width: 190px; } }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</body>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>渲染画质三要素</b><br />
+    ① <b>antialias</b> 抗锯齿：消除边缘“楼梯感”（修改需重建渲染器）<br />
+    ② <b>pixelRatio</b> 像素比：匹配高分屏，画面更清晰<br />
+    ③ <b>toneMapping + exposure</b>：把高动态范围亮度压缩到屏幕范围
+  </div>
+  <div class="hint">放大观察旋转叶片的边缘锯齿与金属球高光变化</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.2, 5.5)
+
+    // renderer 用 let，因为切换抗锯齿时需要销毁重建
+    let renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    let controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    // 棋盘背景：锯齿与色带在高对比图案上最容易看出来
+    const checker = document.createElement('canvas')
+    checker.width = checker.height = 128
+    const cctx = checker.getContext('2d')
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        cctx.fillStyle = (x + y) % 2 ? '#e5e7eb' : '#111827'
+        cctx.fillRect(x * 16, y * 16, 16, 16)
+      }
+    }
+    const checkerTex = new THREE.CanvasTexture(checker)
+
+    const backdrop = new THREE.Mesh(
+      new THREE.PlaneGeometry(9, 6),
+      new THREE.MeshBasicMaterial({ map: checkerTex })
+    )
+    backdrop.position.z = -2.2
+    scene.add(backdrop)
+
+    // 强光 + 金属球：色调映射与曝光的差异主要看高光
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x333333, 0.5))
+    const strong = new THREE.DirectionalLight(0xffffff, 4)
+    strong.position.set(3, 5, 4)
+    scene.add(strong)
+
+    const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(3.2, 0.5, 0.06),
+      new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.5 })
+    )
+    blade.position.set(-0.4, 0.2, 0.4)
+    const metal = new THREE.Mesh(
+      new THREE.SphereGeometry(0.75, 48, 32),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 1, roughness: 0.15 })
+    )
+    metal.position.set(1.5, -0.2, 1)
+    scene.add(blade, metal)
+
+    const params = {
+      antialias: true,
+      pixelRatio: Math.min(devicePixelRatio, 2),
+      toneMapping: 'ACESFilmic',
+      exposure: 1
+    }
+    const gui = new GUI({ title: '画质参数' })
+
+    // antialias 是 WebGL 上下文级参数，无法热更新，只能销毁后重建 renderer
+    gui.add(params, 'antialias').name('antialias 抗锯齿').onChange(() => rebuild())
+    gui.add(params, 'pixelRatio', [0.5, 1, 1.5, 2]).name('pixelRatio 像素比').onChange(v => {
+      renderer.setPixelRatio(v)
+    })
+    gui.add(params, 'toneMapping', ['None', 'Linear', 'Reinhard', 'Cineon', 'ACESFilmic'])
+      .name('toneMapping').onChange(v => {
+        renderer.toneMapping = ({
+          None: THREE.NoToneMapping,
+          Linear: THREE.LinearToneMapping,
+          Reinhard: THREE.ReinhardToneMapping,
+          Cineon: THREE.CineonToneMapping,
+          ACESFilmic: THREE.ACESFilmicToneMapping
+        })[v]
+      })
+    gui.add(params, 'exposure', 0.1, 2.5, 0.05).name('exposure 曝光').onChange(v => {
+      renderer.toneMappingExposure = v
+    })
+
+    function rebuild() {
+      const oldCanvas = renderer.domElement
+      controls.dispose()
+      renderer.dispose()
+      oldCanvas.remove()
+
+      renderer = new THREE.WebGLRenderer({ antialias: params.antialias })
+      renderer.setSize(innerWidth, innerHeight)
+      renderer.setPixelRatio(params.pixelRatio)
+      renderer.toneMapping = ({
+        None: THREE.NoToneMapping,
+        Linear: THREE.LinearToneMapping,
+        Reinhard: THREE.ReinhardToneMapping,
+        Cineon: THREE.CineonToneMapping,
+        ACESFilmic: THREE.ACESFilmicToneMapping
+      })[params.toneMapping]
+      renderer.toneMappingExposure = params.exposure
+      document.getElementById('app').appendChild(renderer.domElement)
+      controls = new OrbitControls(camera, renderer.domElement)
+      controls.enableDamping = true
+    }
+
+    renderer.setAnimationLoop(() => {
+      blade.rotation.z += 0.012
+      blade.rotation.x += 0.006
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>
