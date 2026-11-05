@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>perspective-fov · 透视相机与视场角</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 320px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .readout {
+      position: fixed;
+      bottom: 12px;
+      left: 14px;
+      padding: 8px 12px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 8px;
+      font: 12px/1.7 ui-monospace, Menlo, Consolas, monospace;
+      pointer-events: none;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      right: 14px;
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+
+      .readout {
+        display: none;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>PerspectiveCamera 透视相机</b><br />
+    参数口诀：<b>fov</b>（视野张角，越小越像望远镜）、
+    <b>aspect</b>（宽高比）、<b>near / far</b>（最近/最远距离，超出不渲染）。<br />
+    一排同样大小的立方体沿纵深排列，fov 越小，近大远小越夸张。
+  </div>
+  <div class="readout" id="readout"></div>
+  <div class="hint">滚轮缩放 · 拖拽旋转</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 2.2, 9)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55))
+    const dir = new THREE.DirectionalLight(0xffffff, 1.6)
+    dir.position.set(3, 6, 4)
+    scene.add(dir)
+
+    scene.add(new THREE.GridHelper(24, 24, 0x334155, 0x1e293b))
+
+    // 同样大小的立方体沿 z 轴纵深排列
+    const colors = [0x60a5fa, 0xf472b6, 0x34d399, 0xfbbf24, 0xa78bfa]
+    const cubes = colors.map((c, i) => {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 })
+      )
+      mesh.position.set(0, 0.5, -i * 3)
+      scene.add(mesh)
+      return mesh
+    })
+
+    const params = { fov: 50, near: 0.1, far: 100, zoom: 1 }
+    const gui = new GUI({ title: '相机参数' })
+    gui.add(params, 'fov', 15, 110, 1).name('fov 视场角').onChange(v => {
+      camera.fov = v
+      camera.updateProjectionMatrix()       // 改参数后必须调用！
+    })
+    gui.add(params, 'near', 0.1, 10, 0.1).name('near 近裁面').onChange(v => {
+      camera.near = v
+      camera.updateProjectionMatrix()
+    })
+    gui.add(params, 'far', 10, 60, 1).name('far 远裁面').onChange(v => {
+      camera.far = v
+      camera.updateProjectionMatrix()
+    })
+    gui.add(params, 'zoom', 0.4, 3, 0.05).name('zoom 缩放').onChange(v => {
+      camera.zoom = v
+      camera.updateProjectionMatrix()
+    })
+
+    const readout = document.getElementById('readout')
+
+    renderer.setAnimationLoop(() => {
+      cubes.forEach((m, i) => { m.rotation.y += 0.005 * (i + 1) })
+      controls.update()
+      renderer.render(scene, camera)
+      readout.textContent =
+        `fov=${camera.fov.toFixed(0)}°  aspect=${camera.aspect.toFixed(2)}\n` +
+        `near=${camera.near.toFixed(1)}  far=${camera.far.toFixed(0)}  zoom=${camera.zoom.toFixed(2)}`
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

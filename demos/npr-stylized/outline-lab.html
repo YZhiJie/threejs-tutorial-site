@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>outline-lab · 描边四法对比台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 384px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .chain {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .tip {
+      display: block;
+      margin-top: 3px;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 262px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 208px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 196px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>描边四法对比台</b><br />
+    同一组模型，切换四种描边实现，对比厚度、内部线与额外成本。<br />
+    <span class="chain" id="stat"></span>
+    <span class="tip" id="tip"></span>
+  </div>
+  <div class="hint">右上角切换描边方式与宽度 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+    import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 基础渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 9, 22)
+
+    const camera = new THREE.PerspectiveCamera(44, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0.1, 3.4, 8.8)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.NoToneMapping
+    renderer.info.autoReset = false
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0.15, 1.15, 0)
+    controls.minDistance = 3.5
+    controls.maxDistance = 16
+
+    /* ---------- 灯光（只服务地面材质） ---------- */
+    scene.add(new THREE.AmbientLight(0x334456, 1.6))
+    const sun = new THREE.DirectionalLight(0xfff2dd, 1.5)
+    sun.position.set(4, 7, 5)
+    scene.add(sun)
+
+    /* ---------- 程序化细节法线贴图（纹理描边用） ---------- */
+    function makeDetailNormal() {
+      const S = 128
+      const canvas = document.createElement('canvas')
+      canvas.width = S
+      canvas.height = S
+      const ctx = canvas.getContext('2d')
+      const img = ctx.createImageData(S, S)
+      const heights = new Float32Array(S * S)
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          heights[y * S + x] =
+            Math.sin(x * 0.2) * 0.06 + Math.cos(y * 0.16) * 0.06
+        }
+      }
+
+      let seed = 7
+      const rand = () => {
+        seed = (seed * 16807) % 2147483647
+        return seed / 2147483647
+      }
+
+      for (let s = 0; s < 22; s++) {
+        let x = rand() * S
+        let y = rand() * S
+        let angle = rand() * Math.PI * 2
+        const length = 12 + Math.floor(rand() * 22)
+        for (let i = 0; i < length; i++) {
+          const px = Math.floor(x + S) % S
+          const py = Math.floor(y + S) % S
+          heights[py * S + px] += 0.55
+          heights[py * S + (px + 1) % S] += 0.35
+          x += Math.cos(angle) * 1.15 + (rand() - 0.5) * 0.9
+          y += Math.sin(angle) * 1.15 + (rand() - 0.5) * 0.9
+          angle += (rand() - 0.5) * 0.45
+        }
+      }
+
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          const xm = (x - 1 + S) % S
+          const xp = (x + 1) % S
+          const ym = (y - 1 + S) % S
+          const yp = (y + 1) % S
+          const dx = heights[y * S + xp] - heights[y * S + xm]
+          const dy = heights[yp * S + x] - heights[ym * S + x]
+          let nx = -dx * 7.0
+          let ny = -dy * 7.0
+          let nz = 1.0
+          const len = Math.hypot(nx, ny, nz) || 1
+          nx /= len
+          ny /= len
+          nz /= len
+          const i = (y * S + x) * 4
+          img.data[i] = (nx * 0.5 + 0.5) * 255
+          img.data[i + 1] = (ny * 0.5 + 0.5) * 255
+          img.data[i + 2] = (nz * 0.5 + 0.5) * 255
+          img.data[i + 3] = 255
+        }
+      }
+      ctx.putImageData(img, 0, 0)
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.wrapS = THREE.RepeatWrapping
+      tex.wrapT = THREE.RepeatWrapping
+      tex.colorSpace = THREE.NoColorSpace
+      tex.minFilter = THREE.LinearFilter
+      tex.magFilter = THREE.LinearFilter
+      return tex
+    }
+    const detailNormal = makeDetailNormal()
+
+    /* ---------- 表面材质：Lambert + 菲涅尔 + 纹理边缘 ---------- */
+    function makeSurface(hex) {
+      return new THREE.ShaderMaterial({
+        uniforms: {
+          uBase: { value: new THREE.Color(hex) },
+          uLightDir: { value: new THREE.Vector3(0.45, 0.85, 0.5).normalize() },
+          uRimColor: { value: new THREE.Color(0x9fe8ff) },
+          uRim: { value: 0 },
+          uNormalMap: { value: detailNormal },
+          uTexel: { value: new THREE.Vector2(1.5 / 128, 1.5 / 128) },
+          uTexEdge: { value: 0.40 },
+          uTexStrength: { value: 0 },
+          uLineColor: { value: new THREE.Color(0x9fe8ff) }
+        },
+        vertexShader: /* glsl */`
+          varying vec3 vN;
+          varying vec3 vWorld;
+          varying vec2 vUv;
+
+          void main() {
+            vUv = uv;
+            vec4 wp = modelMatrix * vec4(position, 1.0);
+            vWorld = wp.xyz;
+            vN = normalize(mat3(modelMatrix) * normal);
+            gl_Position = projectionMatrix * viewMatrix * wp;
+          }
+        `,
+        fragmentShader: /* glsl */`
+          uniform vec3 uBase;
+          uniform vec3 uLightDir;
+          uniform vec3 uRimColor;
+          uniform float uRim;
+          uniform sampler2D uNormalMap;
+          uniform vec2 uTexel;
+          uniform float uTexEdge;
+          uniform float uTexStrength;
+          uniform vec3 uLineColor;
+          varying vec3 vN;
+          varying vec3 vWorld;
+          varying vec2 vUv;
+
+          void main() {
+            vec3 n = normalize(vN);
+            vec3 v = normalize(cameraPosition - vWorld);
+            float ndl = clamp(dot(n, normalize(uLightDir)), 0.0, 1.0);
+            vec3 col = uBase * (0.26 + 0.74 * ndl);
+
+            vec2 uv = vUv * 1.5;
+            vec3 nA = texture2D(uNormalMap, uv + vec2(uTexel.x, 0.0)).xyz * 2.0 - 1.0;
+            vec3 nB = texture2D(uNormalMap, uv - vec2(uTexel.x, 0.0)).xyz * 2.0 - 1.0;
+            vec3 nC = texture2D(uNormalMap, uv + vec2(0.0, uTexel.y)).xyz * 2.0 - 1.0;
+            vec3 nD = texture2D(uNormalMap, uv - vec2(0.0, uTexel.y)).xyz * 2.0 - 1.0;
+            vec3 n0 = texture2D(uNormalMap, uv).xyz * 2.0 - 1.0;
+            float diff = max(max(distance(nA, nB), distance(nC, nD)), distance(n0, nA));
+            float line = smoothstep(uTexEdge, uTexEdge + 0.07, diff);
+            col = mix(col, uLineColor, line * uTexStrength);
+
+            float fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 3.0);
+            col += uRimColor * fres * uRim;
+
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `
+      })
+    }
+
+    /* ---------- 反向外壳材质 ---------- */
+    const shellMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uWidth: { value: 4 },
+        uResolution: { value: new THREE.Vector2(innerWidth, innerHeight) },
+        uColor: { value: new THREE.Color(0x9fe8ff) }
+      },
+      vertexShader: /* glsl */`
+        uniform float uWidth;
+        uniform vec2 uResolution;
+
+        void main() {
+          vec3 nView = normalize(normalMatrix * normal);
+          vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          clip.xy += nView.xy * uWidth * 2.0 / uResolution * clip.w;
+          gl_Position = clip;
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform vec3 uColor;
+
+        void main() {
+          gl_FragColor = vec4(uColor, 1.0);
+        }
+      `,
+      side: THREE.BackSide
+    })
+
+    /* ---------- 模型群 ---------- */
+    const group = new THREE.Group()
+    scene.add(group)
+
+    const shapes = [
+      { geo: new THREE.TorusKnotGeometry(0.62, 0.2, 140, 22), pos: [-1.8, 1.3, 0], rot: [0.3, 0.4, 0], color: 0x59c2d6 },
+      { geo: new THREE.SphereGeometry(0.95, 48, 32), pos: [0.2, 1.05, 0.15], rot: [0, 0, 0], color: 0xe8875a },
+      { geo: new THREE.BoxGeometry(1.34, 1.34, 1.34), pos: [2.15, 0.95, -0.1], rot: [0.28, 0.55, 0.12], color: 0x9b8cf5 }
+    ]
+
+    const surfaceMats = []
+    const shellMeshes = []
+
+    shapes.forEach((s) => {
+      const mat = makeSurface(s.color)
+      surfaceMats.push(mat)
+      const mesh = new THREE.Mesh(s.geo, mat)
+      mesh.position.set(...s.pos)
+      mesh.rotation.set(...s.rot)
+      group.add(mesh)
+
+      const shell = new THREE.Mesh(s.geo, shellMaterial)
+      shell.visible = false
+      mesh.add(shell)
+      shellMeshes.push(shell)
+    })
+
+    // 地面：MeshStandardMaterial，只受 scene 里的灯光影响
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(28, 28),
+      new THREE.MeshStandardMaterial({ color: 0x151d2b, roughness: 1, metalness: 0 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.position.y = 0
+    scene.add(ground)
+
+    /* ---------- 后处理边缘需要的法线 + 深度缓冲 ---------- */
+    const bufferSize = renderer.getDrawingBufferSize(new THREE.Vector2())
+    const normalRT = new THREE.WebGLRenderTarget(bufferSize.x, bufferSize.y, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      type: THREE.UnsignedByteType,
+      depthBuffer: true
+    })
+    normalRT.texture.colorSpace = THREE.NoColorSpace
+    normalRT.depthTexture = new THREE.DepthTexture(bufferSize.x, bufferSize.y)
+    const normalMaterial = new THREE.MeshNormalMaterial()
+
+    const EdgeShader = {
+      uniforms: {
+        tDiffuse: { value: null },
+        tNormal: { value: normalRT.texture },
+        tDepth: { value: normalRT.depthTexture },
+        uResolution: { value: new THREE.Vector2(bufferSize.x, bufferSize.y) },
+        uThickness: { value: 4 },
+        uDepthSens: { value: 0.04 },
+        uEdgeColor: { value: new THREE.Color(0x9fe8ff) }
+      },
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
+
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform sampler2D tDiffuse;
+        uniform sampler2D tNormal;
+        uniform sampler2D tDepth;
+        uniform vec2 uResolution;
+        uniform float uThickness;
+        uniform float uDepthSens;
+        uniform vec3 uEdgeColor;
+        varying vec2 vUv;
+
+        float linearDepth(float d) {
+          float n = 0.1;
+          float f = 100.0;
+          return n * f / (f - d * (f - n));
+        }
+
+        void main() {
+          vec2 texel = uThickness / uResolution;
+          vec4 base = texture2D(tDiffuse, vUv);
+
+          float z0 = linearDepth(texture2D(tDepth, vUv).x);
+          float zl = linearDepth(texture2D(tDepth, vUv - vec2(texel.x, 0.0)).x);
+          float zr = linearDepth(texture2D(tDepth, vUv + vec2(texel.x, 0.0)).x);
+          float zu = linearDepth(texture2D(tDepth, vUv + vec2(0.0, texel.y)).x);
+          float zd = linearDepth(texture2D(tDepth, vUv - vec2(0.0, texel.y)).x);
+          float depthEdge = (abs(zl - zr) + abs(zu - zd)) / max(z0, 0.0001);
+          depthEdge = smoothstep(uDepthSens, uDepthSens * 3.5, depthEdge);
+
+          vec3 n0 = normalize(texture2D(tNormal, vUv).xyz * 2.0 - 1.0);
+          vec3 nl = normalize(texture2D(tNormal, vUv - vec2(texel.x, 0.0)).xyz * 2.0 - 1.0);
+          vec3 nr = normalize(texture2D(tNormal, vUv + vec2(texel.x, 0.0)).xyz * 2.0 - 1.0);
+          vec3 nu = normalize(texture2D(tNormal, vUv + vec2(0.0, texel.y)).xyz * 2.0 - 1.0);
+          vec3 nd = normalize(texture2D(tNormal, vUv - vec2(0.0, texel.y)).xyz * 2.0 - 1.0);
+          float nDiff = 1.0 - min(min(dot(n0, nl), dot(n0, nr)), min(dot(n0, nu), dot(n0, nd)));
+          depthEdge = max(depthEdge, smoothstep(0.14, 0.5, nDiff));
+
+          vec3 col = mix(base.rgb, uEdgeColor, depthEdge * 0.95);
+          gl_FragColor = vec4(col, base.a);
+        }
+      `
+    }
+
+    const composer = new EffectComposer(renderer)
+    composer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    composer.addPass(new RenderPass(scene, camera))
+    const edgePass = new ShaderPass(EdgeShader)
+    edgePass.uniforms.tNormal.value = normalRT.texture
+    edgePass.uniforms.tDepth.value = normalRT.depthTexture
+    edgePass.enabled = false
+    composer.addPass(edgePass)
+    composer.addPass(new OutputPass())
+    composer.setSize(innerWidth, innerHeight)
+
+    /* ---------- 参数与开关 ---------- */
+    const params = {
+      mode: '反向外壳',
+      width: 4,
+      texEdge: 0.40,
+      depthSens: 0.04,
+      edgeColor: '#9fe8ff',
+      autoRotate: true
+    }
+
+    const stat = document.getElementById('stat')
+    const tipEl = document.getElementById('tip')
+
+    function applyMode() {
+      const m = params.mode
+      shellMeshes.forEach((s) => { s.visible = (m === '反向外壳') })
+      surfaceMats.forEach((mat) => {
+        mat.uniforms.uRim.value = (m === '菲涅尔描边') ? 0.85 : 0
+        mat.uniforms.uTexStrength.value = (m === '纹理描边') ? 0.82 : 0
+        mat.uniforms.uTexEdge.value = params.texEdge
+      })
+      edgePass.enabled = (m === '后处理边缘')
+      const tips = {
+        '反向外壳': '多一遍 BackSide 绘制：轮廓粗，内部线条看不到',
+        '后处理边缘': '多一遍法线/深度预渲染 + 一次全屏边缘检测',
+        '菲涅尔描边': '零额外 pass：只在轮廓处加亮边，暗部边缘会变弱',
+        '纹理描边': '零额外 pass：靠法线贴图 UV 外扩找线，能画内部线'
+      }
+      tipEl.textContent = tips[m]
+      updateWidth()
+    }
+
+    function updateWidth() {
+      const px = params.width * Math.min(devicePixelRatio, 2)
+      shellMaterial.uniforms.uWidth.value = px
+      edgePass.uniforms.uThickness.value = px
+    }
+
+    const gui = new GUI({ title: '描边实验室' })
+    gui.add(params, 'mode', ['反向外壳', '后处理边缘', '菲涅尔描边', '纹理描边'])
+      .name('描边方式').onChange(applyMode)
+    gui.add(params, 'width', 1, 12, 0.5).name('描边宽度 px').onChange(updateWidth)
+    gui.add(params, 'texEdge', 0.1, 1.0, 0.01).name('纹理灵敏度')
+      .onChange((v) => surfaceMats.forEach((m) => { m.uniforms.uTexEdge.value = v }))
+    gui.add(params, 'depthSens', 0.01, 0.2, 0.005).name('深度灵敏度')
+      .onChange((v) => { edgePass.uniforms.uDepthSens.value = v })
+    gui.addColor(params, 'edgeColor').name('描边颜色')
+      .onChange((v) => {
+        shellMaterial.uniforms.uColor.value.set(v)
+        edgePass.uniforms.uEdgeColor.value.set(v)
+        surfaceMats.forEach((m) => { m.uniforms.uLineColor.value.set(v) })
+      })
+    gui.add(params, 'autoRotate').name('自动旋转')
+
+    applyMode()
+
+    /* ---------- 主循环 ---------- */
+    let calls = 0
+    let lastStat = 0
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const t = timer.getElapsed()
+      renderer.info.reset()
+
+      if (params.autoRotate) {
+        const knot = group.children[0]
+        const box = group.children[2]
+        knot.rotation.z = 0.35 + t * 0.4
+        knot.rotation.x = 0.3 + t * 0.12
+        box.rotation.y = 0.55 + t * 0.28
+      }
+
+      // 后处理描边：先把法线与深度渲染到离屏缓冲
+      if (edgePass.enabled) {
+        ground.visible = false
+        scene.overrideMaterial = normalMaterial
+        renderer.setRenderTarget(normalRT)
+        renderer.clear()
+        renderer.render(scene, camera)
+        scene.overrideMaterial = null
+        renderer.setRenderTarget(null)
+        ground.visible = true
+      }
+
+      controls.update()
+      composer.render()
+
+      calls = renderer.info.render.calls
+      if (t - lastStat > 0.25) {
+        lastStat = t
+        const extra = edgePass.enabled ? 2 : 0
+        stat.textContent = `描边：${params.mode} · Draw calls：${calls} · 额外 Pass：${extra}`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      composer.setSize(innerWidth, innerHeight)
+
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2())
+      normalRT.setSize(size.x, size.y)
+
+      shellMaterial.uniforms.uResolution.value.set(size.x, size.y)
+      edgePass.uniforms.uResolution.value.set(size.x, size.y)
+      updateWidth()
+    })
+
+    // 初始化显示器分辨率
+    const initSize = renderer.getDrawingBufferSize(new THREE.Vector2())
+    shellMaterial.uniforms.uResolution.value.set(initSize.x, initSize.y)
+    edgePass.uniforms.uResolution.value.set(initSize.x, initSize.y)
+    edgePass.uniforms.uDepthSens.value = params.depthSens
+    updateWidth()
+  </script>
+</body>
+
+</html>

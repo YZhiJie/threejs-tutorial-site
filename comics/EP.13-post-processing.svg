@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#101a33"/>
+    </linearGradient>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="840" fill="url(#bg)"/>
+  <polygon points="980,0 1060,0 760,840 680,840" fill="#22d3ee" opacity="0.04"/>
+  <polygon points="150,0 220,0 1040,840 970,840" fill="#a78bfa" opacity="0.03"/>
+
+  <rect x="20" y="14" width="92" height="36" rx="9" fill="#7C3AED"/>
+  <text x="66" y="38" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffffff">EP.13</text>
+  <text x="126" y="40" font-size="26" font-weight="bold" fill="url(#titleGrad)">后处理与帧率保卫战</text>
+  <text x="1180" y="38" text-anchor="end" font-size="13" fill="#64748b">Three.js 漫画剧场 · 霓虹墨 NEON INK</text>
+  <rect x="20" y="62" width="1160" height="2" rx="1" fill="url(#titleGrad)" opacity="0.6"/>
+
+  <g transform="translate(20,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#22d3ee" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#22d3ee"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">1</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">困境：滤镜叠到帧率崩</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#22d3ee"/>
+      <circle cx="15" cy="4" r="6.5" fill="#22d3ee"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,5 q3,3 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="232" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">五个 Pass 叠上去，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">帧率直接掉到 20！</text>
+    <rect x="24" y="152" width="524" height="110" rx="8" fill="#0a0f1c" stroke="#22d3ee" stroke-opacity="0.35"/>
+    <text x="38" y="178" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">composer.addPass(ssao)</text>
+    <text x="38" y="200" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">composer.addPass(bloom)</text>
+    <text x="38" y="222" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">composer.addPass(film)</text>
+    <text x="38" y="244" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">composer.addPass(glitch) // +bokeh</text>
+    <text x="38" y="259" font-size="12" fill="#f472b6" font-family="'SF Mono',Consolas,monospace">// 5 个效果 Pass，每帧 5+ 次全屏绘制</text>
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#22d3ee"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">每个 Pass 都是至少一次全屏绘制，帧预算被</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">悄悄吃光——叠得越多越慢，滤镜并不免费。</text>
+  </g>
+
+  <g transform="translate(608,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#a78bfa" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#a78bfa"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">2</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">揭秘：每环都是全屏绘制</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="232" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">链上每一环，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">都是一次全屏绘制。</text>
+    <rect x="24" y="152" width="524" height="110" rx="8" fill="#0a0f1c" stroke="#a78bfa" stroke-opacity="0.35"/>
+    <rect x="36" y="168" width="88" height="56" rx="8" fill="#111a30" stroke="#475569"/>
+    <text x="80" y="192" text-anchor="middle" font-size="12" font-weight="bold" fill="#e2e8f0">Render</text>
+    <text x="80" y="210" text-anchor="middle" font-size="10.5" fill="#94a3b8">画场景</text>
+    <polygon points="126,192 136,196 126,200" fill="#64748b"/>
+    <rect x="138" y="168" width="88" height="56" rx="8" fill="#111a30" stroke="#7dd3fc" stroke-opacity="0.8"/>
+    <text x="182" y="192" text-anchor="middle" font-size="12" font-weight="bold" fill="#7dd3fc">Bloom</text>
+    <text x="182" y="210" text-anchor="middle" font-size="10.5" fill="#94a3b8">半分辨率×5</text>
+    <polygon points="228,192 238,196 228,200" fill="#64748b"/>
+    <rect x="240" y="168" width="88" height="56" rx="8" fill="#111a30" stroke="#475569"/>
+    <text x="284" y="192" text-anchor="middle" font-size="12" font-weight="bold" fill="#e2e8f0">SSAO</text>
+    <text x="284" y="210" text-anchor="middle" font-size="10.5" fill="#94a3b8">深度+法线</text>
+    <polygon points="330,192 340,196 330,200" fill="#64748b"/>
+    <rect x="342" y="168" width="88" height="56" rx="8" fill="#111a30" stroke="#475569"/>
+    <text x="386" y="192" text-anchor="middle" font-size="12" font-weight="bold" fill="#e2e8f0">Film</text>
+    <text x="386" y="210" text-anchor="middle" font-size="10.5" fill="#94a3b8">全屏×1</text>
+    <polygon points="432,192 442,196 432,200" fill="#64748b"/>
+    <rect x="444" y="168" width="88" height="56" rx="8" fill="#111a30" stroke="#475569"/>
+    <text x="488" y="192" text-anchor="middle" font-size="12" font-weight="bold" fill="#e2e8f0">Output</text>
+    <text x="488" y="210" text-anchor="middle" font-size="10.5" fill="#94a3b8">色调映射</text>
+    <text x="36" y="252" font-size="12" fill="#cbd5e1" font-family="'SF Mono',Consolas,monospace">每环：read(tDiffuse) → 加工 → write 下一环</text>
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#a78bfa"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">省钱两招：让贵的效果在半分辨率工作；把多个</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">调色小效果合并进同一个自定义 ShaderPass。</text>
+  </g>
+
+  <g transform="translate(20,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#f472b6" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f472b6"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">3</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">实证：砍并回到 60fps</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#22d3ee"/>
+      <circle cx="15" cy="4" r="6.5" fill="#22d3ee"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,5 q3,3 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="232" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">砍两个、并一个，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">60fps 又回来了！</text>
+    <rect x="24" y="152" width="524" height="110" rx="8" fill="#0a0f1c" stroke="#f472b6" stroke-opacity="0.35"/>
+    <text x="38" y="178" font-size="12.5" fill="#fbbf24" font-family="'SF Mono',Consolas,monospace">// 砍：SSAO → 烘焙 AO 贴图（零运行时）</text>
+    <text x="38" y="200" font-size="12.5" fill="#fbbf24" font-family="'SF Mono',Consolas,monospace">// 并：Film + 暗角 → 一个 ShaderPass</text>
+    <text x="38" y="222" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">composer.addPass(bloom)</text>
+    <text x="38" y="244" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">composer.addPass(stylePass)</text>
+    <text x="38" y="259" font-size="12" fill="#34d399" font-family="'SF Mono',Consolas,monospace">// 5 环 → 2 环：20fps → 60fps</text>
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#f472b6"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">砍：能烘焙的烘焙、能关的关；并：多个调色</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">小效果合成一个 Pass，一次绘制做两件事。</text>
+  </g>
+
+  <g transform="translate(608,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#f97316" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f97316"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">4</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">结案：帧率保卫战守则</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="224" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">滤镜不是免费的，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">是拿帧率换的。</text>
+    <rect x="24" y="154" width="96" height="26" rx="13" fill="#f97316"/>
+    <text x="72" y="172" text-anchor="middle" font-size="13" font-weight="bold" fill="#0b1220">⚠ 坑点</text>
+    <rect x="32" y="200" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="209" font-size="14" fill="#e2e8f0">threshold 太低，满屏都在泛光</text>
+    <rect x="32" y="228" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="237" font-size="14" fill="#e2e8f0">resize 漏了 composer.setSize，辉光错位</text>
+    <rect x="32" y="256" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="265" font-size="14" fill="#e2e8f0">OutputPass 不在链尾，颜色发灰</text>
+    <rect x="24" y="290" width="524" height="50" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="290" width="4" height="50" rx="2" fill="#22d3ee"/>
+    <text x="40" y="311" font-size="13.5" font-weight="bold" fill="#22d3ee">码叔总结</text>
+    <text x="40" y="331" font-size="13.5" fill="#e2e8f0">先问要不要，再问放哪环——帧率是预算。</text>
+  </g>
+
+  <text x="1180" y="832" text-anchor="end" font-size="11" fill="#475569">NEON INK · threejs-tutorial · EP.13</text>
+</svg>

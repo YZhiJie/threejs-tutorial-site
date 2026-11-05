@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#101a33"/>
+    </linearGradient>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="840" fill="url(#bg)"/>
+  <polygon points="980,0 1060,0 760,840 680,840" fill="#22d3ee" opacity="0.04"/>
+  <polygon points="150,0 220,0 1040,840 970,840" fill="#a78bfa" opacity="0.03"/>
+
+  <rect x="20" y="14" width="92" height="36" rx="9" fill="#7C3AED"/>
+  <text x="66" y="38" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffffff">EP.03</text>
+  <text x="126" y="40" font-size="26" font-weight="bold" fill="url(#titleGrad)">相机与视锥体</text>
+  <text x="1180" y="38" text-anchor="end" font-size="13" fill="#64748b">Three.js 漫画剧场 · 霓虹墨 NEON INK</text>
+  <rect x="20" y="62" width="1160" height="2" rx="1" fill="url(#titleGrad)" opacity="0.6"/>
+
+  <g transform="translate(20,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#22d3ee" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#22d3ee"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">1</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">困境：远处一直闪</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#1d4ed8"/>
+      <path d="M-5,18 L5,18 L3.5,27 L0,29 L-3.5,27 Z" fill="#f97316"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 L-11,-13 L-6,-4 L0,-14 L6,-4 L11,-13 L16,-2 Q0,-11 -16,-2 Z" fill="#f97316"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,5 q3,3 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="232" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">远处墙面闪个不停，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">边角还总被切掉！</text>
+    <rect x="24" y="152" width="524" height="110" rx="8" fill="#0a0f1c" stroke="#22d3ee" stroke-opacity="0.35"/>
+    <text x="38" y="176" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">new PerspectiveCamera(75, aspect, 0, 10000)</text>
+    <text x="38" y="200" font-size="12.5" fill="#f472b6" font-family="'SF Mono',Consolas,monospace">// near 设成了 0（非法）</text>
+    <text x="38" y="222" font-size="12.5" fill="#f472b6" font-family="'SF Mono',Consolas,monospace">// far 大到没边，深度精度被摊薄</text>
+    <text x="38" y="246" font-size="12.5" fill="#fbbf24" font-family="'SF Mono',Consolas,monospace">// 这就是 z-fighting 的温床</text>
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#22d3ee"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">near 尽量大、far 贴着场景最远物，把</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">深度缓冲精度留给真正需要的距离段。</text>
+  </g>
+
+  <g transform="translate(608,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#a78bfa" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#a78bfa"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">2</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">揭秘：视锥里的世界</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="232" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">相机只看得见</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">视锥体里的东西。</text>
+    <rect x="24" y="152" width="524" height="110" rx="8" fill="#0a0f1c" stroke="#a78bfa" stroke-opacity="0.35"/>
+    <polygon points="66,210 146,182 400,152 400,268 146,238" fill="#7C3AED" opacity="0.22" stroke="#a78bfa" stroke-width="1.6"/>
+    <line x1="146" y1="182" x2="146" y2="238" stroke="#22d3ee" stroke-width="2"/>
+    <line x1="400" y1="152" x2="400" y2="268" stroke="#f472b6" stroke-width="2"/>
+    <circle cx="66" cy="210" r="4" fill="#fbbf24"/>
+    <path d="M112,196 A52 52 0 0 1 118,224" fill="none" stroke="#fbbf24" stroke-width="1.4"/>
+    <text x="52" y="232" text-anchor="middle" font-size="11.5" fill="#fbbf24">eye</text>
+    <text x="146" y="174" text-anchor="middle" font-size="11.5" fill="#22d3ee">near</text>
+    <text x="400" y="144" text-anchor="middle" font-size="11.5" fill="#f472b6">far</text>
+    <text x="130" y="214" text-anchor="middle" font-size="11" fill="#fbbf24">fov</text>
+    <text x="422" y="182" font-size="12.5" fill="#e2e8f0">锥外被视锥剔除</text>
+    <text x="422" y="204" font-size="12.5" fill="#94a3b8">fov 小：望远镜</text>
+    <text x="422" y="226" font-size="12.5" fill="#94a3b8">fov 大：广角镜</text>
+    <text x="422" y="248" font-size="12.5" fill="#94a3b8">lookAt 决定朝向</text>
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#a78bfa"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">fov / aspect / near / far 四个参数共同</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">定义这块锥体，改完必须更新投影矩阵。</text>
+  </g>
+
+  <g transform="translate(20,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#f472b6" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f472b6"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">3</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">实证：两种投影与四视口</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#22d3ee"/>
+      <circle cx="15" cy="4" r="6.5" fill="#22d3ee"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,5 q3,3 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="232" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">做四视图的时候，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">俯视图怎么被拉扁了？</text>
+    <rect x="24" y="152" width="524" height="110" rx="8" fill="#0a0f1c" stroke="#f472b6" stroke-opacity="0.35"/>
+    <text x="40" y="172" font-size="12.5" fill="#22d3ee">透视：近大远小</text>
+    <rect x="44" y="184" width="64" height="56" rx="4" fill="none" stroke="#22d3ee" stroke-width="1.6"/>
+    <rect x="150" y="198" width="36" height="30" rx="3" fill="none" stroke="#22d3ee" stroke-width="1.6"/>
+    <line x1="108" y1="184" x2="168" y2="198" stroke="#22d3ee" stroke-width="1.2"/>
+    <line x1="108" y1="240" x2="168" y2="228" stroke="#22d3ee" stroke-width="1.2"/>
+    <text x="300" y="172" font-size="12.5" fill="#a78bfa">正交：平行无变形</text>
+    <rect x="288" y="184" width="52" height="44" rx="4" fill="none" stroke="#a78bfa" stroke-width="1.6"/>
+    <rect x="388" y="184" width="52" height="44" rx="4" fill="none" stroke="#a78bfa" stroke-width="1.6"/>
+    <line x1="340" y1="192" x2="388" y2="192" stroke="#a78bfa" stroke-width="1.2"/>
+    <line x1="340" y1="220" x2="388" y2="220" stroke="#a78bfa" stroke-width="1.2"/>
+    <text x="468" y="200" font-size="11.5" fill="#94a3b8">CAD / 小地图</text>
+    <text x="468" y="220" font-size="11.5" fill="#94a3b8">滚轮改 zoom</text>
+    <text x="40" y="258" font-size="12.5" fill="#e2e8f0" font-family="'SF Mono',Consolas,monospace">四视口：autoClear=false，再 render 四次</text>
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#f472b6"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">正交相机的 left/right 必须按 aspect 修正，</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">否则圆被画成椭圆，网格被横向拉长。</text>
+  </g>
+
+  <g transform="translate(608,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#f97316" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f97316"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">4</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">结案：相机即取景规则</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="224" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">相机不只是位置，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">它还定义取景规则。</text>
+    <rect x="24" y="154" width="96" height="26" rx="13" fill="#f97316"/>
+    <text x="72" y="172" text-anchor="middle" font-size="13" font-weight="bold" fill="#0b1220">⚠ 坑点</text>
+    <rect x="32" y="200" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="209" font-size="14" fill="#e2e8f0">改 fov/near/far 后须 updateProjectionMatrix</text>
+    <rect x="32" y="228" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="237" font-size="14" fill="#e2e8f0">正交画面拉扁：left/right 没乘 aspect</text>
+    <rect x="32" y="256" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="265" font-size="14" fill="#e2e8f0">四视口只剩一图：忘设 autoClear=false</text>
+    <rect x="24" y="290" width="524" height="50" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="290" width="4" height="50" rx="2" fill="#22d3ee"/>
+    <text x="40" y="311" font-size="13.5" font-weight="bold" fill="#22d3ee">码叔总结</text>
+    <text x="40" y="331" font-size="13.5" fill="#e2e8f0">相机决定看什么，也决定怎么看。</text>
+  </g>
+
+  <text x="1180" y="832" text-anchor="end" font-size="11" fill="#475569">NEON INK · threejs-tutorial · EP.03</text>
+</svg>

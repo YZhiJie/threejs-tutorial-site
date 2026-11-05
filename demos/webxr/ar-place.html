@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ar-place · AR 产品放置</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 360px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 14px;
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* ---------- AR 会话中的 DOM 覆盖层（dom-overlay） ---------- */
+    #ar-ui {
+      position: fixed;
+      inset: 0;
+      display: none;
+      pointer-events: none;
+      /* 罩子整体不拦截触摸：让点屏穿透成 XR select 事件 */
+      z-index: 10;
+    }
+
+    #ar-ui.on {
+      display: block;
+    }
+
+    #ar-bar {
+      position: absolute;
+      bottom: 84px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 12px;
+      pointer-events: auto;
+      /* 工具条可交互：按钮点击 + 手势 */
+      touch-action: none;
+      /* 禁浏览器默认手势，双指捏合留给我们 */
+      user-select: none;
+    }
+
+    #ar-bar button {
+      padding: 8px 12px;
+      font-size: 13px;
+      color: #e6edf3;
+      background: #1d2a44;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    #ar-tip {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 12px;
+      font-size: 12px;
+      color: #cfe0f5;
+      background: rgba(11, 14, 20, .6);
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 210px;
+        font-size: 12px;
+      }
+
+      .hint {
+        display: none;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>AR 产品放置 · hit-test 平面检测</b><br />
+    Android Chrome 点「START AR」→ 缓慢移动手机扫描环境 → 出现青色瞄准环 → 点屏幕把小椅子放进真实房间；底部工具条可旋转/缩放。<br />
+    桌面浏览器自动回退为 OrbitControls 预览。<br />
+    设备要求：HTTPS 或 localhost + 支持 ARCore 的安卓真机；桌面可用 WebXR API Emulator 扩展模拟。
+  </div>
+  <div class="hint">桌面模式：拖拽旋转 · 滚轮缩放（AR 模式：点屏放置 · 工具条手势调整）</div>
+  <div id="ar-ui">
+    <div id="ar-bar">
+      <button data-act="rotL">⟲ 左旋</button>
+      <button data-act="rotR">⟳ 右旋</button>
+      <button data-act="big">＋ 放大</button>
+      <button data-act="small">－ 缩小</button>
+    </div>
+    <div id="ar-tip">点屏幕放置 / 移动椅子 · 工具条上：单指拖动旋转 · 双指捏合缩放</div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { ARButton } from 'three/addons/webxr/ARButton.js'
+
+    /* ---------- 基础三件套：AR 必须 alpha:true，摄像头画面才透得出来 ---------- */
+    const scene = new THREE.Scene()
+    const bgColor = new THREE.Color(0x0b0e14)
+    scene.background = bgColor
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 30)
+    camera.position.set(1.4, 1.5, 2.4)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    /* ---------- AR 会话入口：声明需要 hit-test，dom-overlay 可选 ---------- */
+    renderer.xr.enabled = true
+    const arUi = document.getElementById('ar-ui')
+    document.body.appendChild(ARButton.createButton(renderer, {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: arUi }
+    }))
+
+    // 桌面回退
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.4, 0)
+    controls.minDistance = 0.8
+    controls.maxDistance = 8
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x223044, 1.1))
+    const key = new THREE.DirectionalLight(0xffffff, 1.4)
+    key.position.set(2, 4, 3)
+    scene.add(key)
+
+    /* ---------- 桌面预览用的虚拟地板（AR 里隐藏，真实地面就是地板） ---------- */
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(4, 64),
+      new THREE.MeshStandardMaterial({ color: 0x141a26, roughness: 0.6, metalness: 0.3 })
+    )
+    floor.rotation.x = -Math.PI / 2
+    scene.add(floor)
+    const grid = new THREE.PolarGridHelper(4, 12, 5, 48, 0x2b3a55, 0x1a2436)
+    grid.position.y = 0.01
+    scene.add(grid)
+
+    /* ---------- 商品：一把几何体拼的小椅子（真实项目换 GLTFLoader 加载 glb） ---------- */
+    function makeChair() {
+      const g = new THREE.Group()
+      const wood = new THREE.MeshStandardMaterial({ color: 0xb58950, roughness: 0.6 })
+      const fabric = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.85 })
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.42), fabric)
+      seat.position.y = 0.32
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.05), fabric)
+      back.position.set(0, 0.6, -0.185)
+      const legGeo = new THREE.CylinderGeometry(0.022, 0.026, 0.32, 12)
+      for (const [lx, lz] of [[-0.17, -0.17], [0.17, -0.17], [-0.17, 0.17], [0.17, 0.17]]) {
+        const leg = new THREE.Mesh(legGeo, wood)
+        leg.position.set(lx, 0.16, lz)
+        g.add(leg)
+      }
+      g.add(seat, back)
+      return g   // 注意：模型原点在"脚底"（y=0），放置时才能正好落地
+    }
+    const chair = makeChair()
+    scene.add(chair)
+
+    /* ---------- 瞄准环：位姿完全由 hit-test 命中矩阵驱动 ---------- */
+    const reticle = new THREE.Mesh(
+      new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x7cc4ff })
+    )
+    reticle.matrixAutoUpdate = false
+    reticle.visible = false
+    scene.add(reticle)
+
+    /* ---------- hit-test：每帧从视线向真实环境求平面 ---------- */
+    let hitTestSource = null
+    let hitTestSourceRequested = false
+
+    /* ---------- 点屏放置：select 事件 = 手机屏幕点按 ---------- */
+    let placed = false
+    const _p = new THREE.Vector3()
+    const _q = new THREE.Quaternion()
+    const _s = new THREE.Vector3()
+    const controller = renderer.xr.getController(0)
+    controller.addEventListener('select', () => {
+      if (!reticle.visible) return
+      reticle.matrix.decompose(_p, _q, _s) // 瞄准环矩阵 = 命中平面的位姿
+      chair.position.copy(_p)
+      chair.visible = true
+      placed = true
+    })
+    scene.add(controller)
+
+    /* ---------- 状态切换：preview ↔ ar-scan ↔ ar-placed ---------- */
+    renderer.xr.addEventListener('sessionstart', () => {
+      scene.background = null          // 摄像头透视，背景必须透明
+      floor.visible = grid.visible = false
+      chair.visible = false            // 等用户放置
+      placed = false
+      controls.enabled = false
+      arUi.classList.add('on')
+    })
+    renderer.xr.addEventListener('sessionend', () => {
+      scene.background = bgColor
+      floor.visible = grid.visible = true
+      chair.visible = true
+      if (!placed) chair.position.set(0, 0, 0)
+      controls.enabled = true
+      arUi.classList.remove('on')
+      reticle.visible = false
+    })
+
+    /* ---------- 工具条：按钮 + 手势（单指旋转 / 双指缩放） ---------- */
+    const bar = document.getElementById('ar-bar')
+    const clampScale = k => chair.scale.setScalar(THREE.MathUtils.clamp(k, 0.4, 3))
+    bar.querySelectorAll('button').forEach(btn =>
+      btn.addEventListener('click', () => {
+        const act = btn.dataset.act
+        if (act === 'rotL') chair.rotation.y += Math.PI / 8
+        if (act === 'rotR') chair.rotation.y -= Math.PI / 8
+        if (act === 'big') clampScale(chair.scale.x * 1.15)
+        if (act === 'small') clampScale(chair.scale.x / 1.15)
+      })
+    )
+
+    let lastX = null, lastPinch = null
+    const pinchDist = e => {
+      const [a, b] = e.touches
+      return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+    }
+    bar.addEventListener('touchstart', e => {
+      if (e.touches.length === 1) lastX = e.touches[0].clientX
+      if (e.touches.length === 2) lastPinch = pinchDist(e)
+    }, { passive: true })
+    bar.addEventListener('touchmove', e => {
+      if (e.touches.length === 1 && lastX !== null) {
+        chair.rotation.y += (e.touches[0].clientX - lastX) * 0.012  // 单指拖动 = 旋转
+        lastX = e.touches[0].clientX
+      } else if (e.touches.length === 2) {
+        const d = pinchDist(e)
+        if (lastPinch) clampScale(chair.scale.x * d / lastPinch)    // 双指捏合 = 缩放
+        lastPinch = d
+      }
+    }, { passive: true })
+    bar.addEventListener('touchend', () => { lastX = null; lastPinch = null })
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop((time, frame) => {
+      clock.update()
+      const dt = clock.getDelta()
+
+      // hit-test：申请一次 hitTestSource，之后每帧查询命中结果
+      if (frame && renderer.xr.isPresenting) {
+        if (!hitTestSourceRequested) {
+          const session = renderer.xr.getSession()
+          session.requestReferenceSpace('viewer').then(viewerSpace => {
+            session.requestHitTestSource({ space: viewerSpace }).then(source => {
+              hitTestSource = source
+            })
+          })
+          session.addEventListener('end', () => {
+            hitTestSourceRequested = false
+            hitTestSource = null
+          })
+          hitTestSourceRequested = true
+        }
+        if (hitTestSource) {
+          const hits = frame.getHitTestResults(hitTestSource)
+          if (hits.length) {
+            const pose = hits[0].getPose(renderer.xr.getReferenceSpace())
+            reticle.visible = true
+            reticle.matrix.fromArray(pose.transform.matrix)
+          } else {
+            reticle.visible = false // 还没识别到平面：继续缓慢移动手机
+          }
+        }
+      }
+
+      if (!renderer.xr.isPresenting) {
+        chair.rotation.y += dt * 0.3 // 桌面预览：缓慢自转展示
+        controls.update()
+      }
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

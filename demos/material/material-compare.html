@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>material-compare · 四种常用材质对比</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 350px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>同一束光、同一个形状，四种材质反应完全不同</b><br />
+    Basic：无视灯光　Lambert：只有漫反射<br />
+    Phong：漫反射 + 锐利高光　Standard：基于物理的粗糙度/金属度<br />
+    白色小球标记方向光位置，它绕场景旋转。
+  </div>
+  <div class="hint">观察高光区域在四种材质上的差异</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 2.4, 7.5)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.4, 0)
+
+    // 极弱环境光，突出方向光差异
+    scene.add(new THREE.AmbientLight(0xffffff, 0.15))
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2)
+    sun.position.set(0, 4, 4)
+    scene.add(sun)
+
+    // 光源位置标记小球
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.14, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfff7cc })
+    )
+    scene.add(marker)
+
+    scene.add(new THREE.GridHelper(12, 12, 0x334155, 0x1e293b))
+
+    const columns = [
+      { name: 'MeshBasicMaterial', make: () => new THREE.MeshBasicMaterial({ color: 0x4f9cf9 }) },
+      { name: 'MeshLambertMaterial', make: () => new THREE.MeshLambertMaterial({ color: 0x4f9cf9 }) },
+      { name: 'MeshPhongMaterial', make: () => new THREE.MeshPhongMaterial({ color: 0x4f9cf9, shininess: 90, specular: 0xffffff }) },
+      { name: 'MeshStandardMaterial', make: () => new THREE.MeshStandardMaterial({ color: 0x4f9cf9, roughness: 0.35, metalness: 0.1 }) }
+    ]
+
+    function makeLabel(text) {
+      const cv = document.createElement('canvas')
+      cv.width = 320; cv.height = 72
+      const ctx = cv.getContext('2d')
+      ctx.fillStyle = 'rgba(11,14,20,0.8)'
+      ctx.beginPath()
+      ctx.roundRect(4, 6, 312, 60, 10)
+      ctx.fill()
+      ctx.font = '600 24px -apple-system, sans-serif'
+      ctx.fillStyle = '#9fb4d4'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(text, 160, 37)
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false
+      }))
+      sp.scale.set(2.1, 0.47, 1)
+      return sp
+    }
+
+    const knots = []
+    columns.forEach((col, i) => {
+      const x = (i - 1.5) * 2.6
+      const knot = new THREE.Mesh(
+        new THREE.TorusKnotGeometry(0.62, 0.2, 160, 24),
+        col.make()
+      )
+      knot.position.set(x, 0.9, 0)
+      scene.add(knot)
+      knots.push(knot)
+
+      const label = makeLabel(col.name)
+      label.position.set(x, -0.25, 0)
+      scene.add(label)
+    })
+
+    const params = { lightOrbit: true, lightSpeed: 0.8, lightHeight: 4 }
+    const gui = new GUI({ title: '灯光' })
+    gui.add(params, 'lightOrbit').name('光源旋转')
+    gui.add(params, 'lightSpeed', 0, 3, 0.05).name('旋转速度')
+    gui.add(params, 'lightHeight', 1, 8, 0.1).name('光源高度').onChange(v => sun.position.y = v)
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const t = clock.getElapsed()
+      if (params.lightOrbit) {
+        const a = t * params.lightSpeed
+        sun.position.set(Math.cos(a) * 4.5, params.lightHeight, Math.sin(a) * 4.5)
+      }
+      marker.position.set(sun.position.x, sun.position.y, sun.position.z)
+
+      knots.forEach(k => { k.rotation.y += 0.006; k.rotation.x += 0.003 })
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

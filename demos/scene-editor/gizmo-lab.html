@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>gizmo-lab · 选择与变换操控台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 360px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .ok {
+      color: #34d399;
+    }
+
+    .panel {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      width: 262px;
+      padding: 14px;
+      background: rgba(15, 20, 30, .88);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 12px;
+      font-size: 12.5px;
+      box-sizing: border-box;
+    }
+
+    .panel h2 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: #7cc4ff;
+      font-weight: 600;
+    }
+
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 9px;
+    }
+
+    .field .lab {
+      width: 34px;
+      flex: none;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .seg {
+      display: flex;
+      flex: 1;
+      gap: 4px;
+    }
+
+    .seg button {
+      flex: 1;
+      padding: 5px 0;
+      font-size: 11.5px;
+      color: #cbd5e1;
+      background: #1b2433;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .seg button.active {
+      background: #2563eb;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+
+    select {
+      flex: 1;
+      padding: 5px 6px;
+      font-size: 12px;
+      color: #e6edf3;
+      background: #1b2433;
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 6px;
+      font-family: inherit;
+    }
+
+    .sel {
+      margin: 10px 0 8px;
+      padding-top: 9px;
+      border-top: 1px solid rgba(255, 255, 255, .08);
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .sel b {
+      color: #ffd166;
+    }
+
+    #readout {
+      margin: 0;
+      padding: 9px 10px;
+      background: #0a0f1c;
+      border: 1px solid #1e2a44;
+      border-radius: 8px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      color: #a9c4e8;
+      white-space: pre-wrap;
+      min-height: 74px;
+    }
+
+    .panel .tip {
+      margin: 9px 0 0;
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+      max-width: calc(100vw - 32px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    @media (max-width: 680px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .panel {
+        width: 208px;
+        padding: 10px;
+        font-size: 11.5px;
+      }
+
+      #readout {
+        font-size: 10px;
+      }
+
+      .hint {
+        font-size: 11px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>选择与变换操控台 · gizmo-lab</b><br />
+    点击草地上的物体选中（黄色包围盒），再拖拽操控器的箭头 / 圆环 / 方块。
+    拖拽期间 <span class="ok">OrbitControls 自动暂停</span>，松开后恢复。
+  </div>
+
+  <div class="panel">
+    <h2>操控台</h2>
+    <div class="field">
+      <span class="lab">模式</span>
+      <div class="seg" id="mode-seg">
+        <button type="button" data-mode="translate" class="active">平移</button>
+        <button type="button" data-mode="rotate">旋转</button>
+        <button type="button" data-mode="scale">缩放</button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="lab">空间</span>
+      <div class="seg" id="space-seg">
+        <button type="button" data-space="world" class="active">world</button>
+        <button type="button" data-space="local">local</button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="lab">吸附</span>
+      <select id="snap">
+        <option value="0">关闭</option>
+        <option value="1">1 单位</option>
+        <option value="0.5" selected>0.5 单位</option>
+        <option value="0.25">0.25 单位</option>
+      </select>
+    </div>
+
+    <div class="sel">当前对象：<b id="sel-name">未选中</b></div>
+    <pre id="readout">点击物体开始编辑
+平移 / 旋转 / 缩放都会实时显示在这里</pre>
+    <p class="tip">快捷键 1 / 2 / 3 切换模式，Esc 取消选中。吸附对平移、旋转（15°）与缩放同时生效。</p>
+  </div>
+
+  <div class="hint">左键点选 · 拖拽 gizmo 操控 · 拖拽空白旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { TransformControls } from 'three/addons/controls/TransformControls.js'
+
+    /* ---------- 渲染基础 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 18, 44)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(7, 7.2, 12)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.domElement.style.touchAction = 'none'
+    document.getElementById('app').appendChild(renderer.domElement)
+    const canvas = renderer.domElement
+
+    const orbit = new OrbitControls(camera, canvas)
+    orbit.target.set(0, 1.1, 0)
+    orbit.enableDamping = true
+    orbit.dampingFactor = 0.08
+    orbit.maxPolarAngle = Math.PI / 2 - 0.05
+    orbit.minDistance = 4
+    orbit.maxDistance = 40
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x16211a, 1.15))
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2)
+    sun.position.set(7, 13, 8)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(1024, 1024)
+    sun.shadow.camera.left = -14
+    sun.shadow.camera.right = 14
+    sun.shadow.camera.top = 14
+    sun.shadow.camera.bottom = -14
+    sun.shadow.camera.near = 0.5
+    sun.shadow.camera.far = 40
+    scene.add(sun)
+
+    /* ---------- 草地与网格 ---------- */
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(60, 60),
+      new THREE.MeshStandardMaterial({ color: 0x1e3a2b, roughness: 0.95, metalness: 0 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    const grid = new THREE.GridHelper(40, 40, 0x3a6a4f, 0x24402f)
+    grid.position.y = 0.012
+    grid.material.transparent = true
+    grid.material.opacity = 0.55
+    scene.add(grid)
+
+    /* ---------- 可编辑对象 ---------- */
+    const roots = []
+
+    function register(obj, name) {
+      obj.userData.isRoot = true
+      obj.userData.name = name
+      obj.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true
+          child.receiveShadow = true
+        }
+      })
+      scene.add(obj)
+      roots.push(obj)
+      return obj
+    }
+
+    const mat = (color, extra = {}) =>
+      new THREE.MeshStandardMaterial({ color, roughness: 0.42, metalness: 0.08, ...extra })
+
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), mat(0x5b8def))
+    box.position.set(-3.6, 0.6, 1.5)
+    box.rotation.y = 0.45
+    register(box, '方块')
+
+    const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.7, 40, 28), mat(0xd96b9b))
+    sphere.position.set(-1.2, 0.7, -0.7)
+    register(sphere, '球体')
+
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.58, 1.6, 36), mat(0x4fd1a1))
+    cone.position.set(1.1, 0.8, -0.5)
+    register(cone, '圆锥')
+
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.68, 0.22, 24, 64), mat(0xe0a84f))
+    ring.position.set(3.3, 0.9, 0.8)
+    ring.rotation.set(0.35, 0.55, 0)
+    register(ring, '圆环')
+
+    const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.2, 32), mat(0x9b8cff))
+    cylinder.position.set(-1.7, 0.6, 2.6)
+    register(cylinder, '圆柱')
+
+    // 组合体：点中灯头也能选中整个路灯，验证"子网格 → 可编辑根节点"的映射
+    const lamp = new THREE.Group()
+    const poleMat = mat(0x64748b, { metalness: 0.35 })
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 2.2, 16), poleMat)
+    pole.position.y = 1.1
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.52, 0.18, 24), poleMat)
+    base.position.y = 0.09
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.34, 26, 18),
+      mat(0xffd166, { emissive: 0xffa200, emissiveIntensity: 0.65 })
+    )
+    head.position.y = 2.4
+    lamp.add(pole, base, head)
+    lamp.position.set(3.5, 0, -2.6)
+    register(lamp, '路灯（组合体）')
+
+    /* ---------- 选中态：BoxHelper + 状态变量 ---------- */
+    let selected = null
+
+    const boxHelper = new THREE.BoxHelper(new THREE.Object3D(), 0xffd166)
+    boxHelper.material.transparent = true
+    boxHelper.material.opacity = 0.92
+    boxHelper.visible = false
+    scene.add(boxHelper)
+
+    const selNameEl = document.getElementById('sel-name')
+    const readoutEl = document.getElementById('readout')
+
+    function formatNumber(v) {
+      return (Math.abs(v) < 0.005 ? 0 : v).toFixed(2)
+    }
+
+    function updateReadout() {
+      if (!selected) {
+        selNameEl.textContent = '未选中'
+        readoutEl.textContent = '点击物体开始编辑\n平移 / 旋转 / 缩放都会实时显示在这里'
+        return
+      }
+      selNameEl.textContent = selected.userData.name
+      const p = selected.position
+      const e = new THREE.Euler().setFromQuaternion(selected.quaternion, 'YXZ')
+      const deg = THREE.MathUtils.radToDeg
+      const s = selected.scale
+      readoutEl.textContent =
+        `position  ${formatNumber(p.x)}  ${formatNumber(p.y)}  ${formatNumber(p.z)}\n` +
+        `rotation  ${formatNumber(deg(e.x))}°  ${formatNumber(deg(e.y))}°  ${formatNumber(deg(e.z))}°\n` +
+        `scale     ${formatNumber(s.x)}  ${formatNumber(s.y)}  ${formatNumber(s.z)}`
+    }
+
+    /* ---------- TransformControls ---------- */
+    const transform = new TransformControls(camera, canvas)
+    transform.setSize(0.95)
+    const gizmoHelper = transform.getHelper ? transform.getHelper() : transform
+    scene.add(gizmoHelper)
+
+    // 拖拽 gizmo 时暂停 OrbitControls，一次只让一只手操作相机/物体
+    transform.addEventListener('dragging-changed', (event) => {
+      orbit.enabled = !event.value
+    })
+    transform.addEventListener('objectChange', () => {
+      if (!selected) return
+      boxHelper.setFromObject(selected)
+      updateReadout()
+    })
+
+    function select(root) {
+      selected = root || null
+      if (!selected) {
+        transform.detach()
+        boxHelper.visible = false
+        updateReadout()
+        return
+      }
+      transform.attach(selected)
+      boxHelper.setFromObject(selected)
+      boxHelper.visible = true
+      updateReadout()
+    }
+
+    /* ---------- Raycaster 拾取：从命中网格回溯到根节点 ---------- */
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    let downX = 0
+    let downY = 0
+    let gizmoHit = false
+
+    canvas.addEventListener('pointerdown', (event) => {
+      gizmoHit = transform.axis !== null
+      downX = event.clientX
+      downY = event.clientY
+    })
+
+    canvas.addEventListener('pointerup', (event) => {
+      if (event.button !== 0 || gizmoHit) return
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) > 4) return
+
+      const rect = canvas.getBoundingClientRect()
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+
+      const hits = raycaster.intersectObjects(roots, true)
+      if (!hits.length) {
+        select(null)
+        return
+      }
+      let node = hits[0].object
+      while (node && !node.userData.isRoot) node = node.parent
+      select(node)
+    })
+
+    /* ---------- 面板：模式 / 空间 / 吸附 ---------- */
+    const modeButtons = document.querySelectorAll('[data-mode]')
+    const spaceButtons = document.querySelectorAll('[data-space]')
+    const snapSelect = document.getElementById('snap')
+    let mode = 'translate'
+    let space = 'world'
+
+    function applyMode(next) {
+      mode = next
+      transform.setMode(mode)
+      modeButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.mode === mode))
+    }
+
+    function applySpace(next) {
+      space = next
+      transform.setSpace(space)
+      spaceButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.space === space))
+    }
+
+    function applySnap(raw) {
+      const step = parseFloat(raw)
+      transform.setTranslationSnap(step ? step : null)
+      transform.setRotationSnap(step ? THREE.MathUtils.degToRad(15) : null)
+      transform.setScaleSnap(step ? step : null)
+    }
+
+    modeButtons.forEach((btn) => {
+      btn.addEventListener('click', () => applyMode(btn.dataset.mode))
+    })
+    spaceButtons.forEach((btn) => {
+      btn.addEventListener('click', () => applySpace(btn.dataset.space))
+    })
+    snapSelect.addEventListener('change', () => applySnap(snapSelect.value))
+
+    addEventListener('keydown', (event) => {
+      const tag = document.activeElement && document.activeElement.tagName
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+      if (event.key === '1') applyMode('translate')
+      else if (event.key === '2') applyMode('rotate')
+      else if (event.key === '3') applyMode('scale')
+      else if (event.key === 'Escape') select(null)
+    })
+
+    applyMode('translate')
+    applySpace('world')
+    applySnap(snapSelect.value)
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      orbit.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

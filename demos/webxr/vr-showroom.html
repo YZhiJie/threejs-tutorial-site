@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vr-showroom · 展厅 VR 化</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 360px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 14px;
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 210px;
+        font-size: 12px;
+      }
+
+      .hint {
+        display: none;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>VR 产品展厅 · WebXR 最小改造</b><br />
+    桌面：拖拽环绕，悬停展品高亮，点击展品选中。<br />
+    VR：点底部「ENTER VR」戴上头显走进展厅，手柄射线指向展品即高亮，扣扳机选中。<br />
+    设备要求：HTTPS 或 localhost + 支持 WebXR 的浏览器与头显；桌面 Chrome 可装 WebXR API Emulator 扩展模拟。
+  </div>
+  <div class="hint">拖拽旋转 · 悬停高亮 · 点击选中（VR 中：手柄射线 + 扳机）</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import { VRButton } from 'three/addons/webxr/VRButton.js'
+
+    /* ---------- 基础三件套（与普通 three.js 场景完全一样） ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 9, 22)
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.05, 60)
+    camera.position.set(0, 2.2, 5.6) // 桌面视角；进 VR 后相机由头显接管
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    /* ---------- VR 最小改造：核心就这两行（+ 循环用 setAnimationLoop） ---------- */
+    renderer.xr.enabled = true                                  // ① 打开 XR 渲染通道
+    document.body.appendChild(VRButton.createButton(renderer))  // ② 挂入口按钮（不支持时自动置灰）
+
+    // 桌面回退：无头显时 OrbitControls 照常工作
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1, 0)
+    controls.minDistance = 1.5
+    controls.maxDistance = 12
+    controls.maxPolarAngle = Math.PI / 2 - 0.03
+
+    scene.environment = new THREE.PMREMGenerator(renderer)
+      .fromScene(new RoomEnvironment(), 0.04).texture
+    scene.add(new THREE.HemisphereLight(0x8899bb, 0x111420, 0.5))
+    const key = new THREE.DirectionalLight(0xffffff, 1.6)
+    key.position.set(3, 6, 4)
+    scene.add(key)
+
+    // 地面与极坐标网格（默认 local-floor 参考系：y=0 即真实地板）
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(9, 64),
+      new THREE.MeshStandardMaterial({ color: 0x141a26, roughness: 0.5, metalness: 0.4 })
+    )
+    floor.rotation.x = -Math.PI / 2
+    scene.add(floor)
+    const grid = new THREE.PolarGridHelper(9, 16, 8, 64, 0x2b3a55, 0x1a2436)
+    grid.position.y = 0.01
+    scene.add(grid)
+
+    /* ---------- 展品：单位 = 真实世界的米，齐胸高度 ---------- */
+    function makeLabel(text) {
+      const cv = document.createElement('canvas')
+      cv.width = 320; cv.height = 80
+      const ctx = cv.getContext('2d')
+      ctx.fillStyle = 'rgba(11,14,20,0.85)'
+      ctx.beginPath(); ctx.roundRect(6, 8, 308, 64, 12); ctx.fill()
+      ctx.strokeStyle = 'rgba(124,196,255,0.6)'; ctx.lineWidth = 3
+      ctx.beginPath(); ctx.roundRect(6, 8, 308, 64, 12); ctx.stroke()
+      ctx.font = '600 30px "PingFang SC", sans-serif'
+      ctx.fillStyle = '#cfe6ff'
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(text, 160, 42)
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false
+      }))
+      sp.scale.set(1.35, 0.34, 1)
+      return sp
+    }
+
+    const products = [
+      { name: '极光环结', geo: () => new THREE.TorusKnotGeometry(0.42, 0.14, 160, 24),
+        color: 0x60a5fa, metalness: 1, roughness: 0.15, angle: -Math.PI / 3 },
+      { name: '翡翠多面体', geo: () => new THREE.IcosahedronGeometry(0.55, 0),
+        color: 0x34d399, metalness: 0.2, roughness: 0.25, flat: true, angle: 0 },
+      { name: '琥珀水晶', geo: () => new THREE.OctahedronGeometry(0.56, 0),
+        color: 0xfbbf24, metalness: 0, roughness: 0.05, angle: Math.PI / 3 }
+    ]
+
+    const pickables = []
+    const R = 2.4
+    products.forEach(p => {
+      const x = Math.sin(p.angle) * R
+      const z = -Math.cos(p.angle) * R   // 站在原点的玩家正前方弧形排开
+      const mat = new THREE.MeshStandardMaterial({
+        color: p.color, metalness: p.metalness, roughness: p.roughness,
+        flatShading: !!p.flat,
+        emissive: p.color, emissiveIntensity: 0.06
+      })
+      const mesh = new THREE.Mesh(p.geo(), mat)
+      mesh.position.set(x, 1.3, z)
+      mesh.userData = { name: p.name, homeY: 1.3 }
+      scene.add(mesh)
+      pickables.push(mesh)
+
+      const stand = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.55, 0.68, 0.9, 40),
+        new THREE.MeshStandardMaterial({ color: 0x1b2230, roughness: 0.6 })
+      )
+      stand.position.set(x, 0.45, z)
+      scene.add(stand)
+
+      const label = makeLabel(p.name)
+      label.position.set(x, 2.2, z)
+      label.visible = false              // 悬停/选中时才显示
+      scene.add(label)
+      mesh.userData.label = label
+    })
+
+    /* ---------- 手柄：targetRay 空间 + 激光线，拾取复用 Raycaster ---------- */
+    const raycaster = new THREE.Raycaster()
+    const tempMatrix = new THREE.Matrix4()
+    const controllers = []
+
+    for (let i = 0; i < 2; i++) {
+      const c = renderer.xr.getController(i)
+      c.visible = false                  // 桌面模式下藏起手柄（待会话开启再显示）
+      c.addEventListener('selectstart', () => {
+        const hit = pickFromController(c)
+        if (hit) toggleSelect(hit.object)
+      })
+      // 激光笔：手柄正前方（-Z）的一条线
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(
+          [new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
+        new THREE.LineBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.6 })
+      )
+      line.scale.z = 3.5
+      c.add(line)
+      c.userData.line = line
+      scene.add(c)
+      controllers.push(c)
+    }
+
+    // 从手柄位姿构造射线（对应桌面版的 raycaster.setFromCamera）
+    function pickFromController(c) {
+      tempMatrix.identity().extractRotation(c.matrixWorld)
+      raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld)
+      raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix)
+      return raycaster.intersectObjects(pickables, false)[0] || null
+    }
+
+    /* ---------- 桌面鼠标拾取（回退模式） ---------- */
+    const pointer = new THREE.Vector2()
+    let mouseHover = null
+    const cv = renderer.domElement
+    cv.addEventListener('pointermove', e => {
+      const r = cv.getBoundingClientRect()
+      pointer.set(((e.clientX - r.left) / r.width) * 2 - 1,
+                 -((e.clientY - r.top) / r.height) * 2 + 1)
+      raycaster.setFromCamera(pointer, camera)
+      const hit = raycaster.intersectObjects(pickables, false)[0]
+      mouseHover = hit ? hit.object : null
+      cv.style.cursor = mouseHover ? 'pointer' : 'grab'
+    })
+    let downX = 0, downY = 0
+    cv.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY })
+    cv.addEventListener('click', e => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return // 拖拽不算点击
+      if (mouseHover) toggleSelect(mouseHover)
+    })
+
+    /* ---------- 高亮与选中状态 ---------- */
+    let selected = null
+    function toggleSelect(mesh) {
+      selected = selected === mesh ? null : mesh
+    }
+
+    /* ---------- 会话切换：相机控制权交接 ---------- */
+    renderer.xr.addEventListener('sessionstart', () => {
+      controls.enabled = false
+      controllers.forEach(c => { c.visible = true })
+    })
+    renderer.xr.addEventListener('sessionend', () => {
+      controls.enabled = true
+      controllers.forEach(c => { c.visible = false })
+    })
+
+    const _v = new THREE.Vector3()
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    // ③ 渲染循环必须是 setAnimationLoop：XR 会话中由头显刷新率驱动
+    renderer.setAnimationLoop(() => {
+      clock.update()
+      const dt = clock.getDelta()
+      const t = clock.getElapsed()
+      const inXR = renderer.xr.isPresenting
+
+      // VR 里用双手柄射线做悬停；命中时激光线顶到命中点、颜色变白
+      let xrHover = null
+      if (inXR) {
+        for (const c of controllers) {
+          const hit = pickFromController(c)
+          const line = c.userData.line
+          line.scale.z = hit ? hit.distance : 3.5
+          line.material.color.set(hit ? 0xffffff : 0x7cc4ff)
+          if (hit && !xrHover) xrHover = hit.object
+        }
+      }
+      const hovered = inXR ? xrHover : mouseHover
+
+      pickables.forEach((m, i) => {
+        m.rotation.y += dt * (m === selected ? 1.6 : 0.4)
+        const s = m === selected ? 1.18 : m === hovered ? 1.1 : 1
+        m.scale.lerp(_v.set(s, s, s), 0.15)
+        const lift = (m === hovered || m === selected) ? 0.12 : 0
+        const targetY = m.userData.homeY + lift + Math.sin(t * 1.2 + i * 2) * 0.04
+        m.position.y += (targetY - m.position.y) * 0.12
+        m.material.emissiveIntensity +=
+          ((m === hovered || m === selected ? 0.45 : 0.06) - m.material.emissiveIntensity) * 0.15
+        m.userData.label.visible = (m === hovered || m === selected)
+      })
+
+      if (!inXR) controls.update() // XR 会话中相机位姿由头显覆写，别碰
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

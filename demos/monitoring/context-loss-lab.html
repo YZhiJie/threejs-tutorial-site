@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>context-loss-lab · 上下文丢失急救台</title>
+  <style>
+    * { box-sizing: border-box; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 348px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .state {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin: 6px 0 8px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid currentColor;
+      color: #34d399;
+    }
+
+    .state::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    .state.lost { color: #f87171; }
+    .state.restoring { color: #fbbf24; animation: blink 1s infinite; }
+
+    @keyframes blink {
+      50% { opacity: .45; }
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      margin: 8px 0 6px;
+    }
+
+    .btn {
+      pointer-events: auto;
+      flex: 1;
+      padding: 7px 10px;
+      border-radius: 7px;
+      border: 1px solid rgba(124, 196, 255, .35);
+      background: rgba(124, 196, 255, .12);
+      color: #cfe7ff;
+      font-size: 12px;
+      cursor: pointer;
+      transition: .2s;
+    }
+
+    .btn:hover { background: rgba(124, 196, 255, .24); }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .btn kbd {
+      margin-left: 4px;
+      padding: 0 4px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, .12);
+      font-size: 10px;
+      font-family: inherit;
+    }
+
+    .stats {
+      margin-top: 6px;
+      font-size: 11.5px;
+      color: #94a3b8;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+
+    .log {
+      margin-top: 6px;
+      height: 58px;
+      overflow: hidden;
+      font-size: 11px;
+      line-height: 1.5;
+      color: #7dd3fc;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+
+    .log div:last-child { color: #fbbf24; }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* 中央提示：丢失 / 恢复中 / 已恢复 */
+    .veil {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      background: radial-gradient(circle at 50% 50%, rgba(7, 10, 16, .55), rgba(7, 10, 16, .92));
+      z-index: 5;
+    }
+
+    .veil.show { display: flex; }
+
+    .veil .card {
+      min-width: 330px;
+      padding: 22px 26px;
+      text-align: center;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, .12);
+      background: rgba(14, 20, 32, .92);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .5);
+    }
+
+    .veil .dot {
+      display: block;
+      width: 14px;
+      height: 14px;
+      margin: 0 auto 12px;
+      border-radius: 50%;
+      background: #f87171;
+      box-shadow: 0 0 18px #f87171;
+    }
+
+    .veil.restoring .dot { background: #fbbf24; box-shadow: 0 0 18px #fbbf24; }
+    .veil.ok .dot { background: #34d399; box-shadow: 0 0 18px #34d399; }
+
+    .veil .t {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .veil .s {
+      margin-top: 6px;
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.7;
+    }
+
+    .lil-gui.root {
+      --width: 268px;
+    }
+
+    @media (max-width: 680px) {
+      .info { width: 250px; font-size: 12px; }
+      .log { display: none; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="info">
+    <b>context-loss-lab · 上下文丢失急救台</b><br />
+    WebGL 上下文随时可能被系统收走（驱动重置、显存压力、切后台）。<br />
+    状态：<span class="state" id="state">运行中</span>
+    <div class="row">
+      <button class="btn" id="loseBtn">⚡ 强制丢失上下文 <kbd>L</kbd></button>
+      <button class="btn" id="restoreBtn">↻ 手动恢复</button>
+    </div>
+    <div class="stats" id="stats">—</div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="veil" id="veil">
+    <div class="card">
+      <span class="dot"></span>
+      <div class="t" id="veilTitle">上下文已丢失</div>
+      <div class="s" id="veilSub">GPU 已收回绘制上下文，画面停止刷新</div>
+    </div>
+  </div>
+
+  <div class="hint">L / 按钮 强制丢失 · 右上角切换「处理 / 不处理」· 拖拽旋转视角</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ==================================================================
+       ① 渲染器只创建一次：context 丢失后，renderer 实例本身仍然可用，
+          Three.js 会在 webglcontextrestored 后重新初始化内部的 GL 状态。
+    ================================================================== */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 18, 42)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 4.2, 10.5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.6, 0)
+    controls.minDistance = 5
+    controls.maxDistance = 24
+
+    // 灯光：重建场景时不重建灯光，灯光只是配置，不持有 GPU 资源
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x141420, 0.8))
+    const sun = new THREE.DirectionalLight(0xffffff, 2.1)
+    sun.position.set(4, 9, 6)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(1024, 1024)
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -10
+    sun.shadow.camera.right = sun.shadow.camera.top = 10
+    scene.add(sun)
+
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    /* ==================================================================
+       ② 场景重建函数：所有「会占用 GPU 的东西」都在这里面生成。
+          丢失后不要打补丁，而是整组 dispose 再整组重建。
+    ================================================================== */
+    let world = null          // 当前场景组
+    let spinner = null        // 需要每帧旋转的对象
+    let pulseRing = null      // 需要每帧动画的发光环
+    let rebuildCount = 0      // 重建次数（HUD 展示）
+
+    // 程序化贴图：不依赖任何外部图片，重建时也重新生成
+    function makeStripeTexture() {
+      const c = document.createElement('canvas')
+      c.width = c.height = 512
+      const g = c.getContext('2d')
+      const grad = g.createLinearGradient(0, 0, 512, 512)
+      grad.addColorStop(0, '#12213f')
+      grad.addColorStop(0.5, '#0c1830')
+      grad.addColorStop(1, '#1a1230')
+      g.fillStyle = grad
+      g.fillRect(0, 0, 512, 512)
+
+      g.strokeStyle = 'rgba(124, 196, 255, 0.55)'
+      g.lineWidth = 2
+      for (let i = 0; i <= 512; i += 32) {
+        g.beginPath()
+        g.moveTo(i, 0)
+        g.lineTo(i, 512)
+        g.stroke()
+        g.beginPath()
+        g.moveTo(0, i)
+        g.lineTo(512, i)
+        g.stroke()
+      }
+      g.fillStyle = 'rgba(244, 114, 182, 0.85)'
+      g.fillRect(160, 236, 192, 40)
+      g.fillStyle = '#0b0e14'
+      g.font = 'bold 22px monospace'
+      g.textAlign = 'center'
+      g.fillText('GPU TEXTURE', 256, 263)
+
+      const tex = new THREE.CanvasTexture(c)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      return tex
+    }
+
+    function disposeWorld(root) {
+      root.traverse((o) => {
+        if (o.geometry) o.geometry.dispose()
+        const list = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : [])
+        for (const m of list) {
+          for (const key of ['map', 'normalMap', 'roughnessMap', 'envMap']) {
+            if (m[key] && m[key].isTexture) m[key].dispose()
+          }
+          m.dispose()
+        }
+      })
+    }
+
+    function buildWorld() {
+      // 旧资源全部释放：geometry / material / texture 一个不留
+      if (world) {
+        scene.remove(world)
+        disposeWorld(world)
+      }
+
+      world = new THREE.Group()
+      const tex = makeStripeTexture()
+
+      // 地面：接收阴影
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(34, 34),
+        new THREE.MeshStandardMaterial({ color: 0x1b2538, roughness: 0.82, metalness: 0.15 })
+      )
+      floor.rotation.x = -Math.PI / 2
+      floor.receiveShadow = true
+      world.add(floor)
+
+      const grid = new THREE.GridHelper(34, 34, 0x35507a, 0x1d2a44)
+      grid.position.y = 0.01
+      world.add(grid)
+
+      // 主角：带贴图的金属球
+      spinner = new THREE.Group()
+      const ball = new THREE.Mesh(
+        new THREE.SphereGeometry(1.35, 64, 48),
+        new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.28,
+          metalness: 0.65,
+          emissive: 0x0b1830,
+          emissiveIntensity: 0.9
+        })
+      )
+      ball.castShadow = true
+      ball.position.y = 1.8
+      spinner.add(ball)
+
+      // 环绕的发光环
+      pulseRing = new THREE.Mesh(
+        new THREE.TorusGeometry(2.05, 0.055, 16, 128),
+        new THREE.MeshStandardMaterial({
+          color: 0x111827,
+          emissive: 0xf472b6,
+          emissiveIntensity: 3.2,
+          roughness: 0.35
+        })
+      )
+      pulseRing.position.y = 1.8
+      pulseRing.rotation.x = Math.PI / 2.2
+      spinner.add(pulseRing)
+
+      // 三个卫星小球
+      for (let i = 0; i < 3; i++) {
+        const s = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(0.16, 1),
+          new THREE.MeshStandardMaterial({
+            color: 0x0f172a,
+            emissive: 0x22d3ee,
+            emissiveIntensity: 2.6
+          })
+        )
+        s.userData.phase = i * Math.PI * 2 / 3
+        spinner.add(s)
+      }
+
+      world.add(spinner)
+      scene.add(world)
+      rebuildCount++
+      refreshStats()
+      log(`场景已重建（第 ${rebuildCount} 次）：geometry / material / texture 全部重新上传`)
+    }
+
+    /* ==================================================================
+       ③ 状态机：running → lost → restoring → running
+          丢失时停掉渲染循环，恢复事件里再重建并重启。
+    ================================================================== */
+    let state = 'running'
+    let running = false
+    let restoreTimer = null
+
+    const stateEl = document.getElementById('state')
+    const veil = document.getElementById('veil')
+    const veilTitle = document.getElementById('veilTitle')
+    const veilSub = document.getElementById('veilSub')
+    const logEl = document.getElementById('log')
+
+    const STATE_TEXT = {
+      running: '运行中',
+      lost: '上下文已丢失',
+      restoring: '恢复中…',
+      restored: '已恢复（场景已重建）',
+      dead: '已丢失（未处理）'
+    }
+
+    function log(msg) {
+      const t = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      const line = document.createElement('div')
+      line.textContent = `[${t}] ${msg}`
+      logEl.prepend(line)
+      while (logEl.children.length > 4) logEl.lastChild.remove()
+    }
+
+    function setState(next) {
+      state = next
+      stateEl.textContent = STATE_TEXT[next]
+      stateEl.className = 'state' + (next === 'lost' || next === 'dead' ? ' lost' : next === 'restoring' ? ' restoring' : '')
+
+      if (next === 'running') {
+        veil.classList.remove('show', 'restoring', 'ok')
+      } else if (next === 'restored') {
+        veil.classList.add('show', 'ok')
+        veil.classList.remove('restoring')
+        veilTitle.textContent = '已恢复'
+        veilSub.textContent = '场景资源已重新上传，渲染循环已重启'
+      } else {
+        veil.classList.add('show')
+        veil.classList.toggle('restoring', next === 'restoring')
+        veil.classList.remove('ok')
+        veilTitle.textContent = next === 'restoring' ? '正在恢复上下文' : next === 'dead' ? '画面已停止刷新' : '上下文已丢失'
+        veilSub.textContent = next === 'restoring'
+          ? '等待浏览器交还 GPU 上下文，随后重建全部场景资源'
+          : next === 'dead'
+            ? '「不处理」模式下没有主动调用 restoreContext，画布将一直黑屏'
+            : 'GPU 已收回绘制上下文，渲染循环已暂停'
+      }
+    }
+
+    function refreshStats() {
+      const mem = renderer.info.memory
+      const ren = renderer.info.render
+      document.getElementById('stats').textContent =
+        `geometry ${mem.geometries} · texture ${mem.textures} · calls ${ren.calls} · tri ${ren.triangles}`
+    }
+
+    function startLoop() {
+      if (running) return
+      running = true
+      renderer.setAnimationLoop(tick)
+    }
+
+    function stopLoop() {
+      running = false
+      renderer.setAnimationLoop(null)
+    }
+
+    let statTick = 0
+    function tick() {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+      const t = timer.getElapsed()
+
+      if (spinner) {
+        spinner.rotation.y = t * 0.55
+        spinner.children.forEach((child, i) => {
+          if (i === 0) return
+          if (i === 1) {
+            child.rotation.z = t * 1.4
+            child.material.emissiveIntensity = 2.6 + Math.sin(t * 3) * 1.2
+          } else {
+            const a = t * 0.9 + child.userData.phase
+            child.position.set(Math.cos(a) * 2.05, 1.8 + Math.sin(a * 2) * 0.45, Math.sin(a) * 2.05)
+          }
+        })
+      }
+
+      controls.update()
+      renderer.render(scene, camera)
+
+      statTick++
+      if (statTick % 10 === 0) refreshStats()
+    }
+
+    /* ==================================================================
+       ④ 监听两个事件：lost 与 restored。
+          handle 模式：preventDefault + 延迟调用 restoreContext + 恢复后重建。
+          ignore 模式：不主动恢复，用来对比「黑屏」的表现。
+    ================================================================== */
+    const canvas = renderer.domElement
+    const gl = renderer.getContext()
+    const loseExt = gl.getExtension('WEBGL_lose_context')
+    let lostAt = 0
+
+    const params = {
+      mode: 'handle',
+      恢复延迟: 1200,
+      强制丢失: () => forceLoss(),
+      手动恢复: () => manualRestore(),
+      重建场景: () => { buildWorld(); log('手动重建场景') }
+    }
+
+    function forceLoss() {
+      if (state !== 'running') return
+      if (!loseExt) {
+        log('当前浏览器不支持 WEBGL_lose_context，无法模拟丢失')
+        return
+      }
+      lostAt = performance.now()
+      log('调用 WEBGL_lose_context.loseContext() —— 模拟 GPU 上下文丢失')
+      // 也可用 renderer.forceContextLoss()，但拿不到扩展实例就无法主动恢复
+      loseExt.loseContext()
+    }
+
+    function manualRestore() {
+      if (state === 'running' || state === 'restored') {
+        log('上下文正常，无需恢复')
+        return
+      }
+      if (!loseExt) return
+      setState('restoring')
+      log('手动调用 restoreContext()')
+      loseExt.restoreContext()
+    }
+
+    canvas.addEventListener('webglcontextlost', (event) => {
+      if (params.mode === 'handle') {
+        // 告诉浏览器「我还在，请把上下文还给我」
+        event.preventDefault()
+        stopLoop()
+        setState('lost')
+        log('webglcontextlost：preventDefault()，渲染循环已暂停')
+        clearTimeout(restoreTimer)
+        restoreTimer = setTimeout(() => {
+          if (state !== 'lost') return
+          setState('restoring')
+          log(`等待 ${params.恢复延迟}ms 后调用 restoreContext()`)
+          loseExt && loseExt.restoreContext()
+        }, params.恢复延迟)
+      } else {
+        // 不 preventDefault 也不恢复：演示「没人处理」时的长期黑屏
+        stopLoop()
+        setState('dead')
+        log('webglcontextlost：未处理，画面停在黑屏')
+      }
+    }, false)
+
+    canvas.addEventListener('webglcontextrestored', () => {
+      clearTimeout(restoreTimer)
+      setState('restoring')
+      log('webglcontextrestored：开始重建场景资源')
+      // 重建：geometry / material / texture / program 全部重新生成
+      buildWorld()
+      startLoop()
+      setState('restored')
+      log(`恢复完成，耗时 ${Math.round(performance.now() - lostAt)}ms`)
+      setTimeout(() => {
+        if (state === 'restored') setState('running')
+      }, 1500)
+    }, false)
+
+    addEventListener('keydown', (e) => {
+      if (e.key === 'l' || e.key === 'L') forceLoss()
+      if (e.key === 'r' || e.key === 'R') manualRestore()
+    })
+
+    document.getElementById('loseBtn').addEventListener('click', forceLoss)
+    document.getElementById('restoreBtn').addEventListener('click', manualRestore)
+
+    /* ==================================================================
+       ⑤ GUI：切换处理方式、调节恢复延迟
+    ================================================================== */
+    const gui = new GUI({ title: '急救台设置' })
+    gui.add(params, 'mode', { '正确处理：自动恢复': 'handle', '不处理：保持黑屏': 'ignore' })
+      .name('丢失处理方式')
+      .onChange((v) => {
+        log(v === 'handle' ? '已切换为「正确处理」' : '已切换为「不处理」，丢失后将不再自动恢复')
+      })
+    gui.add(params, '恢复延迟', 300, 3000, 50).name('恢复延迟 (ms)')
+    gui.add(params, '强制丢失')
+    gui.add(params, '手动恢复')
+    gui.add(params, '重建场景')
+
+    /* ---------- 启动 ---------- */
+    buildWorld()
+    setState('running')
+    startLoop()
+    log('场景初始化完成，等待上下文事件')
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

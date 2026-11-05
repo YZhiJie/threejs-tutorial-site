@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>viseme-lab · 口型与表情实验台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 286px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .8);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .viseme {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin: 7px 0 3px;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+
+    .viseme .big {
+      font-size: 26px;
+      font-weight: 700;
+      color: #22d3ee;
+    }
+
+    .viseme .seq {
+      font-size: 11px;
+      color: #64748b;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .bar span:first-child {
+      width: 30px;
+    }
+
+    .bar .track {
+      flex: 1;
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, .08);
+      overflow: hidden;
+    }
+
+    .bar .fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #22d3ee, #a78bfa);
+      transition: width .06s linear;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 262px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        width: 200px;
+        font-size: 12px;
+      }
+
+      .hint {
+        white-space: normal;
+        max-width: 88vw;
+        text-align: center;
+      }
+
+      .lil-gui.root {
+        --width: 196px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>口型实验台 · morph target</b><br />
+    5 个形变目标（闭 / 微开 / 圆 / 扁 / 咧嘴）按音素权重混合。
+    <div class="viseme"><span class="big" id="viseme">M</span><span class="seq" id="seq"></span></div>
+    <div id="bars"></div>
+  </div>
+  <div class="hint">选择预设或输入一句话 · 调节语速与口型幅度 · 拖拽旋转视角</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 场景与相机 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 4, 9)
+
+    const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 50)
+    camera.position.set(0, 0.16, 3.15)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.15
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.02, 0)
+    controls.minDistance = 1.8
+    controls.maxDistance = 5
+    controls.enablePan = false
+
+    scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x0b0e14, 1.0))
+    const key = new THREE.DirectionalLight(0xffffff, 2.4)
+    key.position.set(2.2, 3.2, 3.2)
+    scene.add(key)
+    const fill = new THREE.PointLight(0x22d3ee, 12, 6, 2)
+    fill.position.set(-1.8, 0.5, 2.0)
+    scene.add(fill)
+    const rim = new THREE.PointLight(0xf472b6, 10, 6, 2)
+    rim.position.set(0.6, 1.5, -2.2)
+    scene.add(rim)
+
+    // 背景装饰环（纯几何，不使用外部图片）
+    const halo = new THREE.Mesh(
+      new THREE.TorusGeometry(1.28, 0.012, 8, 120),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.42 })
+    )
+    halo.position.set(0, 0.04, -1.4)
+    scene.add(halo)
+    const halo2 = new THREE.Mesh(
+      new THREE.TorusGeometry(1.45, 0.008, 8, 120),
+      new THREE.MeshBasicMaterial({ color: 0xa78bfa, transparent: true, opacity: 0.26 })
+    )
+    halo2.position.set(0, 0.04, -1.6)
+    scene.add(halo2)
+
+    /* ---------- 程序化头部 + morph target ---------- */
+    const headGeo = new THREE.SphereGeometry(0.85, 96, 64)
+
+    function buildMouthMorphs(geometry) {
+      const base = geometry.attributes.position.array
+      const count = geometry.attributes.position.count
+      const falloff = new Float32Array(count)
+
+      for (let i = 0; i < count; i++) {
+        const x = base[i * 3]
+        const y = base[i * 3 + 1]
+        const z = base[i * 3 + 2]
+        if (z <= 0.35) continue
+        const dx = x / 0.34
+        const dy = (y + 0.32) / 0.21
+        const d2 = dx * dx + dy * dy
+        if (d2 < 1) falloff[i] = Math.pow(1 - d2, 1.2)
+      }
+
+      const builders = {
+        closed(arr, i, f) {
+          const y = base[i * 3 + 1]
+          arr[i * 3 + 1] = (y < -0.32 ? 0.035 : -0.022) * f
+          arr[i * 3 + 2] = -0.012 * f
+        },
+        slight(arr, i, f) {
+          const y = base[i * 3 + 1]
+          arr[i * 3 + 1] = (y < -0.32 ? -0.10 : 0.018) * f
+          arr[i * 3 + 2] = 0.012 * f
+        },
+        round(arr, i, f) {
+          const x = base[i * 3]
+          const y = base[i * 3 + 1]
+          arr[i * 3] = -x * 0.55 * f
+          arr[i * 3 + 1] = (-0.32 - y) * 0.45 * f
+          arr[i * 3 + 2] = 0.07 * f
+        },
+        flat(arr, i, f) {
+          const x = base[i * 3]
+          const y = base[i * 3 + 1]
+          arr[i * 3] = x * 0.5 * f
+          arr[i * 3 + 1] = (y < -0.32 ? -0.02 : 0.015) * f
+        },
+        grin(arr, i, f) {
+          const x = base[i * 3]
+          arr[i * 3] = x * 0.28 * f
+          arr[i * 3 + 1] = (Math.abs(x) > 0.06 ? 0.075 : 0.015) * f
+          arr[i * 3 + 2] = 0.018 * f
+        }
+      }
+
+      const names = ['closed', 'slight', 'round', 'flat', 'grin']
+      const attrs = names.map((name) => {
+        const arr = new Float32Array(base.length)
+        for (let i = 0; i < count; i++) {
+          const f = falloff[i]
+          if (f > 0) builders[name](arr, i, f)
+        }
+        const attr = new THREE.BufferAttribute(arr, 3)
+        attr.name = name
+        return attr
+      })
+
+      geometry.morphAttributes.position = attrs
+      geometry.morphTargetsRelative = true
+      return names
+    }
+
+    const MORPH_NAMES = buildMouthMorphs(headGeo)
+    const MORPH_LABELS = ['闭', '微开', '圆', '扁', '咧嘴']
+
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0xf2cdb4,
+      roughness: 0.62,
+      metalness: 0.04
+    })
+    const head = new THREE.Mesh(headGeo, headMat)
+    head.updateMorphTargets()
+
+    const headGroup = new THREE.Group()
+    headGroup.position.set(0, 0.10, 0)
+    headGroup.add(head)
+    scene.add(headGroup)
+
+    // 口腔：深色椭圆随口型缩放，与 morph 的唇形配合
+    const outerMouth = new THREE.Mesh(
+      new THREE.CircleGeometry(0.155, 40),
+      new THREE.MeshBasicMaterial({ color: 0xb3727c })
+    )
+    outerMouth.position.set(0, -0.31, 0.795)
+    headGroup.add(outerMouth)
+
+    const innerMouth = new THREE.Mesh(
+      new THREE.CircleGeometry(0.128, 40),
+      new THREE.MeshBasicMaterial({ color: 0x1a0a0e })
+    )
+    innerMouth.position.set(0, -0.31, 0.801)
+    headGroup.add(innerMouth)
+
+    // 眼睛与眉毛
+    const eyeMats = {
+      white: new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.28 }),
+      iris: new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.35 }),
+      pupil: new THREE.MeshStandardMaterial({ color: 0x0b0e14, roughness: 0.2 })
+    }
+    const eyes = []
+    for (const sx of [-1, 1]) {
+      const eye = new THREE.Group()
+      eye.position.set(sx * 0.28, 0.17, 0.74)
+
+      const white = new THREE.Mesh(new THREE.SphereGeometry(0.095, 24, 18), eyeMats.white)
+      white.scale.z = 0.55
+      eye.add(white)
+
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.05, 18, 14), eyeMats.iris)
+      iris.position.z = 0.055
+      eye.add(iris)
+
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.026, 14, 10), eyeMats.pupil)
+      pupil.position.z = 0.095
+      eye.add(pupil)
+
+      headGroup.add(eye)
+      eyes.push(eye)
+    }
+
+    const brows = []
+    for (const sx of [-1, 1]) {
+      const brow = new THREE.Mesh(
+        new THREE.BoxGeometry(0.21, 0.032, 0.035),
+        new THREE.MeshStandardMaterial({ color: 0x5b4038, roughness: 0.7 })
+      )
+      brow.position.set(sx * 0.29, 0.37, 0.76)
+      brow.rotation.z = sx * 0.10
+      headGroup.add(brow)
+      brows.push(brow)
+    }
+
+    const nose = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 18, 14),
+      new THREE.MeshStandardMaterial({ color: 0xe0a68a, roughness: 0.65 })
+    )
+    nose.position.set(0, -0.06, 0.84)
+    nose.scale.set(1, 0.8, 0.55)
+    headGroup.add(nose)
+
+    // 颈部与肩部，给头部一个落点
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.75, metalness: 0.15 })
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.27, 0.7, 24), headMat)
+    neck.position.set(0, -1.02, 0)
+    scene.add(neck)
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 0.55, 6, 28), bodyMat)
+    torso.position.set(0, -1.72, 0)
+    scene.add(torso)
+    const collar = new THREE.Mesh(
+      new THREE.TorusGeometry(0.3, 0.045, 10, 48),
+      new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.4, metalness: 0.3 })
+    )
+    collar.position.set(0, -0.7, 0)
+    collar.rotation.x = Math.PI / 2
+    scene.add(collar)
+
+    /* ---------- 音素 → 口型 ---------- */
+    const VOWEL_VISEME = { a: 'A', o: 'O', e: 'E', i: 'I', u: 'U', v: 'U' }
+    const CONSONANT_VISEME = { m: 'M', b: 'M', p: 'M', f: 'F', w: 'U' }
+
+    const PINYIN = {
+      你: 'ni', 好: 'hao', 我: 'wo', 是: 'shi', 数: 'shu', 字: 'zi', 人: 'ren',
+      今: 'jin', 天: 'tian', 气: 'qi', 不: 'bu', 错: 'cuo', 我: 'wo', 们: 'men',
+      开: 'kai', 始: 'shi', 吧: 'ba', 欢: 'huan', 迎: 'ying', 来: 'lai',
+      到: 'dao', 世: 'shi', 界: 'jie', 的: 'de', 小: 'xiao', 七: 'qi',
+      介: 'jie', 绍: 'shao', 自: 'zi', 己: 'ji', 名: 'ming', 程: 'cheng',
+      序: 'xu', 化: 'hua', 表: 'biao', 情: 'qing', 和: 'he', 口: 'kou',
+      型: 'xing', 都: 'dou', 由: 'you', 代: 'dai', 码: 'ma', 实: 'shi',
+      时: 'shi', 驱: 'qu', 动: 'dong', 这: 'zhe', 里: 'li', 很: 'hen',
+      高: 'gao', 兴: 'xing', 认: 'ren', 识: 'shi', 请: 'qing', 多: 'duo',
+      关: 'guan', 照: 'zhao'
+    }
+
+    function visemesForSyllable(syl) {
+      const out = []
+      const first = syl[0]
+      if (CONSONANT_VISEME[first]) out.push(CONSONANT_VISEME[first])
+
+      let last = null
+      for (const ch of syl) {
+        const v = VOWEL_VISEME[ch]
+        if (v && v !== last) {
+          out.push(v)
+          last = v
+        }
+      }
+      if (out.length === 0) out.push('E')
+      return out.slice(0, 3)
+    }
+
+    function hash01(str, salt) {
+      let h = 2166136261 + salt
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i)
+        h = Math.imul(h, 16777619)
+      }
+      return ((h >>> 0) % 1000) / 1000
+    }
+
+    function visemesForChar(ch) {
+      if (PINYIN[ch]) return visemesForSyllable(PINYIN[ch])
+      const lower = ch.toLowerCase()
+      if (/[a-z]/.test(lower)) return visemesForSyllable(lower)
+      const vowels = 'AEIOU'
+      return [vowels[Math.floor(hash01(ch, 7) * vowels.length)]]
+    }
+
+    function buildTimeline(text) {
+      const segs = []
+      const punctuation = '，。！？、,.!?'
+      for (const ch of text) {
+        if (ch === ' ') {
+          segs.push({ v: 'M', dur: 0.14 })
+          continue
+        }
+        if (punctuation.includes(ch)) {
+          segs.push({ v: 'M', dur: 0.3 })
+          continue
+        }
+        const vs = visemesForChar(ch)
+        vs.forEach((v, k) => {
+          const jitter = 0.85 + hash01(ch + k, 3) * 0.35
+          segs.push({ v, dur: 0.105 * jitter })
+        })
+      }
+      let t = 0
+      segs.forEach((s) => {
+        s.start = t
+        t += s.dur
+        s.end = t
+      })
+      return { segs, total: t }
+    }
+
+    const VISEME_WEIGHTS = {
+      A: { closed: 0.0, slight: 1.55, round: 0.10, flat: 0.55, grin: 0.10 },
+      E: { closed: 0.0, slight: 0.32, round: 0.0, flat: 1.0, grin: 0.35 },
+      I: { closed: 0.0, slight: 0.12, round: 0.0, flat: 0.82, grin: 0.5 },
+      O: { closed: 0.0, slight: 0.55, round: 1.0, flat: 0.0, grin: 0.0 },
+      U: { closed: 0.10, slight: 0.22, round: 0.85, flat: 0.0, grin: 0.0 },
+      M: { closed: 1.0, slight: 0.0, round: 0.0, flat: 0.0, grin: 0.0 },
+      F: { closed: 0.18, slight: 0.28, round: 0.0, flat: 0.58, grin: 0.0 }
+    }
+
+    /* ---------- 播放状态 ---------- */
+    const presetTexts = {
+      '你好，我是数字人。': '你好，我是数字人。',
+      '今天天气不错，我们开始吧。': '今天天气不错，我们开始吧。',
+      '欢迎来到 Three.js 的世界。': '欢迎来到 Three.js 的世界。',
+      'Hello, digital human.': 'Hello, digital human.'
+    }
+
+    const params = {
+      预设: '你好，我是数字人。',
+      文本: '你好，我是数字人。',
+      语速: 1.0,
+      口型幅度: 1.0,
+      叠加眨眼: true,
+      头部微动: true,
+      播放: true
+    }
+
+    let timeline = buildTimeline(params.文本)
+    let playTime = 0
+    let segIndex = 0
+    const weights = [0.25, 0.35, 0, 0, 0]
+
+    function replay() {
+      playTime = 0
+      segIndex = 0
+      params.播放 = true
+    }
+
+    function setText(text) {
+      params.文本 = text
+      timeline = buildTimeline(text)
+      const seqEl = document.getElementById('seq')
+      seqEl.textContent = timeline.segs.slice(0, 28).map((s) => s.v).join(' ')
+      replay()
+    }
+
+    const barsEl = document.getElementById('bars')
+    const barFills = MORPH_NAMES.map((name, i) => {
+      const row = document.createElement('div')
+      row.className = 'bar'
+      const label = document.createElement('span')
+      label.textContent = MORPH_LABELS[i]
+      const track = document.createElement('div')
+      track.className = 'track'
+      const fill = document.createElement('div')
+      fill.className = 'fill'
+      track.appendChild(fill)
+      row.appendChild(label)
+      row.appendChild(track)
+      barsEl.appendChild(row)
+      return fill
+    })
+
+    const visemeEl = document.getElementById('viseme')
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '口型与表情' })
+    gui.add(params, '预设', Object.keys(presetTexts)).name('预设语句').onChange((v) => {
+      setText(presetTexts[v])
+    })
+    gui.add(params, '文本').name('自定义文本（mock）').onFinishChange((v) => {
+      if (v.trim()) setText(v.trim())
+    })
+    gui.add(params, '语速', 0.4, 2.2, 0.01).name('语速')
+    gui.add(params, '口型幅度', 0.2, 1.8, 0.01).name('口型幅度')
+    gui.add(params, '叠加眨眼').name('叠加眨眼')
+    gui.add(params, '头部微动').name('头部微动')
+    gui.add(params, '播放').name('播放 / 暂停')
+    gui.add({ replay }, 'replay').name('重播')
+
+    setText(params.文本)
+
+    /* ---------- 眨眼与主循环 ---------- */
+    let blinkWait = 2.4
+    let blinkPhase = 0
+
+    function updateBlink(dt) {
+      if (!params.叠加眨眼) {
+        eyes.forEach((e) => { e.scale.y = 1 })
+        return
+      }
+      if (blinkPhase > 0) {
+        blinkPhase -= dt
+        if (blinkPhase <= 0) blinkPhase = 0
+      } else {
+        blinkWait -= dt
+        if (blinkWait <= 0) {
+          blinkPhase = 0.18
+          blinkWait = 2.6 + Math.random() * 3.2
+        }
+      }
+      const p = blinkPhase > 0 ? 1 - blinkPhase / 0.18 : 0
+      const squash = 1 - Math.sin(p * Math.PI) * 0.93
+      eyes.forEach((e) => { e.scale.y = squash })
+    }
+
+    function findSegment(time) {
+      const segs = timeline.segs
+      if (!segs.length) return null
+      while (segIndex < segs.length - 1 && time > segs[segIndex].end) segIndex++
+      return segs[segIndex]
+    }
+
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    const _target = { closed: 0, slight: 0, round: 0, flat: 0, grin: 0 }
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.06)
+      const elapsed = timer.getElapsed()
+
+      if (params.播放) {
+        playTime += dt * params.语速
+        if (playTime >= timeline.total) {
+          playTime = 0
+          segIndex = 0
+        }
+      }
+
+      const seg = params.播放 ? findSegment(playTime) : null
+      const viseme = seg ? seg.v : 'M'
+      visemeEl.textContent = viseme
+
+      const vw = VISEME_WEIGHTS[viseme]
+      const amp = params.口型幅度
+      MORPH_NAMES.forEach((name, i) => {
+        _target[name] = vw[name] * amp
+      })
+
+      const k = 1 - Math.exp(-dt * 20)
+      MORPH_NAMES.forEach((name, i) => {
+        weights[i] += (_target[name] - weights[i]) * k
+        head.morphTargetInfluences[i] = weights[i]
+        barFills[i].style.width = Math.min(100, Math.abs(weights[i]) * 62) + '%'
+      })
+
+      const open = weights[1] + weights[2]
+      const wide = Math.max(0.5, 1 + weights[3] * 0.7 + weights[4] * 0.35 - weights[2] * 0.18)
+      const tall = 0.32 + open * 0.55 + weights[4] * 0.06
+      innerMouth.scale.set(wide, tall, 1)
+      outerMouth.scale.set(wide * 1.16, tall * 1.16, 1)
+
+      if (params.头部微动) {
+        headGroup.rotation.y = Math.sin(elapsed * 0.55) * 0.075
+        headGroup.rotation.x = Math.sin(elapsed * 0.8) * 0.035
+        headGroup.position.y = 0.10 + Math.sin(elapsed * 1.3) * 0.012
+      } else {
+        headGroup.rotation.set(0, 0, 0)
+        headGroup.position.y = 0.10
+      }
+
+      updateBlink(dt)
+      halo.rotation.z = elapsed * 0.05
+      halo2.rotation.z = -elapsed * 0.035
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

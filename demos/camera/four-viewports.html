@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>four-viewports · 四视口多视角观察器</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #05070b; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    /* 四宫格分隔线 */
+    .frame {
+      position: fixed; inset: 0; pointer-events: none;
+      background:
+        linear-gradient(to right, transparent calc(50% - 1px), #1e293b calc(50% - 1px),
+          #1e293b calc(50% + 1px), transparent calc(50% + 1px)),
+        linear-gradient(to bottom, transparent calc(50% - 1px), #1e293b calc(50% - 1px),
+          #1e293b calc(50% + 1px), transparent calc(50% + 1px));
+    }
+    .tag {
+      position: fixed; padding: 4px 12px; font-size: 12px; font-weight: 700;
+      background: rgba(11,14,20,.75); border: 1px solid rgba(255,255,255,.1);
+      border-radius: 6px; pointer-events: none; color: #9fb4d4;
+    }
+    .tag.active { color: #7cc4ff; border-color: rgba(124,196,255,.5); }
+    #t1 { top: 12px; left: 14px; }
+    #t2 { top: 12px; right: 14px; }
+    #t3 { bottom: 12px; left: 14px; }
+    #t4 { bottom: 12px; right: 14px; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="frame"></div>
+  <div class="tag active" id="t1">透视视图（可交互）</div>
+  <div class="tag" id="t2">顶视图 Top（−Y 向下看）</div>
+  <div class="tag" id="t3">正视图 Front（−Z 向前看）</div>
+  <div class="tag" id="t4">侧视图 Side（+X 向左看）</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x05070b)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.setSize(innerWidth, innerHeight)
+    // 多视口：关闭自动清屏，每帧手动 clear 后按视口逐个渲染
+    renderer.autoClear = false
+    renderer.setScissorTest(true)
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    // 透视相机（左上，可交互）
+    const persp = new THREE.PerspectiveCamera(50, 1, 0.1, 100)
+    persp.position.set(4, 4, 6)
+
+    // 三台正交相机
+    function makeOrtho() {
+      return new THREE.OrthographicCamera(-3, 3, 3, -3, 0.1, 100)
+    }
+    const top = makeOrtho()       // 顶视：从 +Y 看向原点
+    top.position.set(0, 8, 0.0001)
+    top.lookAt(0, 0, 0)
+    const front = makeOrtho()     // 正视：从 +Z 看
+    front.position.set(0.0001, 2, 8)
+    front.lookAt(0, 0.5, 0)
+    const side = makeOrtho()      // 侧视：从 +X 看
+    side.position.set(8, 2, 0.0001)
+    side.lookAt(0, 0.5, 0)
+
+    const controls = new OrbitControls(persp, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.5, 0)
+
+    // —— 场景内容 ——
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x202020, 0.8))
+    const dir = new THREE.DirectionalLight(0xffffff, 1.6)
+    dir.position.set(4, 7, 5)
+    scene.add(dir)
+
+    scene.add(new THREE.GridHelper(12, 12, 0x334155, 0x1e293b))
+    scene.add(new THREE.AxesHelper(2))
+
+    const group = new THREE.Group()
+    const m1 = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 1.2),
+      new THREE.MeshStandardMaterial({ color: 0x60a5fa })
+    )
+    m1.position.set(-1.6, 0.6, 0)
+    const m2 = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.5, 0.5, 1.4, 32),
+      new THREE.MeshStandardMaterial({ color: 0xf472b6 })
+    )
+    m2.position.set(0.6, 0.7, -0.8)
+    const m3 = new THREE.Mesh(
+      new THREE.SphereGeometry(0.7, 32, 24),
+      new THREE.MeshStandardMaterial({ color: 0x34d399 })
+    )
+    m3.position.set(1.4, 0.7, 1.2)
+    group.add(m1, m2, m3)
+    scene.add(group)
+
+    // 按视口宽高比更新正交相机的视野范围，防止变形
+    function updateOrthoCameras(w, h) {
+      const aspect = w / h
+      for (const cam of [top, front, side]) {
+        cam.left = -3 * aspect
+        cam.right = 3 * aspect
+        cam.top = 3
+        cam.bottom = -3
+        cam.updateProjectionMatrix()
+      }
+      persp.aspect = aspect
+      persp.updateProjectionMatrix()
+    }
+    updateOrthoCameras(innerWidth / 2, innerHeight / 2)
+
+    // 在指定矩形视口内渲染一台相机
+    function renderViewport(camera, x, y, w, h) {
+      renderer.setViewport(x, y, w, h)
+      renderer.setScissor(x, y, w, h)
+      renderer.render(scene, camera)
+    }
+
+    renderer.setAnimationLoop(() => {
+      group.rotation.y += 0.004
+      controls.update()
+
+      const w = Math.floor(innerWidth / 2)
+      const h = Math.floor(innerHeight / 2)
+
+      renderer.clear(true, true, true)
+      // WebGL 视口原点在左下角，CSS 标签原点在左上角，注意 y 的换算
+      renderViewport(persp, 0, h, w, h)          // 左上
+      renderViewport(top, w, h, w, h)            // 右上
+      renderViewport(front, 0, 0, w, h)          // 左下
+      renderViewport(side, w, 0, w, h)           // 右下
+    })
+
+    addEventListener('resize', () => {
+      renderer.setSize(innerWidth, innerHeight)
+      updateOrthoCameras(innerWidth / 2, innerHeight / 2)
+    })
+  </script>
+</body>
+</html>

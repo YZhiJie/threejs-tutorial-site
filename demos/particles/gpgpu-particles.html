@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>gpgpu-particles · GPGPU 粒子</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 260px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>把 for 循环搬进显卡</b><br />
+    4096 颗粒子的位置与速度存在 float 纹理里，<br />
+    每帧由片元着色器在显存内完成受力与积分；<br />
+    JS 只喂 uniform，从不碰粒子数据。<br />
+    移动鼠标：对粒子群施加排斥 / 吸引。
+  </div>
+  <div class="hint">移动鼠标扰动粒子群 · 拖拽旋转视角 · 右侧面板调物理参数</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(
+      45, window.innerWidth / window.innerHeight, 0.1, 100
+    )
+    camera.position.set(0, 2.5, 14)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    // ---------- Canvas 程序化柔点贴图（同 points-basic） ----------
+    function makeSoftDotTexture(size = 64) {
+      const cv = document.createElement('canvas')
+      cv.width = cv.height = size
+      const ctx = cv.getContext('2d')
+      const g = ctx.createRadialGradient(
+        size / 2, size / 2, 0, size / 2, size / 2, size / 2
+      )
+      g.addColorStop(0.0, 'rgba(255,255,255,1)')
+      g.addColorStop(0.4, 'rgba(255,255,255,0.6)')
+      g.addColorStop(1.0, 'rgba(255,255,255,0)')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, size, size)
+      return new THREE.CanvasTexture(cv)
+    }
+
+    // ---------- 1. GPGPU：状态纹理 + 两个计算变量 ----------
+    const WIDTH = 64                                // 64×64 = 4096 粒子
+    const gpu = new GPUComputationRenderer(WIDTH, WIDTH, renderer)
+
+    // 初始状态：均匀球体内随机位置，零速度；w 分量存随机种子
+    const dtPos = gpu.createTexture()
+    const dtVel = gpu.createTexture()
+    const posArr = dtPos.image.data
+    for (let i = 0; i < posArr.length; i += 4) {
+      const r = Math.cbrt(Math.random()) * 5
+      const t = Math.random() * Math.PI * 2
+      const p = Math.acos(2 * Math.random() - 1)
+      posArr[i]     = r * Math.sin(p) * Math.cos(t)
+      posArr[i + 1] = r * Math.sin(p) * Math.sin(t)
+      posArr[i + 2] = r * Math.cos(p)
+      posArr[i + 3] = Math.random()
+    }
+
+    // 速度更新：弹簧回中 + 鼠标斥力/引力 + 阻尼（片元着色器当计算器）
+    const velFrag = /* glsl */ `
+      uniform vec3 uMousePos;
+      uniform float uRepel;
+      uniform float uSpring;
+      uniform float uDamping;
+      uniform float uDelta;
+
+      void main() {
+        vec2 uv = gl_FragCoord.xy / resolution.xy;
+        vec4 pos = texture2D(texturePosition, uv);
+        vec4 vel = texture2D(textureVelocity, uv);
+
+        vec3 force = -pos.xyz * uSpring;
+        vec3 toMouse = pos.xyz - uMousePos;
+        float d2 = dot(toMouse, toMouse);
+        force += normalize(toMouse + 0.0001) * uRepel / (d2 + 0.5);
+
+        vel.xyz += force * uDelta;
+        vel.xyz *= uDamping;
+        gl_FragColor = vel;
+      }
+    `
+
+    // 位置更新：半隐式欧拉积分 p' = p + v*dt
+    const posFrag = /* glsl */ `
+      uniform float uDelta;
+
+      void main() {
+        vec2 uv = gl_FragCoord.xy / resolution.xy;
+        vec4 pos = texture2D(texturePosition, uv);
+        vec4 vel = texture2D(textureVelocity, uv);
+        pos.xyz += vel.xyz * uDelta;
+        gl_FragColor = pos;
+      }
+    `
+
+    const posVar = gpu.addVariable('texturePosition', posFrag, dtPos)
+    const velVar = gpu.addVariable('textureVelocity', velFrag, dtVel)
+    // 依赖列表决定哪些变量纹理会被注入为 sampler2D（含自己：读旧值）
+    gpu.setVariableDependencies(posVar, [posVar, velVar])
+    gpu.setVariableDependencies(velVar, [posVar, velVar])
+
+    velVar.material.uniforms.uMousePos = { value: new THREE.Vector3(999, 999, 999) }
+    velVar.material.uniforms.uRepel    = { value: 18.0 }
+    velVar.material.uniforms.uSpring   = { value: 0.8 }
+    velVar.material.uniforms.uDamping  = { value: 0.96 }
+    velVar.material.uniforms.uDelta    = { value: 0 }
+    posVar.material.uniforms.uDelta    = { value: 0 }
+
+    const gpuError = gpu.init()
+    if (gpuError !== null) {
+      document.querySelector('.info').innerHTML =
+        '<b>GPGPU 初始化失败</b><br />' + gpuError +
+        '<br />当前设备/浏览器不支持所需能力。'
+    }
+
+    // ---------- 2. 绘制：position 占位，reference 指向状态纹理 ----------
+    const COUNT = WIDTH * WIDTH
+    const refs = new Float32Array(COUNT * 2)
+    for (let i = 0; i < COUNT; i++) {
+      refs[i * 2]     = (i % WIDTH) / WIDTH + 0.5 / WIDTH   // 纹素中心 u
+      refs[i * 2 + 1] = Math.floor(i / WIDTH) / WIDTH + 0.5 / WIDTH
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(COUNT * 3), 3))
+    geo.setAttribute('reference', new THREE.BufferAttribute(refs, 2))
+
+    const pointsVert = /* glsl */ `
+      uniform sampler2D texturePosition;
+      uniform sampler2D textureVelocity;
+      uniform float uSize;
+      attribute vec2 reference;
+      varying float vSpeed;
+
+      void main() {
+        vec3 p = texture2D(texturePosition, reference).xyz;
+        vec3 v = texture2D(textureVelocity, reference).xyz;
+        vSpeed = length(v);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = uSize * (300.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }
+    `
+
+    const pointsFrag = /* glsl */ `
+      uniform sampler2D uTexture;
+      uniform vec3 uColorSlow;
+      uniform vec3 uColorFast;
+      varying float vSpeed;
+
+      void main() {
+        vec4 tex = texture2D(uTexture, gl_PointCoord);
+        float k = smoothstep(0.0, 6.0, vSpeed);
+        vec3 color = mix(uColorSlow, uColorFast, k);
+        gl_FragColor = vec4(color * tex.rgb, tex.a);
+      }
+    `
+
+    const pointsUniforms = {
+      texturePosition: { value: null },   // 每帧由 gpu.getCurrentRenderTarget 喂入
+      textureVelocity: { value: null },
+      uSize:      { value: 2.4 },
+      uTexture:   { value: makeSoftDotTexture() },
+      uColorSlow: { value: new THREE.Color(0x3b82f6) },
+      uColorFast: { value: new THREE.Color(0x7ff3ff) }
+    }
+    const pointsMat = new THREE.ShaderMaterial({
+      uniforms: pointsUniforms,
+      vertexShader: pointsVert,
+      fragmentShader: pointsFrag,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+    const pointsObj = new THREE.Points(geo, pointsMat)
+    pointsObj.frustumCulled = false   // 占位 position 全为 0，包围球不可信
+    scene.add(pointsObj)
+
+    // ---------- 3. 鼠标：NDC 反投影到 z=0 平面 ----------
+    const raycaster = new THREE.Raycaster()
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
+    const hitPoint = new THREE.Vector3()
+    const mouseUniform = velVar.material.uniforms.uMousePos
+
+    addEventListener('pointermove', e => {
+      const ndc = new THREE.Vector2(
+        (e.clientX / innerWidth) * 2 - 1,
+        -(e.clientY / innerHeight) * 2 + 1
+      )
+      raycaster.setFromCamera(ndc, camera)
+      if (raycaster.ray.intersectPlane(plane, hitPoint)) {
+        mouseUniform.value.copy(hitPoint)
+      }
+    })
+    addEventListener('pointerleave', () => mouseUniform.value.set(999, 999, 999))
+
+    // ---------- 4. lil-gui：物理参数全开放 ----------
+    const params = {
+      mode: '排斥', strength: 18, spring: 0.8,
+      damping: 0.96, pointSize: 2.4,
+      reset: () => resetSim()
+    }
+
+    function applyMode() {
+      const sign = params.mode === '吸引' ? -1 : 1
+      velVar.material.uniforms.uRepel.value = sign * params.strength
+    }
+    function resetSim() {
+      dtPos.needsUpdate = true   // 重新上传初始纹理
+      dtVel.needsUpdate = true
+      gpu.renderTexture(dtPos, posVar.renderTargets[0])
+      gpu.renderTexture(dtPos, posVar.renderTargets[1])
+      gpu.renderTexture(dtVel, velVar.renderTargets[0])
+      gpu.renderTexture(dtVel, velVar.renderTargets[1])
+    }
+
+    const gui = new GUI({ title: 'GPGPU 粒子' })
+    gui.add(params, 'mode', ['排斥', '吸引']).name('交互模式').onChange(applyMode)
+    gui.add(params, 'strength', 0, 40, 0.5).name('交互强度').onChange(applyMode)
+    gui.add(params, 'spring', 0, 3, 0.05).name('回弹力度')
+      .onChange(v => velVar.material.uniforms.uSpring.value = v)
+    gui.add(params, 'damping', 0.85, 0.99, 0.005).name('阻尼')
+      .onChange(v => velVar.material.uniforms.uDamping.value = v)
+    gui.add(params, 'pointSize', 0.5, 6, 0.1).name('粒子大小')
+      .onChange(v => pointsUniforms.uSize.value = v)
+    gui.add(params, 'reset').name('重置粒子')
+
+    // ---------- 5. 渲染循环：先 compute 再画 ----------
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update() // 每帧先 update，再读取 delta
+      const dt = Math.min(clock.getDelta(), 0.033) // clamp：防切后台后爆炸
+      velVar.material.uniforms.uDelta.value = dt
+      posVar.material.uniforms.uDelta.value = dt
+      gpu.compute()
+      pointsUniforms.texturePosition.value =
+        gpu.getCurrentRenderTarget(posVar).texture
+      pointsUniforms.textureVelocity.value =
+        gpu.getCurrentRenderTarget(velVar).texture
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>dashboard-lab · 可交互 3D 数据看板</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 372px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .perf {
+      display: block;
+      margin-top: 6px;
+      color: #64748b;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* ---------- 右侧 HTML 指标卡 ---------- */
+    .panel {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      width: 252px;
+      max-height: calc(100% - 28px);
+      overflow: auto;
+      padding: 14px;
+      background: rgba(11, 14, 20, .82);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 12px;
+      font-size: 13px;
+      pointer-events: auto;
+    }
+
+    .panel h1 {
+      margin: 0;
+      font-size: 16px;
+      letter-spacing: 1px;
+      color: #7cc4ff;
+    }
+
+    .panel .sub {
+      display: block;
+      margin: 2px 0 12px;
+      color: #64748b;
+      font-size: 11px;
+      letter-spacing: 2px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 7px 0;
+      background: rgba(34, 211, 238, .08);
+      color: #9fb4d4;
+      border: 1px solid rgba(34, 211, 238, .25);
+      border-radius: 7px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: rgba(34, 211, 238, .25);
+      color: #e6faff;
+      border-color: rgba(34, 211, 238, .7);
+    }
+
+    .kpi {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .kpi div {
+      padding: 9px 10px;
+      background: rgba(18, 27, 43, .9);
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: 8px;
+    }
+
+    .kpi span {
+      display: block;
+      color: #94a3b8;
+      font-size: 11px;
+    }
+
+    .kpi b {
+      display: block;
+      margin-top: 3px;
+      color: #34d399;
+      font-size: 17px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .detail {
+      min-height: 122px;
+      padding: 10px;
+      background: rgba(18, 27, 43, .72);
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: 8px;
+      color: #94a3b8;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .detail .name {
+      color: #fbbf24;
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+
+    .detail .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .detail .row b {
+      color: #e2e8f0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .detail .rank {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed rgba(255, 255, 255, .1);
+      color: #7dd3fc;
+      font-size: 11.5px;
+    }
+
+    .foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 12px;
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    #refreshBtn {
+      padding: 6px 10px;
+      background: rgba(52, 211, 153, .12);
+      color: #6ee7b7;
+      border: 1px solid rgba(52, 211, 153, .45);
+      border-radius: 7px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    #refreshBtn:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .note {
+      margin-top: 8px;
+      color: #475569;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .tag {
+      padding: 1px 6px;
+      background: rgba(8, 12, 20, .82);
+      border: 1px solid rgba(124, 196, 255, .32);
+      border-radius: 5px;
+      font-size: 10px;
+      color: #9fb4d4;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .tag.active {
+      background: rgba(251, 191, 36, .9);
+      border-color: #fde68a;
+      color: #0b1220;
+      font-weight: bold;
+    }
+
+    .fallback {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      padding: 32px;
+      overflow: auto;
+      background: #0b0e14;
+      z-index: 20;
+    }
+
+    .fallback h2 {
+      margin: 0;
+      color: #fbbf24;
+      font-size: 18px;
+    }
+
+    .fallback p {
+      margin: 0;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+
+    .fallback table {
+      border-collapse: collapse;
+      width: 100%;
+      max-width: 760px;
+      font-size: 13px;
+    }
+
+    .fallback th,
+    .fallback td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, .08);
+      text-align: left;
+    }
+
+    .fallback th {
+      color: #7cc4ff;
+      font-weight: 600;
+    }
+
+    .lil-gui.root {
+      --width: 240px;
+      position: fixed !important;
+      top: auto !important;
+      right: auto !important;
+      bottom: 58px !important;
+      left: 14px !important;
+    }
+
+    @media (max-width: 640px) {
+      .panel {
+        width: 196px;
+        padding: 10px;
+      }
+
+      .info {
+        max-width: 190px;
+        font-size: 12px;
+      }
+
+      .hint {
+        font-size: 11px;
+      }
+
+      .lil-gui.root {
+        --width: 180px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="info">
+    <b>dashboard-lab · 可交互 3D 数据看板</b><br />
+    柱状按区域排序，散点按门店数横向铺开，两种图共享同一份数据与同一个选中状态。<br />
+    颜色由冷到暖表示当前指标由低到高，精确值看柱子标签与右侧明细。<br />
+    <span class="perf" id="perf">FPS -- · draw calls --</span>
+  </div>
+
+  <aside class="panel" id="panel">
+    <h1>区域运营看板</h1>
+    <span class="sub">3D DATA DASHBOARD</span>
+    <div class="tabs">
+      <button class="tab active" data-metric="sales">销售额</button>
+      <button class="tab" data-metric="growth">增长率</button>
+      <button class="tab" data-metric="distribution">门店分布</button>
+    </div>
+    <div class="kpi">
+      <div><span id="kpiTotalLabel">指标合计</span><b id="kpiTotal">--</b></div>
+      <div><span>领先区域</span><b id="kpiBest">--</b></div>
+    </div>
+    <div class="detail" id="detail">点击任意柱子查看明细</div>
+    <div class="foot">
+      <span id="updateTime">更新于 --</span>
+      <button id="refreshBtn">刷新数据</button>
+    </div>
+    <div class="note" id="note">本地 mock 接口 · 刷新带 900ms 节流</div>
+  </aside>
+
+  <div class="hint">点击柱子下钻明细 · 拖拽旋转 · 右下角切换指标与自动刷新</div>
+
+  <div class="fallback" id="fallback"></div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 数据模型（mock） ---------- */
+    const REGIONS = ['华东', '华南', '华北', '西南', '华中', '东北', '西北', '海外']
+
+    let seed = 13579
+    function rand() {
+      seed = (seed * 1664525 + 1013904223) % 4294967296
+      return seed / 4294967296
+    }
+
+    const state = REGIONS.map((name) => ({
+      name,
+      sales: 620 + rand() * 980,
+      growth: 3 + rand() * 24,
+      stores: 36 + Math.floor(rand() * 120),
+      orders: 1200 + Math.floor(rand() * 5200),
+      avgPrice: 90 + rand() * 260
+    }))
+
+    const METRICS = {
+      sales: { label: '销售额', unit: '万元', get: (d) => d.sales },
+      growth: { label: '增长率', unit: '%', get: (d) => d.growth },
+      distribution: { label: '门店数', unit: '家', get: (d) => d.stores }
+    }
+
+    const params = {
+      metric: 'sales',
+      autoRefresh: false
+    }
+
+    /* ---------- 无 WebGL 时的降级表格 ---------- */
+    function showFallback() {
+      document.getElementById('app').style.display = 'none'
+      document.getElementById('panel').style.display = 'none'
+      document.querySelector('.info').innerHTML =
+        '<b>WebGL 不可用</b><br>已自动降级为 2D 表格，数据与交互逻辑保持不变。'
+      const rows = state.map((d) => `
+        <tr>
+          <td>${d.name}</td>
+          <td>${d.sales.toFixed(0)} 万元</td>
+          <td>${d.growth.toFixed(1)}%</td>
+          <td>${d.stores}</td>
+          <td>${d.orders}</td>
+          <td>${d.avgPrice.toFixed(0)} 元</td>
+        </tr>`).join('')
+      const fb = document.getElementById('fallback')
+      fb.innerHTML = `
+        <h2>当前环境没有可用的 WebGL</h2>
+        <p>看板已降级为原生 HTML 表格：信息不丢失，只是失去了空间编码与动画。</p>
+        <table>
+          <thead>
+            <tr><th>区域</th><th>销售额</th><th>增长率</th><th>门店数</th><th>订单量</th><th>客单价</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`
+      fb.style.display = 'flex'
+    }
+
+    /* ---------- WebGL 探测 ---------- */
+    const probe = document.createElement('canvas')
+    const gl = probe.getContext('webgl2') || probe.getContext('webgl')
+
+    if (!gl) {
+      showFallback()
+    } else {
+      boot()
+    }
+
+    function boot() {
+      /* ---------- 场景与渲染器 ---------- */
+      const scene = new THREE.Scene()
+      scene.background = new THREE.Color(0x0b0e14)
+      scene.fog = new THREE.Fog(0x0b0e14, 40, 90)
+
+      const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200)
+      camera.position.set(-5, 13, 21)
+
+      let renderer
+      try {
+        renderer = new THREE.WebGLRenderer({ antialias: true })
+      } catch (err) {
+        showFallback()
+        return
+      }
+      renderer.setSize(innerWidth, innerHeight)
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+      document.getElementById('app').appendChild(renderer.domElement)
+
+      const cssRenderer = new CSS2DRenderer()
+      cssRenderer.setSize(innerWidth, innerHeight)
+      Object.assign(cssRenderer.domElement.style, {
+        position: 'absolute',
+        top: '0',
+        left: '0',
+        pointerEvents: 'none'
+      })
+      document.getElementById('app').appendChild(cssRenderer.domElement)
+
+      const controls = new OrbitControls(camera, renderer.domElement)
+      controls.enableDamping = true
+      controls.target.set(-1, 3.2, -1)
+      controls.maxPolarAngle = Math.PI / 2.05
+
+      scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x181f2c, 1.3))
+      const dir = new THREE.DirectionalLight(0xffffff, 2)
+      dir.position.set(10, 18, 12)
+      scene.add(dir)
+
+      /* ---------- 地面与网格 ---------- */
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(24, 16),
+        new THREE.MeshBasicMaterial({ color: 0x111a29 })
+      )
+      ground.rotation.x = -Math.PI / 2
+      ground.position.set(-1, -0.02, -2)
+      scene.add(ground)
+
+      const grid = new THREE.GridHelper(24, 24, 0x26344c, 0x182234)
+      grid.position.set(-1, 0.01, -2)
+      scene.add(grid)
+
+      /* ---------- 颜色：连续色 LUT ---------- */
+      const STOPS = ['#1e3a8a', '#22d3ee', '#fbbf24', '#fb7185']
+      const stopColors = STOPS.map(hex => new THREE.Color(hex))
+      const LUT = new Float32Array(64 * 3)
+      for (let i = 0; i < 64; i++) {
+        const x = (i / 63) * (stopColors.length - 1)
+        const a = Math.floor(x)
+        const b = Math.min(stopColors.length - 1, a + 1)
+        const c = new THREE.Color().copy(stopColors[a]).lerp(stopColors[b], x - a)
+        LUT[i * 3] = c.r
+        LUT[i * 3 + 1] = c.g
+        LUT[i * 3 + 2] = c.b
+      }
+
+      function rampColor(t) {
+        const i = Math.min(63, Math.max(0, Math.floor(t * 63)))
+        return new THREE.Color(LUT[i * 3], LUT[i * 3 + 1], LUT[i * 3 + 2])
+      }
+
+      /* ---------- 柱状图 ---------- */
+      const BAR_COUNT = REGIONS.length
+      const SPACING = 1.28
+      const bars = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(0.86, 1, 0.86),
+        new THREE.MeshStandardMaterial({ roughness: 0.42, metalness: 0.18 }),
+        BAR_COUNT
+      )
+      bars.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+      scene.add(bars)
+
+      const dummy = new THREE.Object3D()
+      const currentHeights = new Array(BAR_COUNT).fill(0.35)
+      const targetHeights = new Array(BAR_COUNT).fill(0.35)
+
+      function barX(i) {
+        return (i - (BAR_COUNT - 1) / 2) * SPACING
+      }
+
+      /* ---------- 散点图（与柱状共享数据） ---------- */
+      const scatterBaseX = new Array(BAR_COUNT).fill(0)
+      const scatterPositions = new Float32Array(BAR_COUNT * 3)
+      const scatterColors = new Float32Array(BAR_COUNT * 3)
+
+      const scatterGeometry = new THREE.BufferGeometry()
+      scatterGeometry.setAttribute('position', new THREE.BufferAttribute(scatterPositions, 3))
+      scatterGeometry.setAttribute('color', new THREE.BufferAttribute(scatterColors, 3))
+
+      const scatter = new THREE.Points(
+        scatterGeometry,
+        new THREE.PointsMaterial({
+          size: 0.62,
+          vertexColors: true,
+          sizeAttenuation: true
+        })
+      )
+      scene.add(scatter)
+
+      // 选中点的定位球
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5, 18, 12),
+        new THREE.MeshBasicMaterial({ color: 0xfde68a })
+      )
+      marker.visible = false
+      scene.add(marker)
+
+      /* ---------- CSS2D 柱子标签 ---------- */
+      const labels = REGIONS.map((name, i) => {
+        const div = document.createElement('div')
+        div.className = 'tag'
+        div.textContent = name
+        const obj = new CSS2DObject(div)
+        obj.position.set(barX(i), 1, 0)
+        scene.add(obj)
+        return { div, obj }
+      })
+
+      /* ---------- 指标计算 ---------- */
+      let selected = -1
+
+      function metricValues() {
+        const get = METRICS[params.metric].get
+        return state.map(get)
+      }
+
+      function metricMax() {
+        return Math.max(1, ...metricValues())
+      }
+
+      function computeTargets() {
+        const max = metricMax()
+        metricValues().forEach((v, i) => {
+          targetHeights[i] = 0.35 + (v / max) * 7.2
+        })
+      }
+
+      function updateScatterX() {
+        const stores = state.map((d) => d.stores)
+        const min = Math.min(...stores)
+        const max = Math.max(...stores)
+        const span = Math.max(1, max - min)
+        state.forEach((d, i) => {
+          scatterBaseX[i] = ((d.stores - min) / span) * 11 - 5.5
+          scatterPositions[i * 3] = scatterBaseX[i]
+          scatterPositions[i * 3 + 2] = -5.5
+          scatterPositions[i * 3 + 1] = currentHeights[i]
+        })
+        scatterGeometry.attributes.position.needsUpdate = true
+      }
+
+      /* ---------- 上色与选中联动 ---------- */
+      function paintAll() {
+        const values = metricValues()
+        const min = Math.min(...values)
+        const max = Math.max(...values)
+        const span = Math.max(1e-6, max - min)
+        const temp = new THREE.Color()
+
+        values.forEach((v, i) => {
+          const t = (v - min) / span
+          if (i === selected) {
+            bars.setColorAt(i, new THREE.Color(0xfbbf24))
+          } else {
+            bars.setColorAt(i, rampColor(t))
+          }
+
+          if (i === selected) {
+            temp.setHex(0xfbbf24)
+          } else {
+            temp.copy(rampColor(t))
+          }
+          scatterColors[i * 3] = temp.r
+          scatterColors[i * 3 + 1] = temp.g
+          scatterColors[i * 3 + 2] = temp.b
+
+          labels[i].div.classList.toggle('active', i === selected)
+          labels[i].div.textContent =
+            `${state[i].name} ${formatValue(v)}`
+        })
+
+        if (bars.instanceColor) bars.instanceColor.needsUpdate = true
+        scatterGeometry.attributes.color.needsUpdate = true
+
+        if (selected >= 0) {
+          marker.position.set(
+            scatterBaseX[selected],
+            currentHeights[selected],
+            -5.5
+          )
+          marker.visible = true
+        } else {
+          marker.visible = false
+        }
+      }
+
+      function formatValue(v) {
+        const metric = METRICS[params.metric]
+        if (metric.unit === '%') return v.toFixed(1) + '%'
+        return v.toFixed(0) + ' ' + metric.unit
+      }
+
+      /* ---------- 侧栏更新 ---------- */
+      function updatePanel() {
+        const metric = METRICS[params.metric]
+        const values = metricValues()
+        const total = values.reduce((a, b) => a + b, 0)
+        const bestIndex = values.indexOf(Math.max(...values))
+        const unit = metric.unit === '%' ? '%' : metric.unit
+        const isRate = metric.unit === '%'
+
+        document.getElementById('kpiTotalLabel').textContent =
+          isRate ? '平均增长' : '指标合计'
+        document.getElementById('kpiTotal').textContent = isRate
+          ? (total / values.length).toFixed(1) + '%'
+          : total.toFixed(0) + ' ' + unit
+        document.getElementById('kpiBest').textContent =
+          state[bestIndex].name + ' · ' + formatValue(values[bestIndex])
+
+        const detail = document.getElementById('detail')
+        if (selected < 0) {
+          detail.innerHTML = '点击任意柱子查看明细'
+        } else {
+          const d = state[selected]
+          const rank = values.slice().sort((a, b) => b - a).indexOf(values[selected]) + 1
+          const extra = []
+          if (params.metric !== 'sales') {
+            extra.push(`<div class="row"><span>销售额</span><b>${d.sales.toFixed(0)} 万元</b></div>`)
+          }
+          if (params.metric !== 'growth') {
+            extra.push(`<div class="row"><span>增长率</span><b>${d.growth.toFixed(1)}%</b></div>`)
+          }
+          if (params.metric !== 'distribution') {
+            extra.push(`<div class="row"><span>门店数</span><b>${d.stores} 家</b></div>`)
+          }
+          detail.innerHTML = `
+            <div class="name">${d.name} 大区</div>
+            <div class="row"><span>${metric.label}</span><b>${formatValue(values[selected])}</b></div>
+            ${extra.join('')}
+            <div class="row"><span>客单价</span><b>${d.avgPrice.toFixed(0)} 元</b></div>
+            <div class="rank">当前指标排名：第 ${rank} / ${BAR_COUNT}</div>`
+        }
+      }
+
+      /* ---------- 刷新（mock 接口 + 节流） ---------- */
+      const refreshBtn = document.getElementById('refreshBtn')
+      const noteEl = document.getElementById('note')
+      const updateEl = document.getElementById('updateTime')
+      let lastRefreshAt = 0
+      let refreshing = false
+
+      function stampTime() {
+        updateEl.textContent =
+          '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      }
+
+      function mutateData() {
+        state.forEach((d) => {
+          d.sales = Math.max(180, d.sales * (0.94 + rand() * 0.14))
+          d.growth = Math.min(42, Math.max(1, d.growth + (rand() - 0.5) * 6))
+          d.stores = Math.max(10, d.stores + Math.round((rand() - 0.5) * 6))
+          d.orders = Math.max(400, Math.round(d.orders * (0.95 + rand() * 0.1)))
+          d.avgPrice = Math.max(30, d.avgPrice * (0.96 + rand() * 0.08))
+        })
+      }
+
+      function refreshData() {
+        if (refreshing) return
+        const now = performance.now()
+        if (now - lastRefreshAt < 900) {
+          noteEl.textContent = '刷新过快 · 已触发 900ms 节流'
+          return
+        }
+        lastRefreshAt = now
+        refreshing = true
+        refreshBtn.disabled = true
+        refreshBtn.textContent = '刷新中…'
+        noteEl.textContent = '正在请求 mock 接口…'
+
+        setTimeout(() => {
+          mutateData()
+          computeTargets()
+          updateScatterX()
+          paintAll()
+          updatePanel()
+          stampTime()
+          refreshing = false
+          refreshBtn.disabled = false
+          refreshBtn.textContent = '刷新数据'
+          noteEl.textContent = 'mock 接口返回 · 刷新带 900ms 节流'
+        }, 420)
+      }
+
+      refreshBtn.addEventListener('click', refreshData)
+
+      /* ---------- 指标切换 ---------- */
+      function setMetric(metric) {
+        params.metric = metric
+        document.querySelectorAll('.tab').forEach((btn) => {
+          btn.classList.toggle('active', btn.dataset.metric === metric)
+        })
+        metricController.updateDisplay()
+        computeTargets()
+        updateScatterX()
+        paintAll()
+        updatePanel()
+      }
+
+      document.querySelectorAll('.tab').forEach((btn) => {
+        btn.addEventListener('click', () => setMetric(btn.dataset.metric))
+      })
+
+      /* ---------- 点击柱子：射线拾取 instanceId ---------- */
+      const raycaster = new THREE.Raycaster()
+      const pointer = new THREE.Vector2()
+      let downX = 0
+      let downY = 0
+
+      renderer.domElement.addEventListener('pointerdown', (e) => {
+        downX = e.clientX
+        downY = e.clientY
+      })
+
+      renderer.domElement.addEventListener('pointerup', (e) => {
+        if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return
+        pointer.x = (e.clientX / innerWidth) * 2 - 1
+        pointer.y = -(e.clientY / innerHeight) * 2 + 1
+        raycaster.setFromCamera(pointer, camera)
+        const hit = raycaster.intersectObject(bars)[0]
+        if (hit && Number.isInteger(hit.instanceId)) {
+          selected = hit.instanceId
+        } else {
+          selected = -1
+        }
+        paintAll()
+        updatePanel()
+      })
+
+      /* ---------- GUI ---------- */
+      let autoTimer = 0
+      const gui = new GUI({ title: '看板控制' })
+      const metricController = gui.add(params, 'metric', {
+        '销售额': 'sales',
+        '增长率': 'growth',
+        '门店分布': 'distribution'
+      }).name('指标').onChange(setMetric)
+      metricController.updateDisplay()
+      gui.add(params, 'autoRefresh').name('自动刷新（6s）')
+        .onChange((on) => {
+          if (on) {
+            refreshData()
+            autoTimer = setInterval(refreshData, 6000)
+          } else {
+            clearInterval(autoTimer)
+          }
+        })
+
+      window.addEventListener('beforeunload', () => clearInterval(autoTimer))
+
+      /* ---------- 初始化 ---------- */
+      computeTargets()
+      currentHeights.fill(0.35)
+      updateScatterX()
+      paintAll()
+      updatePanel()
+      stampTime()
+
+      /* ---------- 主循环 ---------- */
+      const timer = new THREE.Timer()
+      timer.connect(document)
+      let fps = 60
+      const perfEl = document.getElementById('perf')
+
+      renderer.setAnimationLoop(() => {
+        timer.update()
+        const dt = timer.getDelta()
+        if (dt > 0) fps = fps * 0.92 + (1 / dt) * 0.08
+
+        // 高度动画：指数逼近目标值
+        let dirty = false
+        for (let i = 0; i < BAR_COUNT; i++) {
+          const diff = targetHeights[i] - currentHeights[i]
+          if (Math.abs(diff) > 0.0005) {
+            currentHeights[i] += diff * (1 - Math.exp(-dt * 9))
+            dirty = true
+          }
+          const h = currentHeights[i]
+          dummy.position.set(barX(i), h / 2, 0)
+          dummy.scale.set(1, h, 1)
+          dummy.rotation.set(0, 0, 0)
+          dummy.updateMatrix()
+          bars.setMatrixAt(i, dummy.matrix)
+
+          labels[i].obj.position.y = h + 0.55
+          scatterPositions[i * 3 + 1] = h
+        }
+        if (dirty) {
+          bars.instanceMatrix.needsUpdate = true
+          scatterGeometry.attributes.position.needsUpdate = true
+        }
+
+        if (selected >= 0) {
+          marker.position.y = currentHeights[selected]
+        }
+
+        controls.update()
+        renderer.render(scene, camera)
+        cssRenderer.render(scene, camera)
+
+        perfEl.textContent =
+          `FPS ${fps.toFixed(0)} · draw calls ${renderer.info.render.calls}` +
+          ` · 选中 ${selected < 0 ? '无' : state[selected].name}`
+      })
+
+      addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight
+        camera.updateProjectionMatrix()
+        renderer.setSize(innerWidth, innerHeight)
+        cssRenderer.setSize(innerWidth, innerHeight)
+      })
+    }
+  </script>
+</body>
+
+</html>

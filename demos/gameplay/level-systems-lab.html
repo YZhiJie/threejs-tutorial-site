@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>level-systems-lab · 关卡、计分与存档</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info,
+    .hud {
+      position: fixed;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 12.5px;
+      line-height: 1.6;
+    }
+
+    .info {
+      top: 14px;
+      left: 14px;
+      width: 278px;
+      padding: 10px 12px;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info kbd {
+      display: inline-block;
+      padding: 0 5px;
+      border: 1px solid #334155;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      background: #111a30;
+      color: #e2e8f0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .info .row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .info select {
+      padding: 2px 5px;
+      border: 1px solid #334155;
+      border-radius: 5px;
+      background: #111a30;
+      color: #dbeafe;
+      font-size: 11px;
+    }
+
+    .info .best {
+      color: #fbbf24;
+    }
+
+    .info .notice {
+      color: #fb7185;
+    }
+
+    .actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .actions button {
+      flex: 1;
+      padding: 5px 4px;
+      border: 1px solid #334155;
+      border-radius: 7px;
+      background: #111a30;
+      color: #cbd5e1;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .actions button:hover {
+      border-color: #22d3ee;
+      color: #a5f3fc;
+    }
+
+    .hud {
+      top: 14px;
+      right: 14px;
+      width: 274px;
+      padding: 8px 10px;
+    }
+
+    .hud-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 8px;
+    }
+
+    .stat {
+      padding: 4px 8px;
+      border: 1px solid #1e2a44;
+      border-radius: 8px;
+      background: rgba(17, 26, 48, .7);
+    }
+
+    .stat span {
+      display: block;
+      color: #64748b;
+      font-size: 10px;
+      letter-spacing: .05em;
+    }
+
+    .stat b {
+      display: block;
+      margin-top: 1px;
+      color: #7dd3fc;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 15px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat b.pop {
+      animation: popScore .3s ease;
+    }
+
+    @keyframes popScore {
+      50% {
+        color: #fbbf24;
+        transform: scale(1.16);
+      }
+    }
+
+    .phase-badge {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: #164e63;
+      color: #a5f3fc;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-weight: 600;
+    }
+
+    .phase-badge.playing {
+      background: #064e3b;
+      color: #6ee7b7;
+    }
+
+    .phase-badge.paused {
+      background: #78350f;
+      color: #fcd34d;
+    }
+
+    .phase-badge.finished {
+      background: #3b0764;
+      color: #d8b4fe;
+    }
+
+    .phase-badge.failed {
+      background: #7f1d1d;
+      color: #fecaca;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(4, 7, 12, .64);
+      backdrop-filter: blur(3px);
+    }
+
+    .overlay.show {
+      display: flex;
+    }
+
+    .card {
+      width: 342px;
+      padding: 24px 26px;
+      border: 1px solid rgba(34, 211, 238, .35);
+      border-radius: 14px;
+      background: #0e1730;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, .6);
+      text-align: center;
+    }
+
+    .card .kicker {
+      color: #22d3ee;
+      font-size: 10.5px;
+      letter-spacing: .2em;
+    }
+
+    .card h2 {
+      margin: 8px 0 8px;
+      font-size: 20px;
+      color: #e2e8f0;
+    }
+
+    .card p {
+      margin: 0 0 16px;
+      color: #94a3b8;
+      font-size: 12.5px;
+      line-height: 1.75;
+    }
+
+    .card button {
+      width: 100%;
+      margin-top: 8px;
+      padding: 9px 0;
+      border: 1px solid #22d3ee;
+      border-radius: 8px;
+      background: #0b2b3a;
+      color: #a5f3fc;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .card button:hover {
+      background: #10495f;
+    }
+
+    .card button.ghost {
+      border-color: #334155;
+      background: #111a30;
+      color: #94a3b8;
+    }
+
+    .grade {
+      margin: 2px 0 6px;
+      font-size: 58px;
+      font-weight: 800;
+      line-height: 1;
+      background: linear-gradient(90deg, #22d3ee, #34d399);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .grade.a {
+      background: linear-gradient(90deg, #a78bfa, #f472b6);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+
+    .grade.b {
+      background: linear-gradient(90deg, #94a3b8, #fbbf24);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 14px 0 6px;
+    }
+
+    .result-grid div {
+      padding: 7px 4px;
+      border: 1px solid #1e2a44;
+      border-radius: 8px;
+      background: rgba(17, 26, 48, .7);
+    }
+
+    .result-grid span {
+      display: block;
+      color: #64748b;
+      font-size: 10px;
+    }
+
+    .result-grid b {
+      display: block;
+      margin-top: 2px;
+      color: #e2e8f0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 15px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 210px;
+      top: auto;
+      bottom: 52px;
+      right: 14px;
+    }
+
+    @media (max-width: 700px) {
+      .info {
+        width: 214px;
+        font-size: 11.5px;
+      }
+
+      .hud {
+        width: 208px;
+      }
+
+      .stat b {
+        font-size: 13px;
+      }
+
+      .hint {
+        font-size: 11px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="info">
+    <b>关卡系统实验 · 状态机 / 计分 / 存档</b><br />
+    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动 · <kbd>P</kbd> 暂停 · <kbd>R</kbd> 重开 ·
+    <kbd>Enter</kbd> 开始<br />
+    关卡状态：<span class="phase-badge" id="phaseBadge">ready</span>
+    <div class="row">
+      存档槽
+      <select id="slotSelect">
+        <option value="1">槽 1</option>
+        <option value="2">槽 2</option>
+      </select>
+      <span>最佳：<span class="best" id="bestText">暂无</span></span>
+    </div>
+    <div id="saveNotice" class="notice" style="display:none">存档已损坏，已回退到默认值。</div>
+    <div class="actions">
+      <button type="button" id="pauseBtn">暂停</button>
+      <button type="button" id="restartBtn">重开</button>
+    </div>
+  </div>
+
+  <div class="hud">
+    <div class="hud-grid">
+      <div class="stat"><span>倒计时</span><b id="timeText">45.0s</b></div>
+      <div class="stat"><span>得分</span><b id="scoreText">0</b></div>
+      <div class="stat"><span>连击</span><b id="comboText">×1</b></div>
+      <div class="stat"><span>目标</span><b id="progressText">0 / 5</b></div>
+    </div>
+  </div>
+
+  <div class="overlay show" id="startOverlay">
+    <div class="card">
+      <div class="kicker">LIMITED TIME · 5 TARGETS</div>
+      <h2>限时收集 · 关卡一</h2>
+      <p>45 秒内收集 5 个光球。连续收集会叠加连击倍率，剩余时间在结算时折算为加分。<br />
+        成绩自动写入当前存档槽。</p>
+      <button type="button" id="startBtn">开始挑战</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="pauseOverlay">
+    <div class="card">
+      <div class="kicker">PAUSED</div>
+      <h2>已暂停</h2>
+      <p>计时、目标动画与移动都已冻结。确认后从暂停点继续。</p>
+      <button type="button" id="resumeBtn">继续挑战</button>
+      <button type="button" class="ghost" id="pauseRestartBtn">重新开始</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="settleOverlay">
+    <div class="card">
+      <div class="kicker" id="settleKicker">LEVEL CLEAR</div>
+      <div class="grade" id="gradeText">S</div>
+      <h2 id="settleTitle">关卡完成</h2>
+      <div class="result-grid">
+        <div><span>最终得分</span><b id="finalScore">0</b></div>
+        <div><span>剩余时间</span><b id="finalTime">0.0s</b></div>
+        <div><span>最佳成绩</span><b id="finalBest">0</b></div>
+      </div>
+      <button type="button" id="replayBtn">再玩一次</button>
+      <button type="button" class="ghost" id="settleCloseBtn">留在场景</button>
+    </div>
+  </div>
+
+  <div class="hint">WASD 移动 · 收集光球 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 场景 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 14, 28)
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 120)
+    camera.position.set(0, 6.2, 9.5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.1
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.9, 0)
+    controls.minDistance = 4
+    controls.maxDistance = 16
+    controls.maxPolarAngle = Math.PI * 0.46
+
+    scene.add(new THREE.AmbientLight(0x9bb4d0, 1.25))
+    const keyLight = new THREE.DirectionalLight(0xdbeafe, 2.4)
+    keyLight.position.set(6, 9, 5)
+    scene.add(keyLight)
+    const rimLight = new THREE.PointLight(0xa78bfa, 26, 18, 2)
+    rimLight.position.set(-6, 4, -6)
+    scene.add(rimLight)
+
+    const arena = new THREE.Mesh(
+      new THREE.PlaneGeometry(18, 18),
+      new THREE.MeshStandardMaterial({ color: 0x101827, roughness: 0.86, metalness: 0.12 })
+    )
+    arena.rotation.x = -Math.PI / 2
+    scene.add(arena)
+
+    const grid = new THREE.GridHelper(18, 18, 0x22d3ee, 0x1c2740)
+    grid.position.y = 0.012
+    grid.material.transparent = true
+    grid.material.opacity = 0.38
+    scene.add(grid)
+
+    const borderMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.35 })
+    ;[-9, 9].forEach((value) => {
+      const lineX = new THREE.Mesh(new THREE.BoxGeometry(18, 0.04, 0.05), borderMat)
+      lineX.position.set(0, 0.03, value)
+      scene.add(lineX)
+      const lineZ = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 18), borderMat)
+      lineZ.position.set(value, 0.03, 0)
+      scene.add(lineZ)
+    })
+
+    // 四角光柱，标出关卡边界
+    const pillarGeo = new THREE.BoxGeometry(0.16, 3, 0.16)
+    const pillarMat = new THREE.MeshStandardMaterial({
+      color: 0x1e3a5f,
+      emissive: 0x0e7490,
+      emissiveIntensity: 0.7
+    })
+    ;[-9, 9].forEach((x) => {
+      ;[-9, 9].forEach((z) => {
+        const pillar = new THREE.Mesh(pillarGeo, pillarMat)
+        pillar.position.set(x, 1.5, z)
+        scene.add(pillar)
+      })
+    })
+
+    /* ---------- 角色 ---------- */
+    const player = new THREE.Group()
+    player.position.set(0, 0, 0)
+    scene.add(player)
+
+    const playerBody = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.32, 0.58, 8, 18),
+      new THREE.MeshStandardMaterial({
+        color: 0xf97316,
+        roughness: 0.42,
+        metalness: 0.12,
+        emissive: 0x7c2d12,
+        emissiveIntensity: 0.4
+      })
+    )
+    playerBody.position.y = 0.72
+    player.add(playerBody)
+
+    const playerHead = new THREE.Mesh(
+      new THREE.SphereGeometry(0.29, 22, 16),
+      new THREE.MeshStandardMaterial({ color: 0xffd9b3, roughness: 0.65 })
+    )
+    playerHead.position.y = 1.32
+    player.add(playerHead)
+
+    const playerHair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.302, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.58),
+      new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.5 })
+    )
+    playerHair.position.y = 1.34
+    player.add(playerHair)
+
+    const eyeGeo = new THREE.SphereGeometry(0.034, 10, 8)
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x0b1220 })
+    ;[-0.1, 0.1].forEach((x) => {
+      const eye = new THREE.Mesh(eyeGeo, eyeMat)
+      eye.position.set(x, 1.33, 0.258)
+      player.add(eye)
+    })
+
+    /* ---------- 5 个目标 ---------- */
+    const TARGET_POSITIONS = [
+      [-5.2, -4.2],
+      [4.6, -3.4],
+      [-3.6, 3.8],
+      [5.2, 4.2],
+      [0.4, -7.4]
+    ]
+    const TARGET_COLORS = [0x22d3ee, 0xf472b6, 0xfbbf24, 0x34d399, 0xa78bfa]
+    const targets = []
+
+    TARGET_POSITIONS.forEach(([x, z], index) => {
+      const group = new THREE.Group()
+      group.position.set(x, 1.05, z)
+      scene.add(group)
+
+      const color = TARGET_COLORS[index]
+      const core = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.34, 0),
+        new THREE.MeshStandardMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 1.5,
+          roughness: 0.25,
+          metalness: 0.2
+        })
+      )
+      group.add(core)
+
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.58, 0.045, 8, 28),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75 })
+      )
+      ring.rotation.x = Math.PI / 2
+      group.add(ring)
+
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.16, 0.3, 1.0, 12, 1, true),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false })
+      )
+      beam.position.y = -0.55
+      group.add(beam)
+
+      targets.push({ group, core, ring, active: true, color })
+    })
+
+    /* ---------- 存档：版本化 + 校验 + 兜底 ---------- */
+    const SAVE_KEY = 'threejs-tutorial:gameplay:level-system:v1'
+    const SAVE_VERSION = 1
+    let currentSlot = '1'
+    let saveCorrupt = false
+
+    function emptySlot() {
+      return { bestScore: 0, bestRating: '-', bestTime: 0, plays: 0, updatedAt: 0 }
+    }
+
+    function makeSave() {
+      return {
+        version: SAVE_VERSION,
+        slots: { 1: emptySlot(), 2: emptySlot() },
+        updatedAt: 0
+      }
+    }
+
+    function isValidSlot(slot) {
+      return slot &&
+        typeof slot.bestScore === 'number' && Number.isFinite(slot.bestScore) &&
+        typeof slot.bestRating === 'string' &&
+        typeof slot.bestTime === 'number' && Number.isFinite(slot.bestTime) &&
+        typeof slot.plays === 'number' && Number.isFinite(slot.plays)
+    }
+
+    function loadSave() {
+      try {
+        const raw = localStorage.getItem(SAVE_KEY)
+        if (!raw) return makeSave()
+        const data = JSON.parse(raw)
+        if (!data || data.version !== SAVE_VERSION || typeof data.slots !== 'object' || data.slots === null) {
+          throw new Error('存档版本或结构不匹配')
+        }
+        if (!isValidSlot(data.slots['1']) || !isValidSlot(data.slots['2'])) {
+          throw new Error('存档字段损坏')
+        }
+        return data
+      } catch (error) {
+        saveCorrupt = true
+        try { localStorage.removeItem(SAVE_KEY) } catch (removeError) { /* 存储不可用时忽略 */ }
+        return makeSave()
+      }
+    }
+
+    let save = loadSave()
+
+    const bestText = document.getElementById('bestText')
+    const saveNotice = document.getElementById('saveNotice')
+    const slotSelect = document.getElementById('slotSelect')
+
+    if (saveCorrupt) saveNotice.style.display = 'block'
+
+    function updateBestDisplay() {
+      const slot = save.slots[currentSlot]
+      bestText.textContent = slot.bestScore > 0 ? `${slot.bestScore} 分 · ${slot.bestRating}` : '暂无'
+    }
+
+    slotSelect.value = currentSlot
+    slotSelect.addEventListener('change', () => {
+      currentSlot = slotSelect.value
+      updateBestDisplay()
+    })
+
+    function persistSave() {
+      try {
+        localStorage.setItem(SAVE_KEY, JSON.stringify(save))
+      } catch (error) {
+        saveNotice.textContent = '写入存档失败（可能是隐私模式或空间不足）。'
+        saveNotice.style.display = 'block'
+      }
+    }
+
+    function saveRecord(finalScore, grade, timeUsed, success) {
+      const slot = save.slots[currentSlot]
+      slot.plays += 1
+      if (success && finalScore > slot.bestScore) {
+        slot.bestScore = finalScore
+        slot.bestRating = grade
+        slot.bestTime = timeUsed
+      }
+      slot.updatedAt = Date.now()
+      save.updatedAt = Date.now()
+      persistSave()
+      updateBestDisplay()
+      return slot.bestScore
+    }
+
+    /* ---------- 关卡状态机 ---------- */
+    const PHASE_ALLOWED = {
+      ready: { start: 'playing' },
+      playing: { pause: 'paused', finish: 'finished', fail: 'failed', restart: 'ready' },
+      paused: { resume: 'playing', restart: 'ready' },
+      finished: { restart: 'ready' },
+      failed: { restart: 'ready' }
+    }
+    let phase = 'ready'
+    let timeLimit = 45
+    let remaining = timeLimit
+    let score = 0
+    let combo = 0
+    let comboTimer = 0
+    let collected = 0
+    let elapsed = 0
+    let visualTime = 0
+
+    const phaseBadge = document.getElementById('phaseBadge')
+    const timeText = document.getElementById('timeText')
+    const scoreText = document.getElementById('scoreText')
+    const comboText = document.getElementById('comboText')
+    const progressText = document.getElementById('progressText')
+    const startOverlay = document.getElementById('startOverlay')
+    const pauseOverlay = document.getElementById('pauseOverlay')
+    const settleOverlay = document.getElementById('settleOverlay')
+    const gradeText = document.getElementById('gradeText')
+    const settleKicker = document.getElementById('settleKicker')
+    const settleTitle = document.getElementById('settleTitle')
+    const finalScore = document.getElementById('finalScore')
+    const finalTime = document.getElementById('finalTime')
+    const finalBest = document.getElementById('finalBest')
+
+    function setPhase(next, event) {
+      const allowed = PHASE_ALLOWED[phase] ? PHASE_ALLOWED[phase][event] : undefined
+      if (allowed !== next) return false
+      phase = next
+      phaseBadge.textContent = phase
+      phaseBadge.className = 'phase-badge ' + phase
+      return true
+    }
+
+    function updateHud() {
+      timeText.textContent = remaining.toFixed(1) + 's'
+      scoreText.textContent = String(score)
+      comboText.textContent = '×' + Math.max(1, combo)
+      progressText.textContent = collected + ' / ' + targets.length
+    }
+
+    function resetLevel() {
+      remaining = timeLimit
+      score = 0
+      combo = 0
+      comboTimer = 0
+      collected = 0
+      elapsed = 0
+      targets.forEach((target) => {
+        target.active = true
+        target.group.visible = true
+        target.group.scale.setScalar(1)
+      })
+      pauseOverlay.classList.remove('show')
+      settleOverlay.classList.remove('show')
+      startOverlay.classList.remove('show')
+      updateHud()
+    }
+
+    function startGame() {
+      if (phase !== 'ready') return
+      resetLevel()
+      if (!setPhase('playing', 'start')) return
+      startOverlay.classList.remove('show')
+      updateHud()
+    }
+
+    function restartGame() {
+      if (phase !== 'ready') setPhase('ready', 'restart')
+      resetLevel()
+      setPhase('playing', 'start')
+      startOverlay.classList.remove('show')
+      updateHud()
+    }
+
+    function togglePause() {
+      if (phase === 'playing') {
+        setPhase('paused', 'pause')
+        pauseOverlay.classList.add('show')
+      } else if (phase === 'paused') {
+        setPhase('playing', 'resume')
+        pauseOverlay.classList.remove('show')
+      }
+    }
+
+    function gradeFor(value, success) {
+      if (!success) return 'B'
+      if (value >= 1200) return 'S'
+      if (value >= 850) return 'A'
+      return 'B'
+    }
+
+    function finishLevel(success) {
+      if (phase !== 'playing') return
+      let final = score
+      let bonus = 0
+      if (success) {
+        bonus = Math.round(remaining * 8)
+        final = score + bonus
+      }
+      const grade = gradeFor(final, success)
+      setPhase('finished', success ? 'finish' : 'fail')
+      pauseOverlay.classList.remove('show')
+      settleOverlay.classList.add('show')
+
+      settleKicker.textContent = success ? 'LEVEL CLEAR' : 'TIME UP'
+      settleTitle.textContent = success ? '关卡完成' : '时间到'
+      gradeText.textContent = grade
+      gradeText.className = 'grade ' + grade.toLowerCase()
+      finalScore.textContent = String(final)
+      finalTime.textContent = success ? remaining.toFixed(1) + 's' : '0.0s'
+      finalBest.textContent = String(saveRecord(final, grade, elapsed, success))
+    }
+
+    function collectTarget(target) {
+      if (phase !== 'playing' || !target.active) return
+      target.active = false
+      target.group.visible = false
+      collected += 1
+      combo = comboTimer > 0 ? Math.min(combo + 1, 5) : 1
+      comboTimer = 2.6
+      score += 80 * combo
+      beep(520 + combo * 90, 0.09)
+      scoreText.classList.remove('pop')
+      void scoreText.offsetWidth
+      scoreText.classList.add('pop')
+      if (collected === targets.length) {
+        finishLevel(true)
+      }
+      updateHud()
+    }
+
+    /* ---------- 音效占位 ---------- */
+    let audioCtx = null
+    function beep(freq, duration) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+        if (audioCtx.state === 'suspended') audioCtx.resume()
+        const osc = audioCtx.createOscillator()
+        const gain = audioCtx.createGain()
+        const now = audioCtx.currentTime
+        osc.type = 'triangle'
+        osc.frequency.setValueAtTime(freq, now)
+        gain.gain.setValueAtTime(0.0001, now)
+        gain.gain.exponentialRampToValueAtTime(0.07, now + 0.012)
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
+        osc.connect(gain)
+        gain.connect(audioCtx.destination)
+        osc.start(now)
+        osc.stop(now + duration + 0.02)
+      } catch (error) {
+        // 音频不可用时静默降级
+      }
+    }
+
+    /* ---------- 输入 ---------- */
+    const held = new Set()
+    const KEY_MOVE = { KeyW: 'forward', KeyA: 'left', KeyS: 'back', KeyD: 'right' }
+
+    addEventListener('keydown', (event) => {
+      if (KEY_MOVE[event.code]) {
+        event.preventDefault()
+        held.add(KEY_MOVE[event.code])
+        return
+      }
+      if (event.repeat) return
+      if (event.code === 'KeyP' || event.code === 'Escape') {
+        event.preventDefault()
+        togglePause()
+      } else if (event.code === 'KeyR') {
+        event.preventDefault()
+        restartGame()
+      } else if (event.code === 'Enter') {
+        event.preventDefault()
+        if (phase === 'ready') startGame()
+      }
+    })
+
+    addEventListener('keyup', (event) => {
+      if (!KEY_MOVE[event.code]) return
+      event.preventDefault()
+      held.delete(KEY_MOVE[event.code])
+    })
+
+    document.getElementById('startBtn').addEventListener('click', startGame)
+    document.getElementById('resumeBtn').addEventListener('click', togglePause)
+    document.getElementById('pauseRestartBtn').addEventListener('click', restartGame)
+    document.getElementById('replayBtn').addEventListener('click', restartGame)
+    document.getElementById('settleCloseBtn').addEventListener('click', () => {
+      settleOverlay.classList.remove('show')
+    })
+    document.getElementById('restartBtn').addEventListener('click', restartGame)
+    document.getElementById('pauseBtn').addEventListener('click', () => {
+      if (phase === 'finished' || phase === 'failed') {
+        restartGame()
+      } else {
+        togglePause()
+      }
+    })
+
+    /* ---------- 每帧：只推进逻辑，不把真实时间混进暂停 ---------- */
+    const camForward = new THREE.Vector3()
+    const camRight = new THREE.Vector3()
+    const moveDir = new THREE.Vector3()
+    const UP = new THREE.Vector3(0, 1, 0)
+    const followTarget = new THREE.Vector3()
+
+    function updatePlayer(dt) {
+      camera.getWorldDirection(camForward)
+      camForward.y = 0
+      camForward.normalize()
+      camRight.crossVectors(camForward, UP).normalize()
+
+      moveDir.set(0, 0, 0)
+      if (held.has('forward')) moveDir.add(camForward)
+      if (held.has('back')) moveDir.sub(camForward)
+      if (held.has('right')) moveDir.add(camRight)
+      if (held.has('left')) moveDir.sub(camRight)
+
+      if (moveDir.lengthSq() > 0) {
+        moveDir.normalize()
+        player.position.x = THREE.MathUtils.clamp(player.position.x + moveDir.x * 4.1 * dt, -8.4, 8.4)
+        player.position.z = THREE.MathUtils.clamp(player.position.z + moveDir.z * 4.1 * dt, -8.4, 8.4)
+        player.rotation.y = THREE.MathUtils.lerp(
+          player.rotation.y,
+          Math.atan2(moveDir.x, moveDir.z),
+          Math.min(1, dt * 12)
+        )
+        playerBody.position.y = 0.72 + Math.abs(Math.sin(visualTime * 9)) * 0.06
+      } else {
+        playerBody.position.y = 0.72 + Math.sin(visualTime * 2.3) * 0.02
+      }
+
+      followTarget.copy(player.position)
+      followTarget.y += 0.85
+      const delta = followTarget.clone().sub(controls.target)
+      camera.position.add(delta)
+      controls.target.copy(followTarget)
+    }
+
+    function updateGame(dt) {
+      elapsed += dt
+      remaining -= dt
+      if (comboTimer > 0) {
+        comboTimer -= dt
+        if (comboTimer <= 0) combo = 0
+      }
+      updateHud()
+
+      const px = player.position.x
+      const pz = player.position.z
+      targets.forEach((target) => {
+        if (!target.active) return
+        const dx = target.group.position.x - px
+        const dz = target.group.position.z - pz
+        const distance = Math.hypot(dx, dz)
+        if (distance < 1.2) collectTarget(target)
+      })
+
+      if (remaining <= 0) {
+        remaining = 0
+        updateHud()
+        finishLevel(false)
+      }
+    }
+
+    function animateWorld(dt) {
+      targets.forEach((target, index) => {
+        if (!target.active) return
+        target.group.position.y = 1.05 + Math.sin(visualTime * 1.8 + index * 1.3) * 0.16
+        target.core.rotation.y += dt * 1.6
+        target.core.rotation.x += dt * 0.7
+        target.ring.rotation.z += dt * 0.9
+        const pulse = 1 + Math.sin(visualTime * 2.2 + index) * 0.05
+        target.ring.scale.setScalar(pulse)
+      })
+    }
+
+    /* ---------- 调试面板 ---------- */
+    const params = { timeLimit: 45 }
+    const gui = new GUI({ title: '关卡调试' })
+    gui.add(params, 'timeLimit', 30, 60, 5).name('时限（秒）').onChange((value) => {
+      timeLimit = value
+      if (phase === 'ready') {
+        remaining = value
+        updateHud()
+      }
+    })
+    gui.add({ restart: () => restartGame() }, 'restart').name('重新开始')
+    gui.add({
+      corrupt: () => {
+        try { localStorage.setItem(SAVE_KEY, '{ broken save') } catch (error) { /* 忽略 */ }
+        location.reload()
+      }
+    }, 'corrupt').name('模拟坏存档并刷新')
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+
+      if (phase === 'playing') {
+        updateGame(dt)
+        updatePlayer(dt)
+        visualTime += dt
+        animateWorld(dt)
+      } else if (phase !== 'paused') {
+        // ready / finished 保留环境动画；paused 冻结
+        visualTime += dt
+        animateWorld(dt)
+        updatePlayer(0)
+      } else {
+        // 暂停时仍消费 timer 的 delta，避免恢复瞬间时间跳变
+        updatePlayer(0)
+      }
+
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+
+    updateHud()
+    updateBestDisplay()
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>labels-scale · 千级标注方案对比</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hud {
+      position: fixed; top: 14px; left: 372px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.8; pointer-events: none;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .hud b { color: #34d399; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    /* CSS2D 标注样式：文字清晰度是 DOM 方案的强项 */
+    .tag {
+      padding: 2px 8px; background: rgba(8, 12, 20, .82);
+      border: 1px solid rgba(34, 211, 238, .5); border-radius: 6px;
+      font-size: 11px; color: #a5f3fc; white-space: nowrap;
+    }
+    .tag.active { background: rgba(249, 115, 22, .9); color: #fff; border-color: #fdba74; }
+    .lil-gui.root { --width: 260px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .hud { left: 14px; top: 210px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>labels-scale · 千级标注方案对比</b><br />
+    CSS2D：文字最清晰，但 900 个 DOM 节点拖垮帧率；<br />
+    Sprite：脱离 DOM，但一张标签一次 draw call；<br />
+    实例化标牌：900 枚图钉 1 次 draw call，支持点击高亮。
+  </div>
+  <div class="hud" id="hud">FPS：-- draw calls：--</div>
+  <div class="hint">点击任意建筑高亮其标注 · 右上角切换方案，盯着 FPS 对比</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 80, 260)
+    const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 400)
+    camera.position.set(0, 46, 86)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    // CSS2D 渲染器：DOM 层盖在 canvas 上，自身不响应鼠标
+    const cssRenderer = new CSS2DRenderer()
+    cssRenderer.setSize(innerWidth, innerHeight)
+    Object.assign(cssRenderer.domElement.style, {
+      position: 'absolute', top: '0', pointerEvents: 'none'
+    })
+    document.getElementById('app').appendChild(cssRenderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 4, 0)
+    controls.maxPolarAngle = Math.PI / 2.1
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x1a1a26, 1.1))
+    const dir = new THREE.DirectionalLight(0xffffff, 1.6)
+    dir.position.set(60, 90, 40)
+    scene.add(dir)
+
+    /* ---------- 底图：900 栋实例化楼 ---------- */
+    const groundGeoms = []
+    for (let i = 0; i < 16; i++) {
+      const g = new THREE.BoxGeometry(30, 0.2, 30)
+      g.translate((i % 4 - 1.5) * 31, -0.1, (Math.floor(i / 4) - 1.5) * 31)
+      groundGeoms.push(g)
+    }
+    scene.add(new THREE.Mesh(
+      mergeGeometries(groundGeoms),
+      new THREE.MeshStandardMaterial({ color: 0x1a2333, roughness: 0.95 })
+    ))
+
+    const SIDE = 30, COUNT = SIDE * SIDE // 900 栋楼
+    const buildings = [] // { x, z, h, name }
+    const city = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.2 }),
+      COUNT
+    )
+    {
+      const dummy = new THREE.Object3D()
+      const color = new THREE.Color()
+      for (let i = 0; i < COUNT; i++) {
+        const x = (i % SIDE - SIDE / 2) * 4
+        const z = (Math.floor(i / SIDE) - SIDE / 2) * 4
+        const h = 2 + Math.random() * 12
+        buildings.push({ x, z, h, name: 'A-' + String(i).padStart(3, '0') })
+        dummy.position.set(x, h / 2, z)
+        dummy.scale.set(2, h, 2)
+        dummy.updateMatrix()
+        city.setMatrixAt(i, dummy.matrix)
+        city.setColorAt(i, color.setHSL(0.58, 0.25, 0.3 + Math.random() * 0.35))
+      }
+    }
+    scene.add(city)
+
+    /* ---------- 标注层：三种方案，同一批数据 ---------- */
+    const labelLayer = new THREE.Group()
+    scene.add(labelLayer)
+    let tagDivs = []        // CSS2D 模式的 DOM 引用
+    let spriteMats = []     // Sprite 模式的材质引用
+    let pinMesh = null      // 实例化标牌
+    const pinColor = new THREE.Color()
+    let mode = '实例化标牌'
+
+    function clearLabels() {
+      for (const d of tagDivs) d.remove()       // CSS2D 的 DOM 要手动摘
+      tagDivs = []
+      for (const m of spriteMats) { m.map.dispose(); m.dispose() }
+      spriteMats = []
+      pinMesh = null
+      labelLayer.clear()
+    }
+
+    // 方案一：CSS2DRenderer —— 每个标注一个 DOM 节点
+    function buildCSS2D(n) {
+      for (let i = 0; i < n; i++) {
+        const b = buildings[i]
+        const div = document.createElement('div')
+        div.className = 'tag'
+        div.textContent = b.name
+        const obj = new CSS2DObject(div)
+        obj.position.set(b.x, b.h + 2, b.z)
+        labelLayer.add(obj)
+        tagDivs.push(div)
+      }
+    }
+
+    // 方案二：Sprite —— 文字画进 canvas 纹理，一张标签一次 draw call
+    function makeTextTexture(text) {
+      const cv = document.createElement('canvas')
+      cv.width = 256; cv.height = 64
+      const ctx = cv.getContext('2d')
+      ctx.fillStyle = 'rgba(8,12,20,.82)'
+      ctx.strokeStyle = 'rgba(34,211,238,.6)'
+      ctx.beginPath(); ctx.roundRect(2, 6, 252, 52, 10); ctx.fill(); ctx.stroke()
+      ctx.fillStyle = '#a5f3fc'
+      ctx.font = '28px sans-serif'
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(text, 128, 33)
+      return new THREE.CanvasTexture(cv)
+    }
+    function buildSprites(n) {
+      for (let i = 0; i < n; i++) {
+        const b = buildings[i]
+        const mat = new THREE.SpriteMaterial({
+          map: makeTextTexture(b.name), transparent: true
+        })
+        const sp = new THREE.Sprite(mat)
+        sp.scale.set(4.6, 1.15, 1)
+        sp.position.set(b.x, b.h + 2.4, b.z)
+        labelLayer.add(sp)
+        spriteMats.push(mat)
+      }
+    }
+
+    // 方案三：实例化标牌 —— 900 枚图钉只占 1 次 draw call
+    const pinGeo = new THREE.ConeGeometry(0.55, 1.9, 6)
+    pinGeo.rotateX(Math.PI) // 尖端朝下，像地图上的图钉
+    function buildPins(n) {
+      pinMesh = new THREE.InstancedMesh(
+        pinGeo,
+        new THREE.MeshBasicMaterial({ color: 0xffffff }),
+        n
+      )
+      const dummy = new THREE.Object3D()
+      for (let i = 0; i < n; i++) {
+        const b = buildings[i]
+        dummy.position.set(b.x, b.h + 3.2, b.z)
+        dummy.updateMatrix()
+        pinMesh.setMatrixAt(i, dummy.matrix)
+        pinMesh.setColorAt(i, pinColor.setHSL(0.52, 0.75, 0.55))
+      }
+      labelLayer.add(pinMesh)
+    }
+
+    function rebuild() {
+      clearLabels()
+      selected = -1
+      const n = params.标注数量
+      if (mode.startsWith('CSS2D')) buildCSS2D(n)
+      else if (mode.startsWith('Sprite')) buildSprites(n)
+      else buildPins(n)
+      cssRenderer.domElement.style.display =
+        mode.startsWith('CSS2D') ? '' : 'none'  // 非 CSS2D 模式停掉 DOM 渲染
+    }
+
+    /* ---------- 点击建筑 → 高亮它的标注（三种模式三种高亮法） ---------- */
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    let selected = -1
+    function highlight(i) {
+      if (selected === i) return
+      // 先还原上一个
+      if (selected >= 0) {
+        if (mode.startsWith('CSS2D')) tagDivs[selected]?.classList.remove('active')
+        else if (mode.startsWith('Sprite')) spriteMats[selected]?.color.set(0xffffff)
+        else if (pinMesh) {
+          pinMesh.setColorAt(selected, pinColor.setHSL(0.52, 0.75, 0.55))
+          pinMesh.instanceColor.needsUpdate = true
+        }
+      }
+      selected = i
+      if (i < 0) return
+      if (mode.startsWith('CSS2D')) tagDivs[i]?.classList.add('active')
+      else if (mode.startsWith('Sprite')) spriteMats[i]?.color.set(0xf97316)
+      else if (pinMesh) {
+        pinMesh.setColorAt(i, pinColor.set(0xf97316)) // 实例改色 + 上传
+        pinMesh.instanceColor.needsUpdate = true
+      }
+    }
+    renderer.domElement.addEventListener('pointerdown', e => {
+      pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1)
+      raycaster.setFromCamera(pointer, camera)
+      const hit = raycaster.intersectObject(city)[0] // 楼群本身就是 InstancedMesh
+      highlight(hit ? hit.instanceId : -1)
+    })
+
+    const params = { 方案: '实例化标牌', 标注数量: 900 }
+    const gui = new GUI({ title: '标注方案' })
+    gui.add(params, '方案', ['CSS2D（DOM 标注）', 'Sprite（雪碧图）', '实例化标牌'])
+      .onChange(v => { mode = v; rebuild() })
+    gui.add(params, '标注数量', [300, 600, 900]).onChange(rebuild)
+    rebuild()
+
+    const hud = document.getElementById('hud')
+    let frames = 0, statTime = performance.now()
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      controls.update()
+      renderer.render(scene, camera)
+      if (mode.startsWith('CSS2D')) cssRenderer.render(scene, camera)
+
+      frames++
+      const now = performance.now()
+      if (now - statTime >= 500) {
+        const fps = Math.round((frames * 1000) / (now - statTime))
+        frames = 0
+        statTime = now
+        const info = renderer.info
+        hud.innerHTML =
+          `FPS：<b>${fps}</b>　draw calls：<b>${info.render.calls}</b><br>` +
+          `triangles：<b>${info.render.triangles.toLocaleString()}</b><br>` +
+          (selected >= 0 ? `选中：<b>${buildings[selected].name}</b>` : '选中：--')
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      cssRenderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

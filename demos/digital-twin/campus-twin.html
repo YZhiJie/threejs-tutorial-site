@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>campus-twin · 园区数字孪生</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 70px; left: 14px; max-width: 300px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hud {
+      position: fixed; bottom: 46px; left: 14px;
+      padding: 8px 12px; background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 12px; pointer-events: none;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .hud b { color: #34d399; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    /* ---------- 大屏 UI 层 ---------- */
+    .screen-ui { position: fixed; inset: 0; pointer-events: none; }
+    .title-bar {
+      position: absolute; top: 0; left: 0; right: 0; height: 54px;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(180deg, rgba(11, 14, 20, .85), rgba(11, 14, 20, 0));
+      font-size: 20px; font-weight: bold; letter-spacing: 8px; color: #7cc4ff;
+      text-shadow: 0 0 18px rgba(124, 196, 255, .55);
+    }
+    .side-panel {
+      position: absolute; top: 200px; width: 224px; padding: 12px 14px;
+      background: rgba(11, 14, 20, .72); backdrop-filter: blur(6px);
+      border: 1px solid rgba(124, 196, 255, .25); border-radius: 10px;
+      font-size: 13px; line-height: 1.9;
+    }
+    .side-panel.left { left: 14px; }
+    .side-panel.right { right: 14px; pointer-events: auto; max-height: 46vh; overflow-y: auto; }
+    .side-panel h3 {
+      margin: 0 0 8px; font-size: 14px; color: #7cc4ff;
+      border-bottom: 1px solid rgba(124, 196, 255, .2); padding-bottom: 6px;
+    }
+    .side-panel b { color: #34d399; font-variant-numeric: tabular-nums; }
+    .alarm-item {
+      margin: 6px 0; padding: 8px 10px; cursor: pointer;
+      background: rgba(239, 68, 68, .1); border: 1px solid rgba(239, 68, 68, .45);
+      border-radius: 8px; font-size: 12px; line-height: 1.5;
+      transition: background .2s;
+    }
+    .alarm-item:hover { background: rgba(239, 68, 68, .25); }
+    .alarm-item .lv { color: #f87171; font-weight: bold; }
+    .alarm-item.warn { background: rgba(251, 191, 36, .08); border-color: rgba(251, 191, 36, .4); }
+    .alarm-item.warn .lv { color: #fbbf24; }
+    .alarm-item .tm { color: #64748b; font-size: 11px; }
+    .alarm-empty { color: #475569; font-size: 12px; text-align: center; padding: 12px 0; }
+    .lil-gui.root { --width: 240px; }
+    @media (max-width: 600px) {
+      .info { max-width: 180px; font-size: 12px; top: 60px; }
+      .side-panel { width: 156px; font-size: 12px; top: 190px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <!-- UI 层：标题栏 + 统计面板 + 告警列表面板 -->
+  <div class="screen-ui">
+    <div class="title-bar">智慧园区数字孪生平台</div>
+    <div class="side-panel left">
+      <h3>园区概览</h3>
+      在线设备：<b>1,286</b><br />
+      今日告警：<b id="alarmCount">0</b><br />
+      当前告警：<b id="alarmActive" style="color:#f87171">0</b><br />
+      园区负荷：<b>63%</b>
+    </div>
+    <div class="side-panel right">
+      <h3>实时告警（点击定位）</h3>
+      <div id="alarmList"><div class="alarm-empty">暂无告警</div></div>
+    </div>
+  </div>
+
+  <div class="info">
+    <b>campus-twin · 园区数字孪生</b><br />
+    场景层：实例化楼群 + 扫描环 + 泛光；<br />
+    数据层：定时模拟告警推送；<br />
+    UI 层：告警列表点击 → 相机飞到事发楼栋。
+  </div>
+  <div class="hud" id="hud">FPS：-- draw calls：--</div>
+  <div class="hint">点击右侧告警卡片飞到事发楼栋 · 飞行中拖拽可接管</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 100, 320)
+    const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 500)
+    camera.position.set(0, 70, 95)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 4, 0)
+    controls.maxPolarAngle = Math.PI / 2.08
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x1a1a26, 1.2))
+    const dir = new THREE.DirectionalLight(0xffffff, 1.5)
+    dir.position.set(50, 80, 30)
+    scene.add(dir)
+
+    /* ---------- 场景层：地面 + 实例化楼群 ---------- */
+    const groundGeoms = []
+    for (let i = 0; i < 25; i++) {
+      const g = new THREE.BoxGeometry(21, 0.2, 21)
+      g.translate((i % 5 - 2) * 22, -0.1, (Math.floor(i / 5) - 2) * 22)
+      groundGeoms.push(g)
+    }
+    scene.add(new THREE.Mesh(
+      mergeGeometries(groundGeoms),
+      new THREE.MeshStandardMaterial({ color: 0x141c2b, roughness: 0.95 })
+    ))
+
+    // 数据层：楼栋台账（真实项目里来自接口/数据库）
+    const TYPES = ['研发', '办公', '实验', '仓储']
+    const COLS = 9, ROWS = 7, GAP = 11
+    const buildings = []
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        buildings.push({
+          id: r * COLS + c,
+          name: `${TYPES[(r * COLS + c) % 4]}${String(r * COLS + c + 1).padStart(2, '0')}号楼`,
+          x: (c - (COLS - 1) / 2) * GAP,
+          z: (r - (ROWS - 1) / 2) * GAP,
+          h: 4 + Math.random() * 14,
+          alarmed: false
+        })
+
+    const city = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.3 }),
+      buildings.length
+    )
+    const dummy = new THREE.Object3D()
+    const baseColor = new THREE.Color()
+    buildings.forEach((b, i) => {
+      dummy.position.set(b.x, b.h / 2, b.z)
+      dummy.scale.set(5.5, b.h, 5.5)
+      dummy.updateMatrix()
+      city.setMatrixAt(i, dummy.matrix)
+      b.color = baseColor.setHSL(0.58, 0.3, 0.32 + Math.random() * 0.25).clone()
+      city.setColorAt(i, b.color)
+    })
+    scene.add(city)
+
+    /* ---------- 特效层①：地面扫描环（12.3 的思路搬到地面） ---------- */
+    const scanUniforms = {
+      uTime: { value: 0 },
+      uColor: { value: new THREE.Color(0x22d3ee) },
+      uMaxR: { value: 70.0 },
+      uSpeed: { value: 0.14 }
+    }
+    const scanRing = new THREE.Mesh(
+      new THREE.PlaneGeometry(160, 160),
+      new THREE.ShaderMaterial({
+        uniforms: scanUniforms,
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform float uTime;
+          uniform vec3 uColor;
+          uniform float uMaxR;
+          uniform float uSpeed;
+          varying vec2 vUv;
+
+          void main() {
+            float d = length(vUv - 0.5) * 160.0;      // distance from center, in meters
+            float r = fract(uTime * uSpeed) * uMaxR;  // ring front expands and loops
+            float band = smoothstep(5.0, 0.0, abs(d - r)); // thin bright ring band
+            float fade = 1.0 - r / uMaxR;             // dimmer as it expands
+            float a = band * fade * 0.85;
+            gl_FragColor = vec4(uColor * a, a);
+          }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
+    )
+    scanRing.rotation.x = -Math.PI / 2
+    scanRing.position.y = 0.06
+    scene.add(scanRing)
+
+    /* ---------- 特效层②：泛光合成链（13.3 的配方） ---------- */
+    const composer = new EffectComposer(renderer)
+    composer.addPass(new RenderPass(scene, camera))
+    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.45, 0.78)
+    composer.addPass(bloom)
+    composer.addPass(new OutputPass())
+    renderer.info.autoReset = false // 多 pass 渲染：手动管理读数
+
+    /* ---------- 相机飞行：与 21.1 同款 lerp 书签 ---------- */
+    const flight = {
+      active: false, t: 0, duration: 1.8,
+      fromPos: new THREE.Vector3(), toPos: new THREE.Vector3(),
+      fromTarget: new THREE.Vector3(), toTarget: new THREE.Vector3()
+    }
+    const ease = t => t * t * (3 - 2 * t)
+    function flyTo(pos, target) {
+      flight.fromPos.copy(camera.position)
+      flight.fromTarget.copy(controls.target)
+      flight.toPos.copy(pos)
+      flight.toTarget.copy(target)
+      flight.t = 0
+      flight.active = true
+    }
+    controls.addEventListener('start', () => { flight.active = false })
+
+    // 告警定位：飞到楼栋上空斜 45° 视角
+    function flyToBuilding(b) {
+      flyTo(
+        new THREE.Vector3(b.x + 20, b.h + 18, b.z + 20),
+        new THREE.Vector3(b.x, b.h * 0.6, b.z)
+      )
+    }
+
+    /* ---------- 数据层 → 场景层/UI 层：模拟告警推送 ---------- */
+    const alarmListEl = document.getElementById('alarmList')
+    const alarmCountEl = document.getElementById('alarmCount')
+    const alarmActiveEl = document.getElementById('alarmActive')
+    let alarmTotal = 0
+    const flashColor = new THREE.Color()
+
+    function pushAlarm() {
+      const candidates = buildings.filter(b => !b.alarmed)
+      if (!candidates.length) return
+      const b = candidates[Math.floor(Math.random() * candidates.length)]
+      const level = Math.random() > 0.45 ? '告警' : '预警'
+      b.alarmed = true
+      alarmTotal++
+
+      // → UI 层：列表新增卡片，点击定位飞行
+      const empty = alarmListEl.querySelector('.alarm-empty')
+      if (empty) empty.remove()
+      const item = document.createElement('div')
+      item.className = 'alarm-item' + (level === '预警' ? ' warn' : '')
+      item.innerHTML =
+        `<span class="lv">● ${level}</span> ${b.name}<br>` +
+        `<span class="tm">${new Date().toLocaleTimeString('zh-CN')} · 点击定位</span>`
+      item.addEventListener('click', () => flyToBuilding(b))
+      alarmListEl.prepend(item)
+      while (alarmListEl.children.length > 6) alarmListEl.lastChild.remove()
+
+      // 9 秒后自动解除：颜色还原 + 计数回落
+      setTimeout(() => {
+        b.alarmed = false
+        city.setColorAt(b.id, b.color)
+        city.instanceColor.needsUpdate = true
+      }, 9000)
+    }
+
+    const params = { 模拟推送: true, 扫描速度: 0.14, 泛光强度: 0.55 }
+    setInterval(() => { if (params.模拟推送) pushAlarm() }, 2400)
+
+    const gui = new GUI({ title: '孪生控制台' })
+    gui.add(params, '模拟推送').name('告警模拟推送')
+    gui.add(params, '扫描速度', 0.05, 0.4, 0.01).onChange(v => scanUniforms.uSpeed.value = v)
+    gui.add(params, '泛光强度', 0, 1.5, 0.05).onChange(v => bloom.strength = v)
+
+    /* ---------- 渲染循环 ---------- */
+    const hud = document.getElementById('hud')
+    let frames = 0, statTime = performance.now()
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+      scanUniforms.uTime.value += dt
+
+      if (flight.active) {
+        flight.t += dt / flight.duration
+        const k = ease(Math.min(flight.t, 1))
+        camera.position.lerpVectors(flight.fromPos, flight.toPos, k)
+        controls.target.lerpVectors(flight.fromTarget, flight.toTarget, k)
+        if (flight.t >= 1) flight.active = false
+      }
+      controls.update()
+
+      // 告警楼红色闪烁：只遍历告警中的实例，批量改色一次上传
+      const t = scanUniforms.uTime.value
+      const active = buildings.filter(b => b.alarmed)
+      for (const b of active) {
+        const k = 0.5 + 0.5 * Math.sin(t * 6 + b.id)
+        flashColor.setRGB(1, 0.15 + 0.25 * k, 0.1)
+        city.setColorAt(b.id, flashColor)
+      }
+      if (active.length) city.instanceColor.needsUpdate = true
+
+      renderer.info.reset()
+      composer.render()
+
+      frames++
+      const now = performance.now()
+      if (now - statTime >= 500) {
+        const fps = Math.round((frames * 1000) / (now - statTime))
+        frames = 0
+        statTime = now
+        hud.innerHTML =
+          `FPS：<b>${fps}</b>　draw calls：<b>${renderer.info.render.calls}</b>`
+        alarmCountEl.textContent = alarmTotal
+        alarmActiveEl.textContent = buildings.filter(b => b.alarmed).length
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      composer.setSize(innerWidth, innerHeight) // composer 也要跟着 resize
+    })
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>quality-tiers · 画质分级适配</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hud {
+      position: fixed; top: 14px; left: 378px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.8; pointer-events: none;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .hud b { color: #34d399; }
+    .hud b.warn { color: #fbbf24; }
+    .toast {
+      position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+      padding: 8px 18px; background: rgba(251, 191, 36, .14);
+      border: 1px solid rgba(251, 191, 36, .45); border-radius: 999px;
+      font-size: 13px; color: #fbbf24; pointer-events: none;
+      opacity: 0; transition: opacity .4s;
+    }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 250px; }
+    @media (max-width: 900px) {
+      .info { max-width: 210px; font-size: 12px; }
+      .hud { left: 14px; top: 210px; font-size: 12px; }
+      .hint { display: none; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>画质分级适配 · 同一场景三档画质</b><br />
+    高：dpr≤2 + 2048 阴影 + Bloom + 6000 楼<br />
+    中：dpr≤1.5 + 1024 阴影 + 无 Bloom + 3000 楼<br />
+    低：dpr 1 + 无阴影 + 无 Bloom + 1200 楼<br />
+    自动模式：启动按设备特征选档，试跑与运行中掉帧自动降档。
+  </div>
+  <div class="hud" id="hud">档位：--　FPS：--</div>
+  <div class="toast" id="toast">已自动降档以保持流畅</div>
+  <div class="hint">手动切档看帧时间变化 · 自动模式下强制高档，观察自动降档</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 60, 180)
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 400)
+    camera.position.set(0, 16, 42)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 5, 0)
+
+    // —— 灯光：一盏带阴影的方向光 + 半球环境光 ——
+    scene.add(new THREE.HemisphereLight(0x8899cc, 0x1a1a22, 0.8))
+    const sun = new THREE.DirectionalLight(0xfff2dd, 2.2)
+    sun.position.set(30, 50, 20)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(2048, 2048)
+    sun.shadow.camera.left = -60; sun.shadow.camera.right = 60
+    sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60
+    scene.add(sun)
+
+    // 地面（接收阴影）
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(120, 48),
+      new THREE.MeshStandardMaterial({ color: 0x11182a, roughness: 0.95 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    // —— 楼群：InstancedMesh，楼顶加自发光色块喂给 Bloom ——
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1)
+    boxGeo.translate(0, 0.5, 0) // 原点移到楼底，缩放即长高
+    const buildingMat = new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.15 })
+    let city = null
+
+    function buildCity(count) {
+      if (city) { scene.remove(city); city.dispose() } // 旧实例先释放
+      city = new THREE.InstancedMesh(boxGeo, buildingMat, count)
+      city.castShadow = true
+      city.receiveShadow = true
+      const dummy = new THREE.Object3D(), color = new THREE.Color()
+      const side = Math.ceil(Math.sqrt(count))
+      for (let i = 0; i < count; i++) {
+        const h = 1.5 + Math.random() * 11
+        dummy.position.set(
+          (i % side - side / 2) * 2.6 + (Math.random() - 0.5),
+          0,
+          (Math.floor(i / side) - side / 2) * 2.6 + (Math.random() - 0.5))
+        dummy.scale.set(1.5, h, 1.5)
+        dummy.updateMatrix()
+        city.setMatrixAt(i, dummy.matrix)
+        // 少量楼给高亮自发光色（Bloom 的光源素材）
+        if (Math.random() < 0.08) color.setHSL(0.55 + Math.random() * 0.15, 0.9, 0.75)
+        else color.setHSL(0.6, 0.25, 0.2 + Math.random() * 0.35)
+        city.setColorAt(i, color)
+      }
+      scene.add(city)
+    }
+
+    // —— 后处理链：RenderPass → Bloom → Output，Bloom 按档位开关 ——
+    const composer = new EffectComposer(renderer)
+    composer.addPass(new RenderPass(scene, camera))
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.4, 0.8)
+    composer.addPass(bloomPass)
+    composer.addPass(new OutputPass())
+
+    // —— 三档参数表：切档 = 按表执行 ——
+    const TIERS = {
+      high: { label: '高', dpr: 2,   shadow: 2048, bloom: true,  count: 6000 },
+      mid:  { label: '中', dpr: 1.5, shadow: 1024, bloom: false, count: 3000 },
+      low:  { label: '低', dpr: 1,   shadow: 0,    bloom: false, count: 1200 }
+    }
+    const ORDER = ['low', 'mid', 'high']
+    let currentTier = 'high'
+
+    function applyTier(name, silent) {
+      const t = TIERS[name]
+      currentTier = name
+      // ① 像素比：GPU 填充压力的总闸（renderer 与 composer 同步调）
+      const pr = Math.min(devicePixelRatio, t.dpr)
+      renderer.setPixelRatio(pr)
+      composer.setPixelRatio(pr)
+      // ② 阴影：castShadow 开关 + 阴影贴图尺寸（改尺寸须先释放旧贴图）
+      sun.castShadow = t.shadow > 0
+      if (t.shadow > 0 && sun.shadow.mapSize.x !== t.shadow) {
+        sun.shadow.mapSize.set(t.shadow, t.shadow)
+        sun.shadow.map?.dispose()
+        sun.shadow.map = null
+      }
+      // ③ 后处理开关
+      bloomPass.enabled = t.bloom
+      // ④ 楼群密度
+      buildCity(t.count)
+      if (!silent) showToast(`已切换到「${t.label}」档`)
+      refreshTierCtrl()
+    }
+
+    // —— 启动自动选档：设备特征粗判，试跑 2s 精调 ——
+    function pickInitialTier() {
+      const cores = navigator.hardwareConcurrency ?? 4
+      const mem = navigator.deviceMemory ?? 8
+      if (cores <= 4 || mem <= 4 || (devicePixelRatio >= 3 && cores <= 6)) return 'low'
+      if (cores <= 6 || mem <= 6 || devicePixelRatio >= 2.5) return 'mid'
+      return 'high'
+    }
+    let benchFrames = 0, benchCost = 0, benchDone = false
+    function benchTick(frameMs) {
+      if (benchDone || !params.auto) return
+      benchFrames++; benchCost += frameMs
+      if (benchFrames >= 120) { // 约 2 秒
+        benchDone = true
+        const avg = benchCost / benchFrames
+        const idx = ORDER.indexOf(currentTier)
+        if (avg > 20 && idx > 0) {
+          applyTier(ORDER[idx - 1])
+          showToast(`试跑 ${avg.toFixed(1)}ms 超标，自动降为「${TIERS[ORDER[idx - 1]].label}」档`)
+        }
+      }
+    }
+
+    // —— 运行中自动降档：2s 窗口，连续 3 窗超标降一档，降后锁 10s ——
+    let winFrames = 0, winCost = 0, winStart = performance.now()
+    let overStreak = 0, lockUntil = 0
+    function autoTierTick(frameMs) {
+      if (!params.auto || !benchDone) return
+      winFrames++; winCost += frameMs
+      const now = performance.now()
+      if (now - winStart < 2000) return
+      const avg = winCost / winFrames
+      winFrames = 0; winCost = 0; winStart = now
+      if (avg > 20) overStreak++; else overStreak = 0
+      const idx = ORDER.indexOf(currentTier)
+      if (overStreak >= 3 && idx > 0 && now > lockUntil) {
+        applyTier(ORDER[idx - 1])
+        overStreak = 0
+        lockUntil = now + 10000
+        showToast(`连续掉帧（${avg.toFixed(1)}ms），已自动降为「${TIERS[ORDER[idx - 1]].label}」档`)
+      }
+    }
+
+    // —— 面板与提示 ——
+    const params = { tier: '高', auto: true }
+    const gui = new GUI({ title: '画质分级' })
+    const tierCtrl = gui.add(params, 'tier', ['高', '中', '低']).name('手动档位')
+      .onChange(v => {
+        const name = { 高: 'high', 中: 'mid', 低: 'low' }[v]
+        applyTier(name, true)
+        showToast(`已手动切到「${v}」档`)
+      })
+    gui.add(params, 'auto').name('自动模式（掉帧降档）')
+    function refreshTierCtrl() {
+      params.tier = TIERS[currentTier].label
+      tierCtrl.updateDisplay()
+    }
+    const toast = document.getElementById('toast')
+    let toastTimer = 0
+    function showToast(msg) {
+      toast.textContent = msg
+      toast.style.opacity = 1
+      clearTimeout(toastTimer)
+      toastTimer = setTimeout(() => toast.style.opacity = 0, 2600)
+    }
+
+    // —— HUD：档位 / FPS / 帧时间 / renderer.info ——
+    const hud = document.getElementById('hud')
+    let frames = 0, statTime = performance.now(), lastFrame = statTime, fps = 0, avgMs = 0
+
+    applyTier(params.auto ? pickInitialTier() : 'high', true) // 开局选档
+
+    renderer.info.autoReset = false // 多 pass 渲染：改手动清零，否则只统计到最后一个 pass
+    const timer = new THREE.Timer()
+    timer.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      controls.update()
+      renderer.info.reset() // 帧首清零，本帧所有 pass 的读数累加统计
+      composer.render() // 始终走合成链，Bloom 由 pass.enabled 控制
+
+      const now = performance.now()
+      const frameMs = now - lastFrame
+      lastFrame = now
+      benchTick(frameMs)
+      autoTierTick(frameMs)
+
+      frames++
+      if (now - statTime >= 500) { // 0.5s 窗口刷新 HUD
+        fps = Math.round((frames * 1000) / (now - statTime))
+        avgMs = (now - statTime) / frames
+        frames = 0; statTime = now
+        const info = renderer.info
+        const t = TIERS[currentTier]
+        hud.innerHTML =
+          `档位：<b class="warn">${t.label}${params.auto ? '（自动）' : '（手动）'}</b>　FPS：<b>${fps}</b><br>` +
+          `帧时间：<b class="${avgMs > 20 ? 'warn' : ''}">${avgMs.toFixed(1)}ms</b>　draw calls：<b>${info.render.calls}</b><br>` +
+          `triangles：<b>${info.render.triangles.toLocaleString()}</b>　楼数：${t.count}<br>` +
+          `dpr ≤ ${t.dpr}　阴影：${t.shadow || '关'}　Bloom：${t.bloom ? '开' : '关'}`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      composer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

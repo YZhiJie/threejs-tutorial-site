@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>gis-scene-lab · 城市级 GIS 场景台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 372px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .8);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .desc {
+      display: block;
+      margin-top: 4px;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .info .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+      align-items: baseline;
+    }
+
+    .info .row em {
+      font-style: normal;
+      flex: 0 0 66px;
+      color: #9fb4d4;
+      font-size: 11.5px;
+    }
+
+    .info .row code {
+      color: #e2e8f0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .info .note {
+      display: block;
+      margin-top: 6px;
+      color: #fbbf24;
+      font-size: 12px;
+    }
+
+    .card {
+      position: fixed;
+      right: 14px;
+      bottom: 56px;
+      width: 240px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .84);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(34, 211, 238, .28);
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .card .title {
+      color: #7cc4ff;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .card .line {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: #9fb4d4;
+    }
+
+    .card .line b {
+      color: #e2e8f0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-weight: 500;
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 260px;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        max-width: 206px;
+        font-size: 12px;
+      }
+
+      .info .desc {
+        display: none;
+      }
+
+      .info .row {
+        display: block;
+      }
+
+      .info .row code {
+        display: block;
+        font-size: 10.5px;
+      }
+
+      .card {
+        width: 190px;
+        right: 10px;
+        bottom: 62px;
+        font-size: 11px;
+      }
+
+      .hint {
+        font-size: 11px;
+        white-space: normal;
+        width: 92%;
+        text-align: center;
+      }
+
+      .lil-gui.root {
+        --width: 196px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>城市级 GIS 场景台 · 图层 / LOD / 拾取</b>
+    <span class="desc">8 km 视窗里的程序化城区：地形底图、道路、建筑白模与 POI。切换缩放级别，观察细节与 draw call 变化。</span>
+    <div class="row"><em>图层</em><code id="hud-layers">—</code></div>
+    <div class="row"><em>缩放</em><code id="hud-zoom">—</code></div>
+    <div class="row"><em>draw call</em><code id="hud-calls">—</code></div>
+    <div class="row"><em>三角数</em><code id="hud-tris">—</code></div>
+    <span class="note" id="hud-note"></span>
+  </div>
+  <div class="card">
+    <div class="title" id="card-title">点击任意建筑查看属性</div>
+    <div class="line"><span>经度</span><b id="c-lon">—</b></div>
+    <div class="line"><span>纬度</span><b id="c-lat">—</b></div>
+    <div class="line"><span>高度</span><b id="c-h">—</b></div>
+    <div class="line"><span>占地面积</span><b id="c-area">—</b></div>
+    <div class="line"><span>坐标系</span><b>WGS84 → ENU</b></div>
+  </div>
+  <div class="hint">点击建筑查看经纬度信息 · 拖拽旋转 · 滚轮缩放 · 右上角切换图层与缩放级别</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 坐标：北京原点，8 km 视窗 ---------- */
+    const EARTH_R = 6378137
+    const DEG = Math.PI / 180
+    const ORIGIN = { lon: 116.4074, lat: 39.9042 }
+    const EXTENT = 8000
+
+    function localToLonLat(x, z) {
+      return {
+        lon: ORIGIN.lon + x / (DEG * EARTH_R * Math.cos(ORIGIN.lat * DEG)),
+        lat: ORIGIN.lat - z / (DEG * EARTH_R)
+      }
+    }
+
+    /* ---------- 场景与渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 11000, 26000)
+
+    const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 5, 80000)
+    camera.position.set(2880, 3360, 4680)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.1
+    renderer.info.autoReset = false
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.08
+    controls.target.set(0, 0, 0)
+    controls.minDistance = 700
+    controls.maxDistance = 20000
+    controls.maxPolarAngle = Math.PI * 0.48
+
+    scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x18202f, 1.5))
+    const sun = new THREE.DirectionalLight(0xfff1d8, 2.1)
+    sun.position.set(-5000, 7000, 3500)
+    scene.add(sun)
+
+    /* ---------- 程序化底图：街区与绿地 ---------- */
+    const GRID = 6
+    const SPACING = 900
+    const BLOCK = 760
+
+    function blockCenter(i, j) {
+      return {
+        x: (i - (GRID - 1) / 2) * SPACING,
+        z: (j - (GRID - 1) / 2) * SPACING
+      }
+    }
+
+    const PARKS = new Set(['1,4', '4,1', '2,2'])
+
+    function makeBaseMap() {
+      const size = 1024
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = size
+      const ctx = canvas.getContext('2d')
+      const px = (v) => (v / EXTENT + 0.5) * size
+
+      ctx.fillStyle = '#0d1524'
+      ctx.fillRect(0, 0, size, size)
+
+      for (let i = 0; i < GRID; i++) {
+        for (let j = 0; j < GRID; j++) {
+          const c = blockCenter(i, j)
+          const half = BLOCK / 2
+          const x = px(c.x - half)
+          const y = px(c.z - half)
+          const w = px(c.x + half) - x
+          const isPark = PARKS.has(`${i},${j}`)
+          ctx.fillStyle = isPark ? '#143326' : ((i + j) % 2 ? '#16243c' : '#182842')
+          ctx.fillRect(x, y, w, w)
+          ctx.strokeStyle = isPark ? '#245a3c' : '#1e3352'
+          ctx.lineWidth = 2
+          ctx.strokeRect(x, y, w, w)
+        }
+      }
+
+      // 边角的浅色观景带，避免整块底图过于均匀
+      ctx.fillStyle = 'rgba(34, 211, 238, 0.05)'
+      ctx.fillRect(0, 0, size, px(-3200))
+      ctx.fillRect(0, px(3200), size, size - px(3200))
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      return tex
+    }
+
+    /* ---------- 地形：中心平坦，边缘缓丘 ---------- */
+    function terrainHeight(x, z) {
+      const r = Math.hypot(x, z)
+      return Math.max(0, r - 2900) * 0.014
+    }
+
+    const terrainGeo = new THREE.PlaneGeometry(EXTENT, EXTENT, 64, 64)
+    terrainGeo.rotateX(-Math.PI / 2)
+    {
+      const pos = terrainGeo.attributes.position
+      for (let i = 0; i < pos.count; i++) {
+        pos.setY(i, terrainHeight(pos.getX(i), pos.getZ(i)))
+      }
+      pos.needsUpdate = true
+      terrainGeo.computeVertexNormals()
+    }
+
+    const terrainMesh = new THREE.Mesh(
+      terrainGeo,
+      new THREE.MeshStandardMaterial({ map: makeBaseMap(), roughness: 0.96, metalness: 0 })
+    )
+    scene.add(terrainMesh)
+
+    /* ---------- 道路：合并成一条几何体 ---------- */
+    function buildRoads() {
+      const geos = []
+      const span = SPACING * GRID + 400
+      for (let i = 0; i <= GRID; i++) {
+        const p = (i - GRID / 2) * SPACING
+        const gv = new THREE.BoxGeometry(70, 1, span)
+        gv.translate(p, 0.8, 0)
+        geos.push(gv)
+        const gh = new THREE.BoxGeometry(span, 1, 70)
+        gh.translate(0, 0.8, p)
+        geos.push(gh)
+      }
+      const merged = mergeGeometries(geos)
+      geos.forEach((g) => g.dispose())
+      return merged
+    }
+
+    const roadsMesh = new THREE.Mesh(
+      buildRoads(),
+      new THREE.MeshStandardMaterial({
+        color: 0x2b4a70,
+        emissive: 0x0e2a44,
+        emissiveIntensity: 0.9,
+        roughness: 0.7
+      })
+    )
+    scene.add(roadsMesh)
+
+    /* ---------- 建筑台账：名称 / 局部坐标 / 高度 ---------- */
+    const TYPES = ['国际金融中心', '科技大厦', '商业广场', '住宅楼']
+    const buildings = []
+    let uid = 0
+
+    for (let i = 0; i < GRID; i++) {
+      for (let j = 0; j < GRID; j++) {
+        if (PARKS.has(`${i},${j}`)) continue
+        const c = blockCenter(i, j)
+        for (let a = 0; a < 4; a++) {
+          for (let b = 0; b < 4; b++) {
+            const x = c.x + (a - 1.5) * 172
+            const z = c.z + (b - 1.5) * 172
+            const dist = Math.hypot(x, z)
+            const core = Math.max(0, 1 - dist / 3300)
+            const h = 22 + core * core * 200 + ((uid * 37) % 60)
+            const type = h > 150 ? TYPES[0] : h > 90 ? TYPES[1] : h > 55 ? TYPES[2] : TYPES[3]
+            buildings.push({
+              id: uid,
+              name: `${type} ${String(uid + 1).padStart(3, '0')}`,
+              x,
+              z,
+              h,
+              w: 128,
+              d: 128
+            })
+            uid++
+          }
+        }
+      }
+    }
+
+    /* ---------- 建筑白模：一个 InstancedMesh ---------- */
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1)
+    const buildingMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.86, metalness: 0.05 })
+    const buildingsMesh = new THREE.InstancedMesh(boxGeo, buildingMat, buildings.length)
+
+    const dummy = new THREE.Object3D()
+    const color = new THREE.Color()
+    buildings.forEach((b, i) => {
+      dummy.position.set(b.x, b.h / 2, b.z)
+      dummy.scale.set(b.w, b.h, b.d)
+      dummy.updateMatrix()
+      buildingsMesh.setMatrixAt(i, dummy.matrix)
+      buildingsMesh.setColorAt(i, color.setHSL(0.58, 0.16, 0.42 + ((i * 13) % 18) / 100))
+    })
+    buildingsMesh.instanceMatrix.needsUpdate = true
+    scene.add(buildingsMesh)
+
+    /* ---------- 远景 LOD：合并白模，一次 draw call ---------- */
+    function buildLowDetail() {
+      const geos = buildings.map((b) => {
+        const g = new THREE.BoxGeometry(b.w, b.h, b.d)
+        g.translate(b.x, b.h / 2, b.z)
+        return g
+      })
+      const merged = mergeGeometries(geos)
+      geos.forEach((g) => g.dispose())
+      return merged
+    }
+
+    const lowDetailMesh = new THREE.Mesh(
+      buildLowDetail(),
+      new THREE.MeshStandardMaterial({ color: 0x7d97b8, roughness: 0.9, metalness: 0 })
+    )
+    scene.add(lowDetailMesh)
+
+    /* ---------- 近景屋顶细节：又一个 InstancedMesh ---------- */
+    const roofGeo = new THREE.BoxGeometry(1, 1, 1)
+    const roofsMesh = new THREE.InstancedMesh(
+      roofGeo,
+      new THREE.MeshStandardMaterial({ color: 0x3f5a7a, roughness: 0.8 }),
+      buildings.length
+    )
+    buildings.forEach((b, i) => {
+      dummy.position.set(b.x, b.h + 5, b.z)
+      dummy.scale.set(46, 10, 46)
+      dummy.updateMatrix()
+      roofsMesh.setMatrixAt(i, dummy.matrix)
+    })
+    roofsMesh.instanceMatrix.needsUpdate = true
+    scene.add(roofsMesh)
+
+    /* ---------- POI 图层 ---------- */
+    const POI_POS = [
+      [0, 0], [1800, 0], [-1800, 0], [0, 1800], [0, -1800],
+      [1800, 1800], [-1800, 1800], [1800, -1800], [-1800, -1800],
+      [2700, 0], [-2700, 0], [0, 2700]
+    ]
+    const poiMesh = new THREE.InstancedMesh(
+      new THREE.OctahedronGeometry(64, 0),
+      new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,
+        emissive: 0xf59e0b,
+        emissiveIntensity: 1.1,
+        roughness: 0.35
+      }),
+      POI_POS.length
+    )
+    POI_POS.forEach(([x, z], i) => {
+      dummy.position.set(x, 90, z)
+      dummy.scale.set(1, 1, 1)
+      dummy.updateMatrix()
+      poiMesh.setMatrixAt(i, dummy.matrix)
+    })
+    poiMesh.instanceMatrix.needsUpdate = true
+    scene.add(poiMesh)
+
+    /* ---------- 选中环 ---------- */
+    const selectionRing = new THREE.Mesh(
+      new THREE.RingGeometry(140, 176, 48),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
+    )
+    selectionRing.rotation.x = -Math.PI / 2
+    selectionRing.position.y = 3
+    selectionRing.visible = false
+    scene.add(selectionRing)
+
+    /* ---------- 状态 ---------- */
+    const ZOOM = {
+      '近景': { dist: 2600, detail: 'near', label: '近景 · 白模 + 屋顶细节' },
+      '中景': { dist: 6000, detail: 'mid', label: '中景 · 白模' },
+      '远景': { dist: 12500, detail: 'far', label: '远景 · 合并白模' }
+    }
+
+    const params = {
+      zoom: '中景',
+      terrain: true,
+      buildings: true,
+      roads: true,
+      poi: true
+    }
+
+    const hudLayers = document.getElementById('hud-layers')
+    const hudZoom = document.getElementById('hud-zoom')
+    const hudCalls = document.getElementById('hud-calls')
+    const hudTris = document.getElementById('hud-tris')
+    const hudNote = document.getElementById('hud-note')
+
+    const cardTitle = document.getElementById('card-title')
+    const cLon = document.getElementById('c-lon')
+    const cLat = document.getElementById('c-lat')
+    const cH = document.getElementById('c-h')
+    const cArea = document.getElementById('c-area')
+
+    let selected = null
+    let camTarget = null
+
+    function applyLayers() {
+      const level = ZOOM[params.zoom]
+      const highOn = params.buildings && level.detail !== 'far'
+
+      terrainMesh.visible = params.terrain
+      roadsMesh.visible = params.roads
+      buildingsMesh.visible = highOn
+      roofsMesh.visible = highOn && level.detail === 'near'
+      lowDetailMesh.visible = params.buildings && level.detail === 'far'
+      poiMesh.visible = params.poi && level.detail !== 'far'
+      selectionRing.visible = highOn && selected !== null
+
+      const marks = [
+        params.terrain ? '地形 ✓' : '地形 ✗',
+        params.buildings ? '建筑 ✓' : '建筑 ✗',
+        params.roads ? '道路 ✓' : '道路 ✗',
+        params.poi ? 'POI ✓' : 'POI ✗'
+      ]
+      hudLayers.textContent = marks.join(' · ')
+      hudZoom.textContent = level.label
+      hudNote.textContent = level.detail === 'far'
+        ? '远景用合并白模：一次 draw call，但不支持逐栋拾取'
+        : '点击建筑可读取经纬度与高度（WGS84 → 局部 ENU）'
+    }
+
+    function flyTo(dist) {
+      camTarget = new THREE.Vector3(dist * 0.48, dist * 0.56, dist * 0.78)
+    }
+
+    function showCard(b) {
+      const ll = localToLonLat(b.x, b.z)
+      cardTitle.textContent = b.name
+      cLon.textContent = `${ll.lon.toFixed(6)}° E`
+      cLat.textContent = `${ll.lat.toFixed(6)}° N`
+      cH.textContent = `${b.h.toFixed(0)} m`
+      cArea.textContent = `${b.w} × ${b.d} m`
+      selectionRing.position.set(b.x, 3, b.z)
+      selectionRing.visible = true
+    }
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '图层与缩放' })
+    gui.add(params, 'zoom', Object.keys(ZOOM)).name('缩放级别')
+      .onChange((v) => {
+        flyTo(ZOOM[v].dist)
+        applyLayers()
+      })
+    gui.add(params, 'terrain').name('地形 / 底图').onChange(applyLayers)
+    gui.add(params, 'buildings').name('建筑白模').onChange(applyLayers)
+    gui.add(params, 'roads').name('道路').onChange(applyLayers)
+    gui.add(params, 'poi').name('POI 点位').onChange(applyLayers)
+
+    /* ---------- 点击拾取 ---------- */
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    let downX = 0
+    let downY = 0
+
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+      downX = e.clientX
+      downY = e.clientY
+    })
+
+    renderer.domElement.addEventListener('pointerup', (e) => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return
+      if (ZOOM[params.zoom].detail === 'far') {
+        cardTitle.textContent = '远景不支持逐栋拾取'
+        cLon.textContent = '—'
+        cLat.textContent = '—'
+        cH.textContent = '—'
+        cArea.textContent = '—'
+        selectionRing.visible = false
+        return
+      }
+      pointer.x = (e.clientX / innerWidth) * 2 - 1
+      pointer.y = -(e.clientY / innerHeight) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hit = raycaster.intersectObject(buildingsMesh, false)[0]
+      if (!hit || hit.instanceId === undefined) return
+      selected = hit.instanceId
+      showCard(buildings[selected])
+      applyLayers()
+    })
+
+    controls.addEventListener('start', () => { camTarget = null })
+
+    applyLayers()
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    let frame = 0
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const t = timer.getElapsed()
+
+      if (camTarget) {
+        camera.position.lerp(camTarget, 0.07)
+        if (camera.position.distanceTo(camTarget) < 12) camTarget = null
+      }
+
+      // POI 呼吸动画：只改整体缩放，不动实例矩阵
+      poiMesh.scale.setScalar(1 + 0.06 * Math.sin(t * 2.2))
+
+      controls.update()
+
+      renderer.info.reset()
+      renderer.render(scene, camera)
+
+      if (frame++ % 15 === 0) {
+        hudCalls.textContent = `${renderer.info.render.calls} 次`
+        hudTris.textContent = renderer.info.render.triangles.toLocaleString('en-US')
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

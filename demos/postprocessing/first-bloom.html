@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>first-bloom · 第一个泛光后处理</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 350px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>第一个泛光后处理</b><br />
+    管线：RenderPass → UnrealBloomPass → OutputPass。<br />
+    threshold 决定"多亮才算亮"；strength 决定辉光浓度；radius 决定晕开范围。<br />
+    勾选「关闭后处理」可对比裸渲染。
+  </div>
+  <div class="hint">拖拽旋转视角 · 滚轮缩放 · 右侧面板调泛光三参数</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 2.2, 8)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping // OutputPass 会沿用此设置
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.25))
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6)
+    sun.position.set(3, 5, 4)
+    scene.add(sun)
+    scene.add(new THREE.GridHelper(14, 14, 0x334155, 0x1e293b))
+
+    // 主角：一个普通受光环结（不起辉）+ 三个高亮发光球（起辉）
+    const knot = new THREE.Mesh(
+      new THREE.TorusKnotGeometry(0.9, 0.28, 180, 28),
+      new THREE.MeshStandardMaterial({ color: 0x4f9cf9, roughness: 0.4, metalness: 0.2 })
+    )
+    knot.position.y = 1.4
+    scene.add(knot)
+
+    const glowColors = [0xff5fa2, 0x7cc4ff, 0xffc24b]
+    const glowBalls = glowColors.map((c, i) => {
+      // 自发光强度 > 1，亮度才能超过 threshold
+      const ball = new THREE.Mesh(
+        new THREE.SphereGeometry(0.28, 32, 24),
+        new THREE.MeshStandardMaterial({
+          color: 0x111111, emissive: c, emissiveIntensity: 3.2
+        })
+      )
+      ball.userData.phase = (i / glowColors.length) * Math.PI * 2
+      scene.add(ball)
+      return ball
+    })
+
+    // —— 后处理链：RenderPass → UnrealBloomPass → OutputPass ——
+    const composer = new EffectComposer(renderer)
+    composer.addPass(new RenderPass(scene, camera))
+    const bloom = new UnrealBloomPass(
+      new THREE.Vector2(innerWidth, innerHeight), 0.9, 0.45, 0.6
+    )
+    composer.addPass(bloom)
+    composer.addPass(new OutputPass())
+
+    const params = {
+      postEnabled: true,
+      strength: 0.9,
+      radius: 0.45,
+      threshold: 0.6
+    }
+    const gui = new GUI({ title: '泛光参数' })
+    gui.add(params, 'postEnabled').name('启用后处理')
+    gui.add(params, 'strength', 0, 3, 0.01).name('强度 strength')
+      .onChange(v => bloom.strength = v)
+    gui.add(params, 'radius', 0, 1.5, 0.01).name('半径 radius')
+      .onChange(v => bloom.radius = v)
+    gui.add(params, 'threshold', 0, 1, 0.01).name('阈值 threshold')
+      .onChange(v => bloom.threshold = v)
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const t = clock.getElapsed()
+
+      knot.rotation.y += 0.005
+      knot.rotation.x += 0.002
+      glowBalls.forEach(b => {
+        const a = t * 0.7 + b.userData.phase
+        b.position.set(Math.cos(a) * 2.6, 1.4 + Math.sin(t * 1.3 + b.userData.phase) * 0.5, Math.sin(a) * 2.6)
+      })
+
+      controls.update()
+      // 开关对比：走合成器 or 直接渲染
+      if (params.postEnabled) composer.render()
+      else renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      composer.setSize(innerWidth, innerHeight) // 合成器也要同步尺寸
+    })
+  </script>
+</body>
+
+</html>

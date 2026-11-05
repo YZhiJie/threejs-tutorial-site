@@ -1,0 +1,196 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">
+  <defs>
+    <linearGradient id="bg27" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#101a33"/>
+    </linearGradient>
+    <linearGradient id="titleGrad27" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="patchGrad27" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f97316"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="840" fill="url(#bg27)"/>
+  <polygon points="980,0 1060,0 760,840 680,840" fill="#22d3ee" opacity="0.04"/>
+  <polygon points="150,0 220,0 1040,840 970,840" fill="#a78bfa" opacity="0.03"/>
+
+  <rect x="20" y="14" width="92" height="36" rx="9" fill="#7C3AED"/>
+  <text x="66" y="38" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffffff">EP.27</text>
+  <text x="126" y="40" font-size="26" font-weight="bold" fill="url(#titleGrad27)">在别人的着色器里插一句嘴</text>
+  <text x="1180" y="38" text-anchor="end" font-size="13" fill="#64748b">Three.js 漫画剧场 · 霓虹墨 NEON INK</text>
+  <rect x="20" y="62" width="1160" height="2" rx="1" fill="url(#titleGrad27)" opacity="0.6"/>
+
+  <g transform="translate(20,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#f97316" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f97316"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">1</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">困境：效果有了，PBR 没了</text>
+
+    <g transform="translate(52,104)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#f97316"/>
+      <circle cx="15" cy="4" r="6.5" fill="#f97316"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-4,6 q4,3 8,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,94 74,100 88,106" fill="#f8fafc"/>
+    <rect x="88" y="74" width="256" height="54" rx="10" fill="#f8fafc"/>
+    <text x="102" y="96" font-size="15" fill="#0b1220">全息效果是有了，</text>
+    <text x="102" y="118" font-size="15" fill="#0b1220">可金属不反射、还不吃阴影！</text>
+
+    <g transform="translate(52,184)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#1d4ed8"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 L-13,-19 L-8,-5 L-3,-22 L2,-5 L8,-19 L12,-5 L16,-2 Q0,-12 -16,-2 Z" fill="#334155"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-4,5 q4,4 8,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+      <rect x="-6" y="16" width="12" height="8" rx="2" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,174 74,180 88,186" fill="#f8fafc"/>
+    <rect x="88" y="154" width="250" height="54" rx="10" fill="#f8fafc"/>
+    <text x="102" y="176" font-size="15" fill="#0b1220">另起炉灶，PBR 就全丢了。</text>
+    <text x="102" y="198" font-size="15" fill="#0b1220">反射、阴影、色调映射都没了。</text>
+
+    <rect x="24" y="222" width="524" height="58" rx="8" fill="#0a0f1c" stroke="#f97316" stroke-opacity="0.35"/>
+    <rect x="38" y="234" width="16" height="16" rx="3" fill="#f97316"/>
+    <text x="62" y="247" font-size="12.5" fill="#fbbf24" font-family="'SF Mono',Consolas,monospace">ShaderMaterial</text>
+    <text x="170" y="247" font-size="12" fill="#94a3b8">只拿到你写的 GLSL，管线全绕过</text>
+    <text x="38" y="268" font-size="11.5" fill="#94a3b8">效果越酷，越像贴纸；问题不在效果，在「另起炉灶」</text>
+
+    <rect x="24" y="290" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="290" width="4" height="52" rx="2" fill="#f97316"/>
+    <text x="40" y="312" font-size="13.5" fill="#e2e8f0">要保留 PBR，就得在它的流程里做加法；</text>
+    <text x="40" y="332" font-size="13.5" fill="#94a3b8">不是把整条流程拆掉重写。</text>
+  </g>
+
+  <g transform="translate(608,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#a78bfa" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#a78bfa"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">2</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">揭秘：内置 shader 是拼装的</text>
+
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="238" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">别人的着色器，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">也能插一句嘴。</text>
+
+    <rect x="24" y="150" width="524" height="112" rx="8" fill="#0a0f1c" stroke="#a78bfa" stroke-opacity="0.35"/>
+    <rect x="36" y="164" width="170" height="24" rx="6" fill="#111a30" stroke="#22d3ee" stroke-opacity="0.6"/>
+    <text x="48" y="180" font-size="11.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">begin_vertex</text>
+    <text x="220" y="180" font-size="12" fill="#e2e8f0">顶点波动 / 形变 / 风摆</text>
+    <rect x="36" y="194" width="170" height="24" rx="6" fill="#111a30" stroke="#22d3ee" stroke-opacity="0.6"/>
+    <text x="48" y="210" font-size="11.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">color_fragment</text>
+    <text x="220" y="210" font-size="12" fill="#e2e8f0">染色 / 图案 / 贴图混合</text>
+    <rect x="36" y="224" width="170" height="24" rx="6" fill="#111a30" stroke="#f472b6" stroke-opacity="0.6"/>
+    <text x="48" y="240" font-size="11.5" fill="#f9a8d4" font-family="'SF Mono',Consolas,monospace">lights_fragment_end</text>
+    <text x="220" y="240" font-size="12" fill="#e2e8f0">边缘光 / sheen / 自定义高光</text>
+
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#a78bfa"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">onBeforeCompile 在 include 展开前调用，</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">replace 字符串就能精确插进占位符位置。</text>
+  </g>
+
+  <g transform="translate(20,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#22d3ee" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#22d3ee"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">3</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">实证：三种补丁同时开</text>
+
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#f97316"/>
+      <circle cx="15" cy="4" r="6.5" fill="#f97316"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,5 q3,3 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="268" height="54" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">三个开关，全在同一个</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">MeshStandardMaterial 里。</text>
+
+    <rect x="24" y="152" width="524" height="110" rx="8" fill="#0a0f1c" stroke="#22d3ee" stroke-opacity="0.35"/>
+    <rect x="36" y="166" width="150" height="26" rx="6" fill="#111a30" stroke="#22d3ee" stroke-opacity="0.6"/>
+    <text x="111" y="184" text-anchor="middle" font-size="12" fill="#e2e8f0">波动 · 顶点</text>
+    <rect x="196" y="166" width="150" height="26" rx="6" fill="#111a30" stroke="#22d3ee" stroke-opacity="0.6"/>
+    <text x="271" y="184" text-anchor="middle" font-size="12" fill="#e2e8f0">染色 · 片元</text>
+    <rect x="356" y="166" width="150" height="26" rx="6" fill="#111a30" stroke="#f472b6" stroke-opacity="0.6"/>
+    <text x="431" y="184" text-anchor="middle" font-size="12" fill="#e2e8f0">边缘 · 菲涅尔</text>
+
+    <rect x="36" y="202" width="240" height="46" rx="6" fill="#111a30" stroke="#1e2a44"/>
+    <text x="48" y="222" font-size="13" fill="#34d399" font-family="'SF Mono',Consolas,monospace">draw calls  3 → 3</text>
+    <text x="48" y="240" font-size="10.5" fill="#94a3b8">补丁不新增绘制批次</text>
+    <rect x="292" y="202" width="240" height="46" rx="6" fill="#111a30" stroke="#1e2a44"/>
+    <text x="304" y="222" font-size="13" fill="#34d399" font-family="'SF Mono',Consolas,monospace">program  4 → 4</text>
+    <text x="304" y="240" font-size="10.5" fill="#94a3b8">没有新建材质实例</text>
+
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#22d3ee"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">开关只改 uniform 数值，GLSL 文本不变；</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">所以一份程序就能跑完全部组合。</text>
+  </g>
+
+  <g transform="translate(608,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#f97316" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f97316"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">4</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">结案：补丁四纪律</text>
+
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="206" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">补丁是扩展，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">不是重写。</text>
+
+    <rect x="24" y="152" width="96" height="26" rx="13" fill="#f97316"/>
+    <text x="72" y="170" text-anchor="middle" font-size="13" font-weight="bold" fill="#0b1220">⚠ 纪律</text>
+    <rect x="32" y="196" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="205" font-size="14" fill="#e2e8f0">差异做成 uniform，缓存键只留版本号</text>
+    <rect x="32" y="222" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="231" font-size="14" fill="#e2e8f0">补丁贴着 include 写，小且准</text>
+    <rect x="32" y="248" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="257" font-size="14" fill="#e2e8f0">改 uniform 不要 needsUpdate</text>
+    <rect x="32" y="274" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="283" font-size="14" fill="#e2e8f0">影子单独补 customDepthMaterial</text>
+
+    <rect x="24" y="300" width="524" height="44" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="300" width="4" height="44" rx="2" fill="#22d3ee"/>
+    <text x="40" y="321" font-size="13.5" font-weight="bold" fill="#22d3ee">码叔总结</text>
+    <text x="40" y="338" font-size="13" fill="#e2e8f0">在别人的厨房里加一道菜，比重新盖一间厨房划算。</text>
+  </g>
+
+  <text x="1180" y="832" text-anchor="end" font-size="11" fill="#475569">NEON INK · threejs-tutorial · EP.27</text>
+</svg>

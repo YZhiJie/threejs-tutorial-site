@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>scatter-scale-lab · 十万级散点与聚合</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 384px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .state {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-size: 12.5px;
+    }
+
+    .perf {
+      display: block;
+      margin-top: 6px;
+      color: #64748b;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .tip {
+      position: fixed;
+      top: 0;
+      left: 0;
+      display: none;
+      padding: 7px 11px;
+      background: rgba(8, 12, 20, .92);
+      border: 1px solid rgba(251, 191, 36, .55);
+      border-radius: 7px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #e6edf3;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 10;
+    }
+
+    .tip b {
+      color: #fbbf24;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 206px;
+        font-size: 12px;
+      }
+
+      .hint {
+        font-size: 11px;
+      }
+
+      .lil-gui.root {
+        --width: 192px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>scatter-scale-lab · 十万级散点与聚合</b><br />
+    同一批数据，Points 是一张点云画布，InstancedMesh 是十万个有体积的实例；<br />
+    聚合把密集区压成"格柱"，用数量换可读性。<br />
+    <span class="state" id="state"></span>
+    <span class="perf" id="perf">FPS -- · draw calls --</span>
+  </div>
+  <div class="tip" id="tip"></div>
+  <div class="hint">鼠标悬停查看最近点 · 拖拽旋转 · 右上角切换数据量与渲染方式</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 场景 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 70, 150)
+
+    const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 400)
+    camera.position.set(0, 38, 72)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 4, 0)
+    controls.maxPolarAngle = Math.PI / 2.05
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x151b26, 1.4))
+    const dir = new THREE.DirectionalLight(0xffffff, 1.8)
+    dir.position.set(30, 60, 20)
+    scene.add(dir)
+
+    /* ---------- 本地 mock 数据：五个簇，十万点 ---------- */
+    const MAX = 100000
+    const positions = new Float32Array(MAX * 3)
+    const clusterOf = new Uint8Array(MAX)
+
+    let seed = 987654321
+    function rand() {
+      seed = (seed * 1664525 + 1013904223) % 4294967296
+      return seed / 4294967296
+    }
+
+    const CENTERS = [
+      [-22, -6],
+      [-9, 17],
+      [9, -17],
+      [23, 9],
+      [0, 2]
+    ]
+
+    for (let i = 0; i < MAX; i++) {
+      const k = i % CENTERS.length
+      const cx = CENTERS[k][0]
+      const cz = CENTERS[k][1]
+      const angle = rand() * Math.PI * 2
+      const radius = Math.pow(rand(), 0.55) * 15
+      const x = cx + Math.cos(angle) * radius + (rand() - 0.5) * 5
+      const z = cz + Math.sin(angle) * radius + (rand() - 0.5) * 5
+      const y = 0.35 + Math.pow(rand(), 1.5) * 9 + Math.max(0, 6 - radius) * 0.45
+
+      positions[i * 3] = x
+      positions[i * 3 + 1] = y
+      positions[i * 3 + 2] = z
+      clusterOf[i] = k
+    }
+
+    /* ---------- 颜色 LUT（连续色，按数值高度取色） ---------- */
+    const STOPS = ['#1e3a8a', '#2563eb', '#22d3ee', '#fbbf24', '#fb7185']
+    const stopColors = STOPS.map(hex => new THREE.Color(hex))
+    const LUT = new Float32Array(64 * 3)
+
+    for (let i = 0; i < 64; i++) {
+      const x = (i / 63) * (stopColors.length - 1)
+      const a = Math.floor(x)
+      const b = Math.min(stopColors.length - 1, a + 1)
+      const c = new THREE.Color().copy(stopColors[a]).lerp(stopColors[b], x - a)
+      LUT[i * 3] = c.r
+      LUT[i * 3 + 1] = c.g
+      LUT[i * 3 + 2] = c.b
+    }
+
+    function lutIndex(y) {
+      return Math.min(63, Math.max(0, Math.floor((y / 10) * 63)))
+    }
+
+    const pointColors = new Float32Array(MAX * 3)
+    for (let i = 0; i < MAX; i++) {
+      const li = lutIndex(positions[i * 3 + 1])
+      pointColors[i * 3] = LUT[li * 3]
+      pointColors[i * 3 + 1] = LUT[li * 3 + 1]
+      pointColors[i * 3 + 2] = LUT[li * 3 + 2]
+    }
+
+    /* ---------- 方案一：Points ---------- */
+    const pointsGeometry = new THREE.BufferGeometry()
+    pointsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    pointsGeometry.setAttribute('color', new THREE.BufferAttribute(pointColors, 3))
+
+    const pointsMaterial = new THREE.PointsMaterial({
+      size: 0.55,
+      vertexColors: true,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false
+    })
+
+    const points = new THREE.Points(pointsGeometry, pointsMaterial)
+    points.frustumCulled = false
+    scene.add(points)
+
+    /* ---------- 方案二：InstancedMesh（低面数四面体） ---------- */
+    const instGeometry = new THREE.TetrahedronGeometry(0.32, 0)
+    const instMaterial = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.15 })
+    const inst = new THREE.InstancedMesh(instGeometry, instMaterial, MAX)
+    inst.frustumCulled = false
+    inst.instanceMatrix.setUsage(THREE.StaticDrawUsage)
+
+    const dummy = new THREE.Object3D()
+    const tempColor = new THREE.Color()
+    for (let i = 0; i < MAX; i++) {
+      dummy.position.set(
+        positions[i * 3],
+        positions[i * 3 + 1],
+        positions[i * 3 + 2]
+      )
+      dummy.rotation.set(rand() * Math.PI, rand() * Math.PI, 0)
+      dummy.updateMatrix()
+      inst.setMatrixAt(i, dummy.matrix)
+      tempColor.setRGB(
+        pointColors[i * 3],
+        pointColors[i * 3 + 1],
+        pointColors[i * 3 + 2]
+      )
+      inst.setColorAt(i, tempColor)
+    }
+    inst.instanceMatrix.needsUpdate = true
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true
+    scene.add(inst)
+
+    /* ---------- 地面与网格 ---------- */
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(110, 110),
+      new THREE.MeshBasicMaterial({ color: 0x111a29 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.position.y = -0.05
+    scene.add(ground)
+
+    const grid = new THREE.GridHelper(110, 44, 0x26344c, 0x182234)
+    scene.add(grid)
+
+    /* ---------- 聚合：网格分箱 ---------- */
+    const BIN_SIZE = 6
+    const BIN_CAPACITY = 600
+    const binMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(BIN_SIZE * 0.86, 1, BIN_SIZE * 0.86),
+      new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.2 }),
+      BIN_CAPACITY
+    )
+    binMesh.frustumCulled = false
+    binMesh.visible = false
+    scene.add(binMesh)
+
+    let bins = []
+    let maxBinCount = 1
+
+    function rebuildBins(count) {
+      const map = new Map()
+      for (let i = 0; i < count; i++) {
+        const bx = Math.floor(positions[i * 3] / BIN_SIZE)
+        const bz = Math.floor(positions[i * 3 + 2] / BIN_SIZE)
+        const key = (bx + 300) * 1000 + (bz + 300)
+        let bin = map.get(key)
+        if (!bin) {
+          bin = { bx, bz, y: 0, n: 0 }
+          map.set(key, bin)
+        }
+        bin.y += positions[i * 3 + 1]
+        bin.n++
+      }
+
+      bins = []
+      maxBinCount = 1
+      map.forEach((b) => {
+        const countInBin = b.n
+        const height = 0.35 + Math.log10(countInBin + 1) * 2.5
+        bins.push({
+          x: (b.bx + 0.5) * BIN_SIZE,
+          z: (b.bz + 0.5) * BIN_SIZE,
+          height,
+          n: countInBin,
+          avgY: b.y / b.n
+        })
+        if (countInBin > maxBinCount) maxBinCount = countInBin
+      })
+
+      const use = Math.min(bins.length, BIN_CAPACITY)
+      for (let i = 0; i < use; i++) {
+        const b = bins[i]
+        dummy.position.set(b.x, b.height / 2, b.z)
+        dummy.scale.set(1, b.height, 1)
+        dummy.rotation.set(0, 0, 0)
+        dummy.updateMatrix()
+        binMesh.setMatrixAt(i, dummy.matrix)
+
+        const t = Math.min(1, Math.log10(b.n + 1) / Math.log10(maxBinCount + 1))
+        const li = Math.min(63, Math.floor(t * 63))
+        tempColor.setRGB(LUT[li * 3], LUT[li * 3 + 1], LUT[li * 3 + 2])
+        binMesh.setColorAt(i, tempColor)
+      }
+      binMesh.count = use
+      binMesh.instanceMatrix.needsUpdate = true
+      if (binMesh.instanceColor) binMesh.instanceColor.needsUpdate = true
+    }
+
+    /* ---------- 参数与 HUD ---------- */
+    const COUNT_OPTIONS = { '1 万': 10000, '5 万': 50000, '10 万': 100000 }
+
+    const params = {
+      count: '10 万',
+      mode: 'InstancedMesh',
+      aggregate: false,
+      autoRotate: false
+    }
+
+    const stateEl = document.getElementById('state')
+    const perfEl = document.getElementById('perf')
+
+    function applyCount() {
+      const n = COUNT_OPTIONS[params.count]
+      pointsGeometry.setDrawRange(0, n)
+      inst.count = n
+      if (params.aggregate) rebuildBins(n)
+      hideHover()
+      updateState()
+    }
+
+    function applyMode() {
+      const showRaw = !params.aggregate
+      points.visible = showRaw && params.mode === 'Points'
+      inst.visible = showRaw && params.mode === 'InstancedMesh'
+      binMesh.visible = params.aggregate
+      updateState()
+    }
+
+    function updateState() {
+      const n = COUNT_OPTIONS[params.count].toLocaleString('zh-CN')
+      const mode = params.aggregate ? '聚合格柱' : params.mode
+      const extra = params.aggregate
+        ? ` · ${bins.length} 个格`
+        : ''
+      stateEl.textContent = `数据量 ${n} · ${mode}${extra}`
+    }
+
+    /* ---------- 悬停拾取：屏幕射线 → 地面 → 最近点 ---------- */
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2(0, 0)
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+    const hitWorld = new THREE.Vector3()
+    const tipEl = document.getElementById('tip')
+
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.6, 20, 14),
+      new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
+    )
+    marker.visible = false
+    scene.add(marker)
+
+    let hoverActive = false
+    let lastPick = 0
+
+    renderer.domElement.addEventListener('pointermove', (e) => {
+      pointer.x = (e.clientX / innerWidth) * 2 - 1
+      pointer.y = -(e.clientY / innerHeight) * 2 + 1
+      hoverActive = true
+    })
+    renderer.domElement.addEventListener('pointerleave', () => {
+      hoverActive = false
+      hideHover()
+    })
+
+    function hideHover() {
+      marker.visible = false
+      tipEl.style.display = 'none'
+    }
+
+    function pickNearest() {
+      if (!hoverActive) return
+      raycaster.setFromCamera(pointer, camera)
+      if (!raycaster.ray.intersectPlane(groundPlane, hitWorld)) {
+        hideHover()
+        return
+      }
+
+      if (params.aggregate) {
+        let best = null
+        let bestDist = Infinity
+        for (const b of bins) {
+          const dx = b.x - hitWorld.x
+          const dz = b.z - hitWorld.z
+          const d = dx * dx + dz * dz
+          if (d < bestDist) {
+            bestDist = d
+            best = b
+          }
+        }
+        if (!best || bestDist > BIN_SIZE * BIN_SIZE) {
+          hideHover()
+          return
+        }
+        marker.position.set(best.x, best.height + 0.2, best.z)
+        marker.visible = true
+        showTip(`<b>聚合格</b> · ${best.n} 个点<br>均值 ${best.avgY.toFixed(2)}`,
+          marker.position)
+        return
+      }
+
+      const n = COUNT_OPTIONS[params.count]
+      let best = -1
+      let bestDist = Infinity
+      for (let i = 0; i < n; i++) {
+        const dx = positions[i * 3] - hitWorld.x
+        const dz = positions[i * 3 + 2] - hitWorld.z
+        const d = dx * dx + dz * dz
+        if (d < bestDist) {
+          bestDist = d
+          best = i
+        }
+      }
+      if (best < 0 || bestDist > 16) {
+        hideHover()
+        return
+      }
+      marker.position.set(
+        positions[best * 3],
+        positions[best * 3 + 1],
+        positions[best * 3 + 2]
+      )
+      marker.visible = true
+      showTip(
+        `<b>点 #${best}</b> · 簇 C${clusterOf[best] + 1}<br>` +
+        `数值 ${positions[best * 3 + 1].toFixed(2)} / 10`,
+        marker.position
+      )
+    }
+
+    function showTip(html, worldPos) {
+      const v = worldPos.clone().project(camera)
+      const px = (v.x * 0.5 + 0.5) * innerWidth
+      const py = (-v.y * 0.5 + 0.5) * innerHeight
+      tipEl.innerHTML = html
+      tipEl.style.display = 'block'
+      tipEl.style.transform =
+        `translate(${px}px, ${py}px) translate(-50%, -140%)`
+    }
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '规模与渲染' })
+    gui.add(params, 'count', Object.keys(COUNT_OPTIONS)).name('数据量')
+      .onChange(applyCount)
+    gui.add(params, 'mode', ['Points', 'InstancedMesh']).name('渲染方式')
+      .onChange(applyMode)
+    gui.add(params, 'aggregate').name('聚合（网格分箱）')
+      .onChange(() => {
+        if (params.aggregate) rebuildBins(COUNT_OPTIONS[params.count])
+        applyMode()
+      })
+    gui.add(params, 'autoRotate').name('自动旋转').onChange((v) => {
+      controls.autoRotate = v
+      controls.autoRotateSpeed = 0.5
+    })
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    let fps = 60
+
+    applyCount()
+    applyMode()
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+      if (dt > 0) fps = fps * 0.92 + (1 / dt) * 0.08
+
+      controls.update()
+
+      const now = performance.now()
+      if (hoverActive && now - lastPick > 120) {
+        lastPick = now
+        pickNearest()
+      }
+
+      renderer.render(scene, camera)
+
+      perfEl.textContent =
+        `FPS ${fps.toFixed(0)} · draw calls ${renderer.info.render.calls}` +
+        ` · 三角面 ${(renderer.info.render.triangles / 1000).toFixed(0)}k`
+      if (marker.visible) {
+        const v = marker.position.clone().project(camera)
+        const px = (v.x * 0.5 + 0.5) * innerWidth
+        const py = (-v.y * 0.5 + 0.5) * innerHeight
+        tipEl.style.transform =
+          `translate(${px}px, ${py}px) translate(-50%, -140%)`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

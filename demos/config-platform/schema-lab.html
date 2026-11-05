@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>schema-lab · 场景配置 DSL 解释器</title>
+  <style>
+    * { box-sizing: border-box; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app { position: fixed; left: 386px; right: 0; top: 0; bottom: 0; }
+    canvas { display: block; }
+
+    .panel {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      bottom: 12px;
+      width: 362px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      background: rgba(13, 19, 30, .88);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 12px;
+      z-index: 10;
+      overflow-y: auto;
+    }
+
+    .info {
+      padding: 2px 2px 6px;
+      font-size: 12.5px;
+      line-height: 1.6;
+    }
+
+    .info b { color: #7cc4ff; font-size: 13.5px; }
+    .info .sub { display: block; color: #94a3b8; margin-top: 3px; }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .tag {
+      font-size: 11px;
+      color: #94a3b8;
+      letter-spacing: .04em;
+    }
+
+    .ex-btn {
+      padding: 4px 10px;
+      border-radius: 7px;
+      border: 1px solid rgba(148, 163, 184, .28);
+      background: rgba(148, 163, 184, .1);
+      color: #cbd5e1;
+      font-size: 12px;
+      cursor: pointer;
+      transition: .18s;
+    }
+
+    .ex-btn:hover { background: rgba(148, 163, 184, .2); }
+    .ex-btn.active {
+      border-color: rgba(34, 211, 238, .55);
+      background: rgba(34, 211, 238, .16);
+      color: #a5f3fc;
+      font-weight: 700;
+    }
+
+    textarea {
+      flex: 1;
+      min-height: 120px;
+      width: 100%;
+      resize: none;
+      padding: 10px;
+      border-radius: 9px;
+      border: 1px solid rgba(148, 163, 184, .28);
+      background: #0a0f1c;
+      color: #cbd5e1;
+      font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+      font-size: 11.5px;
+      line-height: 1.55;
+      tab-size: 2;
+      outline: none;
+    }
+
+    textarea:focus { border-color: rgba(34, 211, 238, .5); }
+    textarea.bad { border-color: rgba(251, 113, 133, .8); box-shadow: 0 0 0 2px rgba(251, 113, 133, .12); }
+
+    .apply {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(34, 211, 238, .5);
+      background: rgba(34, 211, 238, .16);
+      color: #a5f3fc;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: .18s;
+    }
+
+    .apply:hover { background: rgba(34, 211, 238, .28); }
+
+    .status {
+      font-size: 11.5px;
+      line-height: 1.55;
+      color: #94a3b8;
+      min-height: 34px;
+    }
+
+    .status.ok { color: #34d399; }
+    .status.bad { color: #fb7185; }
+
+    .err-list {
+      display: none;
+      max-height: 94px;
+      overflow-y: auto;
+      padding: 8px 9px;
+      border-radius: 8px;
+      background: rgba(251, 113, 133, .08);
+      border: 1px solid rgba(251, 113, 133, .35);
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.6;
+    }
+
+    .err-list.show { display: block; }
+    .err-list .path { color: #fda4af; }
+    .err-list .msg { color: #94a3b8; }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 20;
+    }
+
+    @media (max-width: 860px) {
+      .panel { width: calc(100% - 24px); bottom: auto; height: 46%; }
+      #app { left: 0; top: calc(46% + 18px); }
+      .info .sub { display: none; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="panel">
+    <div class="info">
+      <b>DSL 解释器台 · 配置驱动场景</b>
+      <span class="sub">左侧改 JSON，点「应用」后右侧重建；报错时保留上一版场景。</span>
+    </div>
+
+    <div class="row">
+      <span class="tag">内置示例</span>
+      <button class="ex-btn active" data-ex="campus">园区</button>
+      <button class="ex-btn" data-ex="gallery">展厅</button>
+      <button class="ex-btn" data-ex="terrain">地形</button>
+    </div>
+
+    <textarea id="dsl" spellcheck="false" aria-label="场景配置 DSL"></textarea>
+
+    <div class="row">
+      <button class="apply" id="apply">应用配置</button>
+      <span class="tag" id="meta">解析 → 校验 → 构建 → 挂载</span>
+    </div>
+
+    <div class="status" id="status"></div>
+    <div class="err-list" id="errs"></div>
+  </div>
+
+  <div class="hint">点击「应用」重建场景 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    const TYPES = ['box', 'sphere', 'cone', 'cylinder', 'torus', 'plane', 'ico', 'group', 'terrain']
+    const LIGHT_TYPES = ['hemisphere', 'directional', 'ambient', 'point']
+    const ANIM_TYPES = ['spin', 'bob', 'orbit']
+
+    /* ---------- 渲染基础 ---------- */
+    const container = document.getElementById('app')
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300)
+    camera.position.set(9, 8, 13)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFShadowMap
+    container.appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.5, 0)
+
+    let root = new THREE.Group()
+    scene.add(root)
+    let anims = []
+
+    function resize() {
+      const w = container.clientWidth || 1
+      const h = container.clientHeight || 1
+      camera.aspect = w / h
+      camera.updateProjectionMatrix()
+      renderer.setSize(w, h)
+    }
+
+    /* ---------- 校验工具 ---------- */
+    const isNum = (n) => typeof n === 'number' && Number.isFinite(n)
+    const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(isNum)
+    const isColor = (v) => typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)
+
+    function validate(data) {
+      const errors = []
+      const push = (path, expected, actual, msg) => errors.push({ path, expected, actual, msg })
+      const shown = (v) => {
+        if (v === undefined) return 'undefined'
+        if (v === null) return 'null'
+        return JSON.stringify(v)
+      }
+
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        push('/', 'object', shown(data), '根节点必须是对象')
+        return errors
+      }
+      if (data.version !== 1) {
+        push('/version', 'number 1', shown(data.version), '缺少或错误的 version，解释器只接受 v1')
+      }
+      if (data.scene !== undefined) {
+        if (!data.scene || typeof data.scene !== 'object' || Array.isArray(data.scene)) {
+          push('/scene', 'object', shown(data.scene), 'scene 必须是对象')
+        } else {
+          if (data.scene.background !== undefined && !isColor(data.scene.background)) {
+            push('/scene/background', 'hex color', shown(data.scene.background), '背景色必须是十六进制')
+          }
+          if (data.scene.fog !== undefined) {
+            const fog = data.scene.fog
+            if (!fog || typeof fog !== 'object') {
+              push('/scene/fog', 'object', shown(fog), 'fog 必须是对象')
+            } else {
+              if (fog.color !== undefined && !isColor(fog.color)) push('/scene/fog/color', 'hex color', shown(fog.color), '雾颜色必须是十六进制')
+              if (!isNum(fog.near) || !isNum(fog.far) || fog.near >= fog.far) {
+                push('/scene/fog', 'near < far', shown(fog), '雾的 near 与 far 必须是递增数字')
+              }
+            }
+          }
+        }
+      }
+
+      const matIds = new Set()
+      const mats = data.materials
+      if (mats !== undefined && !Array.isArray(mats)) {
+        push('/materials', 'array', shown(mats), 'materials 必须是数组')
+      } else if (Array.isArray(mats)) {
+        mats.forEach((m, i) => {
+          if (!m || typeof m !== 'object') {
+            push(`/materials/${i}`, 'object', shown(m), '材质节点必须是对象')
+            return
+          }
+          if (typeof m.id !== 'string' || !m.id) {
+            push(`/materials/${i}/id`, 'non-empty string', shown(m.id), '材质必须声明 id')
+          } else if (matIds.has(m.id)) {
+            push(`/materials/${i}/id`, 'unique id', shown(m.id), '材质 id 重复')
+          } else {
+            matIds.add(m.id)
+          }
+          if (m.color !== undefined && !isColor(m.color)) {
+            push(`/materials/${i}/color`, 'hex color', shown(m.color), '颜色必须是十六进制字符串')
+          }
+        })
+      }
+
+      const cam = data.camera
+      if (!cam || typeof cam !== 'object') {
+        push('/camera', 'object', shown(cam), '缺少 camera 节点')
+      } else {
+        if (!isNum(cam.fov) || cam.fov < 1 || cam.fov > 120) {
+          push('/camera/fov', 'number 1..120', shown(cam.fov), 'fov 必须是 1~120 的数字')
+        }
+        if (!isVec3(cam.position)) push('/camera/position', 'vec3', shown(cam.position), '相机位置必须是三元数组')
+        if (!isVec3(cam.target)) push('/camera/target', 'vec3', shown(cam.target), '相机目标必须是三元数组')
+      }
+
+      const ids = new Set()
+      const seenIds = new Set()
+      const objs = data.objects
+      if (!Array.isArray(objs) || !objs.length) {
+        push('/objects', 'non-empty array', shown(objs), 'objects 必须是非空数组')
+        return errors
+      }
+
+      objs.forEach((o) => {
+        if (o && typeof o.id === 'string' && o.id) ids.add(o.id)
+      })
+
+      objs.forEach((o, i) => {
+        if (!o || typeof o !== 'object') {
+          push(`/objects/${i}`, 'object', shown(o), '对象节点必须是对象')
+          return
+        }
+        const path = `/objects/${i}`
+        if (typeof o.id !== 'string' || !o.id) {
+          push(`${path}/id`, 'non-empty string', shown(o.id), '对象必须声明 id')
+        } else if (seenIds.has(o.id)) {
+          push(`${path}/id`, 'unique id', shown(o.id), '对象 id 重复，引用会指错')
+        } else {
+          seenIds.add(o.id)
+        }
+        if (!TYPES.includes(o.type)) {
+          push(`${path}/type`, TYPES.join(' | '), shown(o.type), '构建器注册表里没有这个 type')
+        }
+        ;['position', 'rotation', 'scale'].forEach((k) => {
+          if (o[k] !== undefined && !isVec3(o[k])) {
+            push(`${path}/${k}`, 'vec3', shown(o[k]), `${k} 必须是三个数字`)
+          }
+        })
+        if (o.type !== 'group' && o.type !== 'terrain' && !o.material) {
+          push(`${path}/material`, 'material id', shown(o.material), '可渲染对象必须引用材质')
+        }
+        if (o.material !== undefined && !matIds.has(o.material)) {
+          push(`${path}/material`, 'existing material id', shown(o.material), '引用了不存在的材质')
+        }
+        if (o.parent !== undefined && !ids.has(o.parent)) {
+          push(`${path}/parent`, 'existing object id', shown(o.parent), '父节点不存在或尚未声明')
+        }
+        if (o.parent !== undefined && o.parent === o.id) {
+          push(`${path}/parent`, 'other id', shown(o.parent), '不能把自己作为父节点')
+        }
+      })
+
+      // 循环父子：沿 parent 链走，超过节点数即判定为环
+      objs.forEach((o, i) => {
+        if (!o || typeof o !== 'object' || !o.parent) return
+        const seen = new Set([o.id])
+        let cur = o.parent
+        let guard = 0
+        while (typeof cur === 'string' && guard++ < objs.length) {
+          if (seen.has(cur)) {
+            push(`/objects/${i}/parent`, 'acyclic chain', shown(o.parent), '父子关系成环：' + o.id + ' → ' + cur)
+            break
+          }
+          seen.add(cur)
+          const next = objs.find((x) => x && x.id === cur)
+          cur = next ? next.parent : undefined
+        }
+      })
+
+      const lights = data.lights
+      if (lights !== undefined && !Array.isArray(lights)) {
+        push('/lights', 'array', shown(lights), 'lights 必须是数组')
+      } else if (Array.isArray(lights)) {
+        lights.forEach((l, i) => {
+          if (!l || typeof l !== 'object') {
+            push(`/lights/${i}`, 'object', shown(l), '灯光节点必须是对象')
+            return
+          }
+          if (!LIGHT_TYPES.includes(l.type)) {
+            push(`/lights/${i}/type`, LIGHT_TYPES.join(' | '), shown(l.type), '未知灯光类型')
+          }
+          if (!isNum(l.intensity) || l.intensity < 0 || l.intensity > 12) {
+            push(`/lights/${i}/intensity`, 'number 0..12', shown(l.intensity), '光照强度越界')
+          }
+          if (l.position !== undefined && !isVec3(l.position)) {
+            push(`/lights/${i}/position`, 'vec3', shown(l.position), '灯光位置必须是三个数字')
+          }
+          if (l.color !== undefined && !isColor(l.color)) {
+            push(`/lights/${i}/color`, 'hex color', shown(l.color), '灯光颜色必须是十六进制')
+          }
+        })
+      }
+
+      const animsData = data.animations
+      if (animsData !== undefined && !Array.isArray(animsData)) {
+        push('/animations', 'array', shown(animsData), 'animations 必须是数组')
+      } else if (Array.isArray(animsData)) {
+        animsData.forEach((a, i) => {
+          if (!a || typeof a !== 'object') {
+            push(`/animations/${i}`, 'object', shown(a), '动画节点必须是对象')
+            return
+          }
+          if (!ids.has(a.target)) {
+            push(`/animations/${i}/target`, 'existing object id', shown(a.target), '动画目标不存在')
+          }
+          if (!ANIM_TYPES.includes(a.type)) {
+            push(`/animations/${i}/type`, ANIM_TYPES.join(' | '), shown(a.type), '未知动画类型')
+          }
+          if (a.speed !== undefined && !isNum(a.speed)) {
+            push(`/animations/${i}/speed`, 'number', shown(a.speed), '速度必须是数字')
+          }
+        })
+      }
+
+      return errors
+    }
+
+    /* ---------- 构建器注册表 ---------- */
+    function geometryFor(o) {
+      switch (o.type) {
+        case 'box': return new THREE.BoxGeometry(1, 1, 1)
+        case 'sphere': return new THREE.SphereGeometry(0.6, 32, 24)
+        case 'cone': return new THREE.ConeGeometry(0.6, 1.4, 24)
+        case 'cylinder': return new THREE.CylinderGeometry(0.6, 0.6, 1, 24)
+        case 'torus': return new THREE.TorusGeometry(0.55, 0.18, 20, 48)
+        case 'plane': return new THREE.PlaneGeometry(1, 1)
+        case 'ico': return new THREE.IcosahedronGeometry(0.6, 0)
+        case 'terrain': return terrainGeometry(o)
+        default: return new THREE.BoxGeometry(1, 1, 1)
+      }
+    }
+
+    function terrainGeometry(o) {
+      const size = o.size || 18
+      const seg = 56
+      const g = new THREE.PlaneGeometry(size, size, seg, seg)
+      g.rotateX(-Math.PI / 2)
+      const pos = g.attributes.position
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i)
+        const z = pos.getZ(i)
+        const y = Math.sin(x * 0.42) * 0.85
+          + Math.cos(z * 0.55) * 0.7
+          + Math.sin((x + z) * 0.22) * 0.5
+        pos.setY(i, y)
+      }
+      g.computeVertexNormals()
+      return g
+    }
+
+    const BUILDERS = {
+      box: (o, mat) => new THREE.Mesh(geometryFor(o), mat),
+      sphere: (o, mat) => new THREE.Mesh(geometryFor(o), mat),
+      cone: (o, mat) => new THREE.Mesh(geometryFor(o), mat),
+      cylinder: (o, mat) => new THREE.Mesh(geometryFor(o), mat),
+      torus: (o, mat) => new THREE.Mesh(geometryFor(o), mat),
+      plane: (o, mat) => new THREE.Mesh(geometryFor(o), mat),
+      ico: (o, mat) => new THREE.Mesh(geometryFor(o), mat),
+      terrain: (o, mat) => new THREE.Mesh(geometryFor(o), mat),
+      group: () => new THREE.Group()
+    }
+
+    function build(data) {
+      const group = new THREE.Group()
+      const animList = []
+      const matMap = new Map()
+      ;(data.materials || []).forEach((m) => {
+        matMap.set(m.id, new THREE.MeshStandardMaterial({
+          color: m.color || '#94a3b8',
+          metalness: isNum(m.metalness) ? m.metalness : 0.1,
+          roughness: isNum(m.roughness) ? m.roughness : 0.7
+        }))
+      })
+
+      const nodeMap = new Map()
+      ;(data.objects || []).forEach((o) => {
+        const mat = matMap.get(o.material) || new THREE.MeshStandardMaterial({ color: 0x94a3b8 })
+        const factory = BUILDERS[o.type] || BUILDERS.box
+        const node = factory(o, mat)
+        node.name = o.id
+        node.userData.dslId = o.id
+        if (node.isMesh) {
+          node.castShadow = o.type !== 'plane' && o.type !== 'terrain'
+          node.receiveShadow = true
+        }
+        nodeMap.set(o.id, node)
+      })
+
+      ;(data.objects || []).forEach((o) => {
+        const node = nodeMap.get(o.id)
+        node.position.fromArray(o.position || [0, 0, 0])
+        node.rotation.fromArray(o.rotation || [0, 0, 0])
+        node.scale.fromArray(o.scale || [1, 1, 1])
+        const parent = o.parent ? nodeMap.get(o.parent) : null
+        if (parent) parent.add(node)
+        else group.add(node)
+      })
+
+      ;(data.lights || []).forEach((l) => {
+        let light
+        const color = l.color || '#ffffff'
+        const intensity = isNum(l.intensity) ? l.intensity : 1
+        if (l.type === 'hemisphere') {
+          light = new THREE.HemisphereLight(l.sky || '#94a3b8', l.ground || '#0b0e14', intensity)
+        } else if (l.type === 'directional') {
+          light = new THREE.DirectionalLight(color, intensity)
+          light.position.fromArray(l.position || [5, 8, 4])
+          if (l.shadow) {
+            light.castShadow = true
+            light.shadow.mapSize.set(1024, 1024)
+            light.shadow.camera.left = -18
+            light.shadow.camera.right = 18
+            light.shadow.camera.top = 18
+            light.shadow.camera.bottom = -18
+            light.shadow.camera.far = 60
+            light.shadow.bias = -0.0005
+          }
+        } else if (l.type === 'point') {
+          light = new THREE.PointLight(color, intensity, l.distance || 30)
+          light.position.fromArray(l.position || [0, 4, 0])
+        } else {
+          light = new THREE.AmbientLight(color, intensity)
+        }
+        light.name = 'light-' + l.type
+        group.add(light)
+      })
+
+      ;(data.animations || []).forEach((a) => {
+        const obj = nodeMap.get(a.target)
+        if (!obj) return
+        animList.push({
+          obj,
+          type: a.type,
+          axis: a.axis || 'y',
+          speed: isNum(a.speed) ? a.speed : 0.6,
+          amp: isNum(a.amplitude) ? a.amplitude : 0.3,
+          radius: isNum(a.radius) ? a.radius : 3,
+          baseY: obj.position.y,
+          cx: obj.position.x,
+          cz: obj.position.z,
+          angle: 0,
+          phase: Math.random() * Math.PI * 2
+        })
+      })
+
+      if (data.scene && data.scene.fog) {
+        scene.fog = new THREE.Fog(
+          data.scene.fog.color || '#0b0e14',
+          data.scene.fog.near ?? 12,
+          data.scene.fog.far ?? 40
+        )
+      } else {
+        scene.fog = null
+      }
+      return { group, animList, data }
+    }
+
+    function disposeGroup(g) {
+      g.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose()
+        if (obj.material) {
+          const list = Array.isArray(obj.material) ? obj.material : [obj.material]
+          list.forEach((m) => {
+            if (m.map) m.map.dispose()
+            m.dispose()
+          })
+        }
+      })
+      g.clear()
+    }
+
+    function mount(plan) {
+      const old = root
+      root = plan.group
+      anims = plan.animList
+      scene.add(root)
+      scene.remove(old)
+      disposeGroup(old)
+
+      if (plan.data.scene && plan.data.scene.background) {
+        scene.background = new THREE.Color(plan.data.scene.background)
+      }
+      const cam = plan.data.camera
+      camera.fov = cam.fov
+      camera.position.fromArray(cam.position)
+      camera.updateProjectionMatrix()
+      controls.target.fromArray(cam.target)
+      controls.update()
+    }
+
+    /* ---------- 三个内置示例 ---------- */
+    function campus() {
+      const objects = [
+        { id: 'ground', type: 'plane', position: [0, 0, 0], rotation: [-1.5708, 0, 0], scale: [30, 1, 30], material: 'ground' },
+        { id: 'plaza', type: 'cylinder', position: [0, 0.05, 0], scale: [4.6, 0.12, 4.6], material: 'concrete' },
+        { id: 'beacon', type: 'torus', position: [0, 3.3, 0], scale: [1.1, 1.1, 1.1], material: 'accent' },
+        { id: 'tower-a', type: 'box', position: [-5, 1.9, -4], scale: [2.2, 3.8, 2.2], material: 'glass' },
+        { id: 'tower-b', type: 'box', position: [-1, 2.6, -6], scale: [1.8, 5.2, 1.8], material: 'glass' },
+        { id: 'tower-c', type: 'box', position: [5, 1.5, -3], scale: [2.4, 3, 2.4], material: 'concrete' },
+        { id: 'tower-d', type: 'box', position: [5.5, 2.2, 4], scale: [1.6, 4.4, 1.6], material: 'glass' }
+      ]
+      const treeSpots = [[-8, 4], [-4, 7], [1, 8], [7, 7], [9, 2], [-9, -1]]
+      treeSpots.forEach((p, i) => {
+        objects.push({ id: 'tree-' + i, type: 'group', position: [p[0], 0, p[1]] })
+        objects.push({
+          id: 'trunk-' + i, type: 'cylinder', parent: 'tree-' + i,
+          position: [0, 0.6, 0], scale: [0.16, 1.2, 0.16], material: 'trunk'
+        })
+        objects.push({
+          id: 'crown-' + i, type: 'cone', parent: 'tree-' + i,
+          position: [0, 1.8, 0], scale: [1.1, 1.8, 1.1], material: 'leaf'
+        })
+      })
+      return {
+        version: 1,
+        scene: { background: '#0b0e14' },
+        camera: { fov: 45, position: [12, 9, 15], target: [0, 1.6, 0] },
+        materials: [
+          { id: 'ground', color: '#1c2638', metalness: 0.05, roughness: 0.95 },
+          { id: 'concrete', color: '#9aa7b8', metalness: 0.05, roughness: 0.85 },
+          { id: 'glass', color: '#38bdf8', metalness: 0.85, roughness: 0.16 },
+          { id: 'accent', color: '#f97316', metalness: 0.7, roughness: 0.28 },
+          { id: 'trunk', color: '#7c4a2a', metalness: 0, roughness: 0.95 },
+          { id: 'leaf', color: '#34d399', metalness: 0, roughness: 0.9 }
+        ],
+        objects,
+        lights: [
+          { type: 'hemisphere', sky: '#7dd3fc', ground: '#0f172a', intensity: 0.65 },
+          { type: 'directional', position: [8, 12, 6], intensity: 2.4, color: '#ffe6bf', shadow: true },
+          { type: 'point', position: [0, 4, 0], intensity: 1.2, color: '#f97316', distance: 12 }
+        ],
+        animations: [
+          { target: 'beacon', type: 'spin', axis: 'y', speed: 0.7 },
+          { target: 'beacon', type: 'bob', speed: 1.1, amplitude: 0.18 }
+        ]
+      }
+    }
+
+    function gallery() {
+      const objects = [
+        { id: 'floor', type: 'plane', position: [0, 0, 0], rotation: [-1.5708, 0, 0], scale: [26, 1, 26], material: 'floor' },
+        { id: 'core', type: 'sphere', position: [0, 2.6, 0], scale: [1.3, 1.3, 1.3], material: 'accent' },
+        { id: 'ring', type: 'torus', position: [0, 2.6, 0], rotation: [1.2, 0, 0.4], scale: [1.5, 1.5, 1.5], material: 'glass' },
+        { id: 'wall', type: 'box', position: [0, 2, -10], scale: [22, 6, 0.4], material: 'wall' }
+      ]
+      const plinths = [[-5, 3], [0, 4], [5, 3]]
+      const kinds = ['ico', 'torus', 'cone']
+      plinths.forEach((p, i) => {
+        objects.push({
+          id: 'plinth-' + i, type: 'box', position: [p[0], 0.55, p[1]],
+          scale: [1.6, 1.1, 1.6], material: 'marble'
+        })
+        objects.push({
+          id: 'exhibit-' + i, type: kinds[i], position: [p[0], 1.85 + i * 0.1, p[1]],
+          scale: [1.05, 1.05, 1.05], material: 'exhibit'
+        })
+      })
+      return {
+        version: 1,
+        scene: { background: '#0b0e14', fog: { color: '#0b0e14', near: 14, far: 38 } },
+        camera: { fov: 42, position: [9, 5, 14], target: [0, 2, 0] },
+        materials: [
+          { id: 'floor', color: '#141b29', metalness: 0.35, roughness: 0.45 },
+          { id: 'wall', color: '#182033', metalness: 0.1, roughness: 0.9 },
+          { id: 'marble', color: '#cbd5e1', metalness: 0.1, roughness: 0.55 },
+          { id: 'exhibit', color: '#a78bfa', metalness: 0.5, roughness: 0.3 },
+          { id: 'glass', color: '#22d3ee', metalness: 0.9, roughness: 0.1 },
+          { id: 'accent', color: '#f472b6', metalness: 0.4, roughness: 0.4 }
+        ],
+        objects,
+        lights: [
+          { type: 'hemisphere', sky: '#c4b5fd', ground: '#0f172a', intensity: 0.5 },
+          { type: 'directional', position: [6, 10, 6], intensity: 1.8, color: '#e0e7ff', shadow: true },
+          { type: 'point', position: [-5, 4.5, 3], intensity: 1.6, color: '#22d3ee', distance: 14 },
+          { type: 'point', position: [5, 4.5, 3], intensity: 1.6, color: '#f472b6', distance: 14 }
+        ],
+        animations: [
+          { target: 'core', type: 'spin', axis: 'y', speed: 1.1 },
+          { target: 'ring', type: 'spin', axis: 'z', speed: 0.6 },
+          { target: 'exhibit-0', type: 'spin', axis: 'y', speed: 0.5 },
+          { target: 'exhibit-1', type: 'spin', axis: 'x', speed: 0.4 },
+          { target: 'exhibit-2', type: 'spin', axis: 'y', speed: 0.7 }
+        ]
+      }
+    }
+
+    function terrain() {
+      const objects = [
+        { id: 'land', type: 'terrain', position: [0, 0, 0], scale: [1, 1, 1], size: 22, material: 'land' },
+        { id: 'peak', type: 'cone', position: [0, 4.4, -2], scale: [2.4, 4.2, 2.4], material: 'rock' },
+        { id: 'marker', type: 'ico', position: [0, 6.8, -2], scale: [0.8, 0.8, 0.8], material: 'accent' }
+      ]
+      const spots = [[-7, -3, 0.7], [6, -4, 0.9], [-5, 5, 0.5], [7, 5, 0.6], [-9, 1, 0.8], [9, 0, 0.4]]
+      spots.forEach((s, i) => {
+        objects.push({
+          id: 'rock-' + i, type: 'ico', position: [s[0], 0.4 + s[2], s[1]],
+          rotation: [0.2, i * 0.7, 0.1], scale: [s[2], s[2], s[2]], material: 'rock'
+        })
+      })
+      return {
+        version: 1,
+        scene: { background: '#0b0e14', fog: { color: '#0b0e14', near: 18, far: 52 } },
+        camera: { fov: 50, position: [14, 9, 16], target: [0, 2, 0] },
+        materials: [
+          { id: 'land', color: '#243247', metalness: 0.05, roughness: 0.95 },
+          { id: 'rock', color: '#64748b', metalness: 0.1, roughness: 0.9 },
+          { id: 'accent', color: '#fbbf24', metalness: 0.8, roughness: 0.25 }
+        ],
+        objects,
+        lights: [
+          { type: 'hemisphere', sky: '#93c5fd', ground: '#0f172a', intensity: 0.55 },
+          { type: 'directional', position: [10, 13, 8], intensity: 2.6, color: '#ffd7a8', shadow: true }
+        ],
+        animations: [
+          { target: 'marker', type: 'spin', axis: 'y', speed: 1.2 },
+          { target: 'marker', type: 'bob', speed: 1.4, amplitude: 0.25 },
+          { target: 'rock-0', type: 'spin', axis: 'y', speed: 0.3 }
+        ]
+      }
+    }
+
+    const EXAMPLES = { campus: campus(), gallery: gallery(), terrain: terrain() }
+
+    /* ---------- UI ---------- */
+    const ta = document.getElementById('dsl')
+    const statusEl = document.getElementById('status')
+    const errEl = document.getElementById('errs')
+    const metaEl = document.getElementById('meta')
+    let lastGood = ''
+    let currentEx = 'campus'
+
+    function writeStatus(text, cls) {
+      statusEl.textContent = text
+      statusEl.className = 'status' + (cls ? ' ' + cls : '')
+    }
+
+    function showErrors(errors) {
+      errEl.classList.add('show')
+      errEl.innerHTML = errors.slice(0, 4).map((e) =>
+        '<div><span class="path">' + e.path + '</span> '
+        + '<span class="msg">期望 ' + e.expected + '，实际 ' + e.actual + '<br>' + e.msg + '</span></div>'
+      ).join('')
+    }
+
+    function clearErrors() {
+      errEl.classList.remove('show')
+      errEl.innerHTML = ''
+      ta.classList.remove('bad')
+    }
+
+    function selectPath(path) {
+      const seg = path.split('/').filter(Boolean).pop()
+      if (!seg) return
+      const re = new RegExp('"' + seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"\\s*:')
+      const m = re.exec(ta.value)
+      if (!m) return
+      const start = ta.value.lastIndexOf('\n', m.index) + 1
+      const end = ta.value.indexOf('\n', m.index)
+      ta.focus()
+      ta.setSelectionRange(start, end === -1 ? ta.value.length : end)
+    }
+
+    function applyConfig(text) {
+      let data
+      try {
+        data = JSON.parse(text)
+      } catch (e) {
+        clearErrors()
+        ta.classList.add('bad')
+        showErrors([{ path: 'JSON 语法', expected: '合法 JSON', actual: e.message, msg: '解析阶段就失败，右侧继续显示上一版场景' }])
+        writeStatus('解析失败：' + e.message, 'bad')
+        return false
+      }
+
+      const errors = validate(data)
+      if (errors.length) {
+        clearErrors()
+        ta.classList.add('bad')
+        showErrors(errors)
+        writeStatus('校验失败 ' + errors.length + ' 处，场景保持不变', 'bad')
+        selectPath(errors[0].path)
+        return false
+      }
+
+      const plan = build(data)
+      mount(plan)
+      clearErrors()
+      lastGood = text
+      const objCount = (data.objects || []).length
+      const lightCount = (data.lights || []).length
+      writeStatus('✓ 构建成功：' + objCount + ' 个节点 / ' + lightCount + ' 盏灯 / '
+        + (data.animations || []).length + ' 条动画', 'ok')
+      metaEl.textContent = 'v' + data.version + ' · ' + objCount + ' nodes'
+      return true
+    }
+
+    function loadExample(name) {
+      currentEx = name
+      document.querySelectorAll('.ex-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.ex === name)
+      })
+      ta.value = JSON.stringify(EXAMPLES[name], null, 2)
+      applyConfig(ta.value)
+    }
+
+    document.querySelectorAll('.ex-btn').forEach((b) => {
+      b.addEventListener('click', () => loadExample(b.dataset.ex))
+    })
+
+    document.getElementById('apply').addEventListener('click', () => {
+      applyConfig(ta.value)
+    })
+
+    ta.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        applyConfig(ta.value)
+      }
+    })
+
+    // 演示页启动时直接载入园区示例，不做任何网络请求
+    ta.value = JSON.stringify(EXAMPLES.campus, null, 2)
+    applyConfig(ta.value)
+
+    /* ---------- 主循环 ---------- */
+    let lastStats = 0
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+      const t = timer.getElapsed()
+
+      anims.forEach((a) => {
+        if (a.type === 'spin') {
+          a.obj.rotation[a.axis] += a.speed * dt
+        } else if (a.type === 'bob') {
+          a.obj.position.y = a.baseY + Math.sin(t * a.speed + a.phase) * a.amp
+        } else if (a.type === 'orbit') {
+          a.angle += a.speed * dt
+          a.obj.position.x = a.cx + Math.cos(a.angle) * a.radius
+          a.obj.position.z = a.cz + Math.sin(a.angle) * a.radius
+        }
+      })
+
+      controls.update()
+      renderer.render(scene, camera)
+
+      if (t - lastStats > 0.6) {
+        lastStats = t
+        const calls = renderer.info.render.calls
+        document.getElementById('meta').textContent = metaEl.textContent.split(' · ')[0] + ' · ' + calls + ' calls'
+      }
+    })
+
+    resize()
+    addEventListener('resize', resize)
+  </script>
+</body>
+
+</html>

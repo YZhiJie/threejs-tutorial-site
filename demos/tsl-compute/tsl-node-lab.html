@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tsl-node-lab · TSL 节点实验室</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 344px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .tag {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(34, 211, 238, .14);
+      color: #67e8f9;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 262px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .hint {
+        white-space: normal;
+        text-align: center;
+        max-width: 88vw;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+      "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
+      "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.tsl.js"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>TSL 节点实验室 · 同一套公式，两种写法</b><br />
+    条纹 / 菲涅尔边缘 / 滚动噪声，全部由 JS 里的节点图构建。<br />
+    切换 TSL 与等价 GLSL，比较图案是否一致。<br />
+    <span class="tag" id="backend">后端检测中…</span>
+  </div>
+  <div class="hint">拖拽旋转 · 滚轮缩放 · 右侧切换 TSL / GLSL 并调参</div>
+
+  <script type="module">
+    import * as THREE from 'three/webgpu'
+    import {
+      Fn, uniform, positionLocal, uv, normalView, positionViewDirection,
+      vec2, vec3, float, color, mix, sin, fract, floor, dot, pow,
+      smoothstep, step, abs, clamp
+    } from 'three/tsl'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const backendEl = document.getElementById('backend')
+
+    function showFatal(message) {
+      backendEl.textContent = '初始化失败'
+      const info = document.querySelector('.info')
+      info.innerHTML = '<b>无法初始化演示</b><br />' + message
+    }
+
+    async function main() {
+      /* ---------- 渲染器：固定 WebGL2 后端，保证两种写法同台可比 ---------- */
+      // forceWebGL: TSL 节点会被编译成 GLSL，正好与手写 GLSL 版本落在同一个后端
+      const renderer = new THREE.WebGPURenderer({ antialias: true, forceWebGL: true })
+      try {
+        await renderer.init()
+      } catch (err) {
+        showFatal('当前浏览器不支持 WebGL2：' + err.message)
+        return
+      }
+      renderer.setSize(innerWidth, innerHeight)
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+      renderer.toneMapping = THREE.NoToneMapping
+      renderer.outputColorSpace = THREE.SRGBColorSpace
+      document.getElementById('app').appendChild(renderer.domElement)
+
+      const gpu = typeof navigator !== 'undefined' && !!navigator.gpu
+      backendEl.textContent = gpu
+        ? 'WebGPU 可用 · 本演示固定 WebGL2 后端对照'
+        : '未检测到 WebGPU · 已使用 WebGL2 后端'
+
+      /* ---------- 场景 ---------- */
+      const scene = new THREE.Scene()
+      scene.background = new THREE.Color(0x0b0e14)
+
+      const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100)
+      camera.position.set(0, 0.8, 6.4)
+
+      const controls = new OrbitControls(camera, renderer.domElement)
+      controls.enableDamping = true
+      controls.target.set(0, 0, 0)
+      controls.minDistance = 3.2
+      controls.maxDistance = 12
+
+      scene.add(new THREE.HemisphereLight(0xb9d7ff, 0x16213a, 1.2))
+      const dirLight = new THREE.DirectionalLight(0xffffff, 2.2)
+      dirLight.position.set(2.5, 3.2, 4.0)
+      scene.add(dirLight)
+
+      /* ---------- 参数 uniform（TSL 侧） ---------- */
+      const uTime = uniform(0)
+      const uSpeed = uniform(0.9)
+      const uStripeCount = uniform(12)
+      const uNoiseAmp = uniform(0.42)
+      const uRim = uniform(1.35)
+
+      /* ---------- TSL：value noise 节点函数 ---------- */
+      const hash2 = Fn(([p]) => {
+        return fract(sin(dot(p, vec2(127.1, 311.7)).mul(43758.5453)))
+      })
+
+      const valueNoise = Fn(([p]) => {
+        const i = floor(p).toVar()
+        const f = fract(p).toVar()
+        const u = f.mul(f).mul(f.mul(-2).add(3)).toVar()
+        const a = hash2(i)
+        const b = hash2(i.add(vec2(1, 0)))
+        const c = hash2(i.add(vec2(0, 1)))
+        const d = hash2(i.add(vec2(1, 1)))
+        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y)
+      })
+
+      /* ---------- TSL：节点图 ---------- */
+      const stripes = step(0.5, fract(positionLocal.y.mul(uStripeCount)))
+
+      const scroll = vec2(uTime.mul(uSpeed).mul(0.13), uTime.mul(uSpeed).mul(0.08))
+      const n = valueNoise(uv().mul(3.6).add(scroll))
+
+      const blend = smoothstep(
+        0.15,
+        0.85,
+        clamp(uv().y.add(n.sub(0.5).mul(uNoiseAmp)), 0, 1)
+      )
+
+      const baseColor = mix(color(0x0ea5e9), color(0x7c3aed), blend)
+      const stripedColor = mix(baseColor, color(0xffffff), stripes.mul(0.18))
+
+      // 菲涅尔：视线越"擦边"，边缘越亮
+      const fresnel = pow(
+        float(1).sub(abs(dot(normalView, positionViewDirection))),
+        3
+      )
+
+      const tslMaterial = new THREE.MeshStandardNodeMaterial({
+        roughness: 0.38,
+        metalness: 0.12
+      })
+      tslMaterial.colorNode = stripedColor
+      tslMaterial.emissiveNode = color(0x22d3ee).mul(fresnel.mul(uRim))
+
+      /* ---------- 等价 GLSL：同一套条纹 / 噪声 / 菲涅尔 ---------- */
+      const glslUniforms = {
+        uTime: { value: 0 },
+        uSpeed: { value: uSpeed.value },
+        uStripeCount: { value: uStripeCount.value },
+        uNoiseAmp: { value: uNoiseAmp.value },
+        uRim: { value: uRim.value },
+        uColorA: { value: new THREE.Color(0x0ea5e9) },
+        uColorB: { value: new THREE.Color(0x7c3aed) },
+        uRimColor: { value: new THREE.Color(0x22d3ee) }
+      }
+
+      const glslVertex = /* glsl */ `
+        varying vec2 vUv;
+        varying vec3 vNormalView;
+        varying vec3 vViewDir;
+
+        void main() {
+          vUv = uv;
+          vNormalView = normalize(normalMatrix * normal);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vViewDir = normalize(-mv.xyz);
+          gl_Position = projectionMatrix * mv;
+        }
+      `
+
+      const glslFragment = /* glsl */ `
+        uniform float uTime;
+        uniform float uSpeed;
+        uniform float uStripeCount;
+        uniform float uNoiseAmp;
+        uniform float uRim;
+        uniform vec3 uColorA;
+        uniform vec3 uColorB;
+        uniform vec3 uRimColor;
+
+        varying vec2 vUv;
+        varying vec3 vNormalView;
+        varying vec3 vViewDir;
+
+        float hash2(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        float valueNoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          float a = hash2(i);
+          float b = hash2(i + vec2(1.0, 0.0));
+          float c = hash2(i + vec2(0.0, 1.0));
+          float d = hash2(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+        }
+
+        void main() {
+          float stripes = step(0.5, fract(vUv.y * uStripeCount));
+
+          vec2 scroll = vec2(uTime * uSpeed * 0.13, uTime * uSpeed * 0.08);
+          float n = valueNoise(vUv * 3.6 + scroll);
+
+          float blend = smoothstep(
+            0.15, 0.85,
+            clamp(vUv.y + (n - 0.5) * uNoiseAmp, 0.0, 1.0)
+          );
+
+          vec3 base = mix(uColorA, uColorB, blend);
+          vec3 striped = mix(base, vec3(1.0), stripes * 0.18);
+
+          float fresnel = pow(1.0 - abs(dot(vNormalView, vViewDir)), 3.0);
+          vec3 rim = uRimColor * fresnel * uRim;
+
+          // approximate the standard material lighting with a fixed direction
+          float diff = max(dot(vNormalView, normalize(vec3(0.45, 0.75, 0.5))), 0.0);
+          vec3 lit = striped * (0.34 + 0.66 * diff) + rim;
+
+          gl_FragColor = vec4(lit, 1.0);
+        }
+      `
+
+      const glslMaterial = new THREE.ShaderMaterial({
+        uniforms: glslUniforms,
+        vertexShader: glslVertex,
+        fragmentShader: glslFragment
+      })
+
+      /* ---------- 球体 ---------- */
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(1.55, 96, 72),
+        tslMaterial
+      )
+      scene.add(sphere)
+
+      /* ---------- GUI ---------- */
+      const params = {
+        mode: 'TSL 节点',
+        speed: 0.9,
+        stripes: 12,
+        noise: 0.42,
+        rim: 1.35,
+        autoRotate: true
+      }
+
+      function applyMaterial() {
+        sphere.material = params.mode === 'TSL 节点' ? tslMaterial : glslMaterial
+      }
+
+      function syncUniforms() {
+        uSpeed.value = params.speed
+        uStripeCount.value = params.stripes
+        uNoiseAmp.value = params.noise
+        uRim.value = params.rim
+
+        glslUniforms.uSpeed.value = params.speed
+        glslUniforms.uStripeCount.value = params.stripes
+        glslUniforms.uNoiseAmp.value = params.noise
+        glslUniforms.uRim.value = params.rim
+      }
+
+      const gui = new GUI({ title: 'TSL 节点实验室' })
+      gui.add(params, 'mode', ['TSL 节点', 'GLSL 字符串'])
+        .name('着色写法')
+        .onChange(applyMaterial)
+      gui.add(params, 'speed', 0, 2.5, 0.05)
+        .name('滚动速度')
+        .onChange(syncUniforms)
+      gui.add(params, 'stripes', 2, 28, 1)
+        .name('条纹数量')
+        .onChange(syncUniforms)
+      gui.add(params, 'noise', 0, 1, 0.01)
+        .name('噪声强度')
+        .onChange(syncUniforms)
+      gui.add(params, 'rim', 0, 3, 0.05)
+        .name('边缘光强')
+        .onChange(syncUniforms)
+      gui.add(params, 'autoRotate').name('自动旋转')
+
+      /* ---------- 主循环 ---------- */
+      const timer = new THREE.Timer()
+      timer.connect(document)
+
+      renderer.setAnimationLoop(() => {
+        timer.update()
+        const dt = Math.min(timer.getDelta(), 0.05)
+        const elapsed = timer.getElapsed()
+
+        uTime.value += dt
+        glslUniforms.uTime.value = uTime.value
+
+        if (params.autoRotate) sphere.rotation.y += dt * 0.28
+
+        controls.update()
+        renderer.render(scene, camera)
+      })
+
+      addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight
+        camera.updateProjectionMatrix()
+        renderer.setSize(innerWidth, innerHeight)
+      })
+    }
+
+    main().catch((err) => {
+      console.error(err)
+      showFatal(err.message)
+    })
+  </script>
+</body>
+
+</html>

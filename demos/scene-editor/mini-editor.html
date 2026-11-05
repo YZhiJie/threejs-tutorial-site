@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mini-editor · 可保存的迷你场景编辑器</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 46px;
+      padding: 0 12px;
+      background: #101827;
+      border-bottom: 1px solid #1e2a3d;
+    }
+
+    .brand {
+      font-size: 13px;
+      font-weight: 600;
+      color: #7cc4ff;
+      white-space: nowrap;
+    }
+
+    .stat {
+      font-size: 11px;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .actions button {
+      padding: 5px 10px;
+      font-size: 11.5px;
+      color: #e6edf3;
+      background: #1b2433;
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    .actions button:hover:not(:disabled) {
+      background: #263447;
+    }
+
+    .actions button:disabled {
+      opacity: .42;
+      cursor: not-allowed;
+    }
+
+    .actions .danger {
+      color: #fca5a5;
+      border-color: rgba(248, 113, 113, .35);
+    }
+
+    .actions .sep {
+      width: 1px;
+      height: 20px;
+      background: rgba(255, 255, 255, .12);
+      margin: 0 2px;
+    }
+
+    .editor {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 160px minmax(0, 1fr) 230px;
+    }
+
+    .library,
+    .props {
+      background: #0f1624;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .library {
+      border-right: 1px solid #1b2637;
+      padding: 10px;
+    }
+
+    .props {
+      border-left: 1px solid #1b2637;
+      padding: 10px;
+    }
+
+    .library h2,
+    .props h2 {
+      margin: 0 0 3px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #7cc4ff;
+    }
+
+    .library .sub {
+      margin: 0 0 10px;
+      font-size: 10.5px;
+      line-height: 1.5;
+      color: #64748b;
+    }
+
+    .items {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    .item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      padding: 7px 4px 5px;
+      background: #111a2a;
+      border: 1px solid #1e2a3d;
+      border-radius: 8px;
+      color: #cbd5e1;
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .item:hover {
+      background: #1a2638;
+      border-color: #2f4462;
+    }
+
+    .item:active {
+      transform: translateY(1px);
+    }
+
+    .thumb {
+      width: 46px;
+      height: 46px;
+      pointer-events: none;
+    }
+
+    #viewport {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: #0b0e14;
+    }
+
+    #viewport canvas {
+      display: block;
+      position: absolute;
+      inset: 0;
+    }
+
+    .info {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      max-width: 280px;
+      padding: 10px 12px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .y {
+      color: #ffd166;
+    }
+
+    .hint {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: calc(100% - 24px);
+      padding: 5px 13px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 11.5px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .toast {
+      position: absolute;
+      bottom: 50px;
+      left: 50%;
+      transform: translateX(-50%) translateY(6px);
+      padding: 8px 16px;
+      background: #16324a;
+      border: 1px solid #2b5377;
+      border-radius: 8px;
+      color: #d6ecff;
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+      white-space: nowrap;
+      max-width: calc(100% - 24px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .toast.err {
+      background: #3a1720;
+      border-color: #713040;
+      color: #ffd0d8;
+    }
+
+    .empty {
+      margin-top: 10px;
+      padding: 12px 10px;
+      background: #111a2a;
+      border: 1px dashed #24344c;
+      border-radius: 8px;
+      color: #64748b;
+      font-size: 11.5px;
+      line-height: 1.7;
+    }
+
+    .fields {
+      margin-top: 10px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 9px;
+      font-size: 11.5px;
+    }
+
+    .row .lab {
+      flex: none;
+      width: 30px;
+      color: #9fb4d4;
+    }
+
+    .row .val {
+      color: #e2e8f0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row .mono {
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 10.5px;
+      color: #fbbf24;
+      width: 34px;
+      text-align: right;
+      flex: none;
+    }
+
+    input[type="color"] {
+      width: 46px;
+      height: 26px;
+      padding: 0;
+      border: 1px solid rgba(255, 255, 255, .15);
+      border-radius: 6px;
+      background: none;
+      cursor: pointer;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      min-width: 0;
+      accent-color: #3b82f6;
+    }
+
+    input[type="number"] {
+      width: 100%;
+      min-width: 0;
+      padding: 4px 5px;
+      font-size: 11px;
+      color: #e6edf3;
+      background: #111a2a;
+      border: 1px solid #24344c;
+      border-radius: 6px;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+
+    input[type="number"]:focus {
+      outline: 1px solid #3b82f6;
+    }
+
+    .xyz {
+      align-items: flex-start;
+    }
+
+    .xyz .axes {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 5px;
+    }
+
+    .axis {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .axis span {
+      font-size: 9.5px;
+      color: #64748b;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+
+    .wide {
+      width: 100%;
+      margin-top: 4px;
+      padding: 6px 0;
+      font-size: 11.5px;
+      color: #fca5a5;
+      background: #241720;
+      border: 1px solid rgba(248, 113, 113, .35);
+      border-radius: 7px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .wide:disabled {
+      opacity: .42;
+      cursor: not-allowed;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    #file {
+      display: none;
+    }
+
+    @media (max-width: 900px) {
+      .editor {
+        grid-template-columns: 126px minmax(0, 1fr) 188px;
+      }
+
+      .library {
+        padding: 8px;
+      }
+
+      .items {
+        gap: 5px;
+      }
+
+      .item {
+        font-size: 10px;
+        padding: 5px 3px;
+      }
+
+      .thumb {
+        width: 38px;
+        height: 38px;
+      }
+
+      .props {
+        padding: 8px;
+      }
+
+      .info {
+        max-width: 200px;
+        font-size: 10.5px;
+        padding: 8px 10px;
+      }
+
+      .hint {
+        font-size: 10.5px;
+      }
+
+      .stat {
+        display: none;
+      }
+    }
+
+    @media (max-width: 700px) {
+      .topbar {
+        height: auto;
+        flex-wrap: wrap;
+        padding: 7px 9px;
+        gap: 6px;
+      }
+
+      .actions {
+        width: 100%;
+        margin-left: 0;
+        overflow-x: auto;
+      }
+
+      .editor {
+        grid-template-columns: 1fr;
+        grid-template-rows: 100px minmax(240px, 1fr) 132px;
+      }
+
+      .library {
+        border-right: none;
+        border-bottom: 1px solid #1b2637;
+      }
+
+      .library h2,
+      .library .sub {
+        display: none;
+      }
+
+      .items {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        height: 100%;
+        align-items: center;
+      }
+
+      .item {
+        flex: none;
+        width: 68px;
+      }
+
+      .props {
+        border-left: none;
+        border-top: 1px solid #1b2637;
+        overflow: auto;
+      }
+
+      .props h2 {
+        display: none;
+      }
+
+      .fields {
+        margin-top: 0;
+      }
+
+      .empty {
+        margin-top: 0;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div class="topbar">
+    <span class="brand">迷你场景编辑器</span>
+    <span class="stat" id="stat"></span>
+    <div class="actions">
+      <button type="button" id="undo" disabled>撤销</button>
+      <button type="button" id="redo" disabled>重做</button>
+      <span class="sep"></span>
+      <button type="button" id="save">保存</button>
+      <button type="button" id="load">读取</button>
+      <button type="button" id="import">导入</button>
+      <button type="button" id="export">导出</button>
+      <button type="button" id="reset" class="danger">重置</button>
+    </div>
+  </div>
+
+  <div class="editor">
+    <aside class="library">
+      <h2>资源库</h2>
+      <p class="sub">程序化几何缩略图，不加载外部模型。</p>
+      <div class="items" id="library"></div>
+    </aside>
+
+    <main id="viewport">
+      <div class="info">
+        <b>可保存的迷你场景编辑器</b><br />
+        点选物体后拖拽<span class="y">黄色箭头</span>移动；在右侧改颜色与尺寸。
+        所有修改都可撤销，保存后刷新页面会自动恢复。
+      </div>
+      <div class="hint">拖拽空白旋转视角 · 滚轮缩放 · Del 删除 · Ctrl/Cmd + Z 撤销 · Ctrl/Cmd + Shift + Z 重做</div>
+      <div class="toast" id="toast"></div>
+    </main>
+
+    <aside class="props">
+      <h2>属性</h2>
+      <div class="empty" id="props-empty">在视口里点选一个物体，这里会显示它的颜色、尺寸与位置。</div>
+      <div class="fields" id="props-fields" hidden>
+        <div class="row"><span class="lab">名称</span><span class="val" id="p-name"></span></div>
+        <div class="row"><span class="lab">颜色</span><input type="color" id="p-color" value="#3b82f6" /></div>
+        <div class="row">
+          <span class="lab">尺寸</span>
+          <input type="range" id="p-scale" min="0.4" max="2.5" step="0.05" value="1" />
+          <span class="mono" id="p-scale-val">1.00</span>
+        </div>
+        <div class="row xyz">
+          <span class="lab">位置</span>
+          <div class="axes">
+            <div class="axis"><span>X</span><input type="number" id="p-x" step="0.1" value="0" /></div>
+            <div class="axis"><span>Y</span><input type="number" id="p-y" step="0.1" value="0" /></div>
+            <div class="axis"><span>Z</span><input type="number" id="p-z" step="0.1" value="0" /></div>
+          </div>
+        </div>
+        <button type="button" class="wide" id="p-delete">删除物体</button>
+      </div>
+    </aside>
+  </div>
+
+  <input id="file" type="file" accept=".json,application/json" />
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { TransformControls } from 'three/addons/controls/TransformControls.js'
+
+    /* ---------- 常量与几何定义 ---------- */
+    const SCENE_VERSION = 1
+    const STORAGE_KEY = 'mini-scene-editor:v1'
+    const MAX_NODES = 200
+
+    const TYPE_DEFS = {
+      box: { name: '方块', color: 0x3b82f6, height: 0.5, make: () => new THREE.BoxGeometry(1, 1, 1) },
+      sphere: { name: '球体', color: 0x60a5fa, height: 0.55, make: () => new THREE.SphereGeometry(0.55, 32, 24) },
+      cylinder: { name: '圆柱', color: 0x34d399, height: 0.6, make: () => new THREE.CylinderGeometry(0.45, 0.45, 1.2, 32) },
+      cone: { name: '圆锥', color: 0xfbbf24, height: 0.7, make: () => new THREE.ConeGeometry(0.55, 1.4, 32) },
+      torus: { name: '圆环', color: 0xa78bfa, height: 0.61, make: () => new THREE.TorusGeometry(0.45, 0.16, 20, 48) }
+    }
+
+    /* ---------- 渲染基础 ---------- */
+    const viewport = document.getElementById('viewport')
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 22, 52)
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200)
+    camera.position.set(7.6, 6.6, 10.4)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.domElement.style.touchAction = 'none'
+    viewport.appendChild(renderer.domElement)
+    const canvas = renderer.domElement
+
+    const orbit = new OrbitControls(camera, canvas)
+    orbit.target.set(0, 0.9, 0)
+    orbit.enableDamping = true
+    orbit.dampingFactor = 0.08
+    orbit.maxPolarAngle = Math.PI / 2 - 0.06
+    orbit.minDistance = 3.5
+    orbit.maxDistance = 40
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x18202c, 1.1))
+    const sun = new THREE.DirectionalLight(0xffffff, 2.1)
+    sun.position.set(6, 12, 7)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(1024, 1024)
+    sun.shadow.camera.left = -12
+    sun.shadow.camera.right = 12
+    sun.shadow.camera.top = 12
+    sun.shadow.camera.bottom = -12
+    scene.add(sun)
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(48, 48),
+      new THREE.MeshStandardMaterial({ color: 0x1c2a39, roughness: 0.96, metalness: 0 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    const grid = new THREE.GridHelper(30, 30, 0x334a66, 0x22303f)
+    grid.position.y = 0.012
+    grid.material.transparent = true
+    grid.material.opacity = 0.5
+    scene.add(grid)
+
+    /* ---------- 节点与工具函数 ---------- */
+    const nodes = []
+    let idSeq = 1
+    let nameSeq = 1
+    let spotIndex = 0
+
+    function nextId() {
+      return 'n' + idSeq++
+    }
+
+    function nextSpot(height) {
+      const angle = spotIndex * 2.39996
+      const radius = 2.2 + (spotIndex % 4) * 0.62
+      spotIndex++
+      return [Math.cos(angle) * radius, height, Math.sin(angle) * radius]
+    }
+
+    function buildNode(spec) {
+      const def = TYPE_DEFS[spec.type]
+      const mesh = new THREE.Mesh(
+        def.make(),
+        new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.44, metalness: 0.08 })
+      )
+      mesh.position.fromArray(spec.position)
+      mesh.quaternion.fromArray(spec.quaternion)
+      mesh.scale.setScalar(spec.scale)
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+      mesh.userData.id = spec.id
+      mesh.userData.type = spec.type
+      mesh.userData.name = spec.name
+      return mesh
+    }
+
+    function clearSceneNodes() {
+      for (const mesh of nodes) {
+        scene.remove(mesh)
+        mesh.geometry.dispose()
+        mesh.material.dispose()
+      }
+      nodes.length = 0
+    }
+
+    function round(value, digits) {
+      const n = Number(Number(value).toFixed(digits))
+      return n === 0 ? 0 : n
+    }
+
+    function serialize() {
+      return {
+        version: SCENE_VERSION,
+        nodes: nodes.map((mesh) => ({
+          id: mesh.userData.id,
+          type: mesh.userData.type,
+          name: mesh.userData.name,
+          position: mesh.position.toArray().map((v) => round(v, 3)),
+          rotation: mesh.quaternion.toArray().map((v) => round(v, 4)),
+          scale: mesh.scale.toArray().map((v) => round(v, 3)),
+          color: '#' + mesh.material.color.getHexString()
+        }))
+      }
+    }
+
+    function readVec3(value, fallback) {
+      const src = Array.isArray(value)
+        ? value
+        : value && typeof value === 'object'
+          ? [value.x, value.y, value.z]
+          : null
+      if (!src || src.length < 3) return fallback.slice()
+      const out = src.slice(0, 3).map(Number)
+      if (!out.every((n) => Number.isFinite(n))) return fallback.slice()
+      return out.map((n) => THREE.MathUtils.clamp(n, -60, 60))
+    }
+
+    function readQuat(value) {
+      if (Array.isArray(value) && value.length === 4) {
+        const arr = value.map(Number)
+        if (arr.every((n) => Number.isFinite(n))) {
+          const q = new THREE.Quaternion().fromArray(arr)
+          if (q.length() > 1e-6) return q.normalize().toArray()
+        }
+      }
+      return [0, 0, 0, 1]
+    }
+
+    function readScale(value) {
+      const raw = Array.isArray(value) ? value[0] : value
+      const n = Number(raw)
+      if (!Number.isFinite(n)) return 1
+      return THREE.MathUtils.clamp(n, 0.2, 4)
+    }
+
+    function safeColor(value, fallback) {
+      if (typeof value === 'number' && Number.isFinite(value)) return value
+      if (typeof value === 'string' && /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value)) {
+        return new THREE.Color(value).getHex()
+      }
+      return fallback
+    }
+
+    // 把任意输入（localStorage 字符串 / 导入文件）解析成可重建的最小节点描述
+    function parseScene(input) {
+      let data
+      try {
+        data = typeof input === 'string' ? JSON.parse(input) : input
+      } catch (err) {
+        throw new Error('不是合法 JSON')
+      }
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        throw new Error('根节点必须是对象')
+      }
+      if (!Array.isArray(data.nodes)) {
+        throw new Error('缺少 nodes 数组')
+      }
+      const version = Number(data.version || 1)
+      if (version > SCENE_VERSION) {
+        throw new Error(`场景版本 ${version} 高于编辑器支持的 ${SCENE_VERSION}`)
+      }
+
+      const specs = []
+      const seen = new Set()
+
+      for (const raw of data.nodes.slice(0, MAX_NODES)) {
+        if (!raw || typeof raw !== 'object') continue
+        const type = String(raw.type || '')
+        if (!TYPE_DEFS[type]) continue // 未知类型直接跳过，不让坏数据拖垮整个场景
+        const def = TYPE_DEFS[type]
+
+        let id = String(raw.id || '').slice(0, 24)
+        if (!id || seen.has(id)) id = nextId() // 反序列化时做 id 重映射
+        seen.add(id)
+        const idMatch = /^n(\d+)$/.exec(id)
+        if (idMatch) idSeq = Math.max(idSeq, Number(idMatch[1]) + 1)
+
+        const name = String(raw.name || def.name).trim().slice(0, 20) || def.name
+        const color = safeColor(raw.color, def.color)
+        const position = readVec3(raw.position, [0, def.height, 0])
+        const quaternion = readQuat(raw.rotation)
+        const scale = readScale(raw.scale)
+
+        specs.push({ type, id, name, color, position, quaternion, scale })
+      }
+
+      if (data.nodes.length > 0 && specs.length === 0) {
+        throw new Error('文件里没有可识别的节点')
+      }
+      return specs
+    }
+
+    /* ---------- 选中态 / 操控器 ---------- */
+    let selected = null
+
+    const boxHelper = new THREE.BoxHelper(new THREE.Object3D(), 0xffd166)
+    boxHelper.material.transparent = true
+    boxHelper.material.opacity = 0.92
+    boxHelper.visible = false
+    scene.add(boxHelper)
+
+    const transform = new TransformControls(camera, canvas)
+    transform.setSize(0.85)
+    transform.setMode('translate')
+    transform.setSpace('world')
+    transform.setTranslationSnap(0.25)
+    const gizmoHelper = transform.getHelper ? transform.getHelper() : transform
+    scene.add(gizmoHelper)
+
+    let dragObj = null
+    let dragBefore = null
+
+    transform.addEventListener('dragging-changed', (event) => {
+      orbit.enabled = !event.value
+      if (event.value) {
+        dragObj = selected
+        dragBefore = selected ? capture(selected) : null
+      } else {
+        if (dragObj && dragBefore) {
+          const after = capture(dragObj)
+          if (!sameSnapshot(dragBefore, after)) execTransform(dragObj, dragBefore, after)
+        }
+        dragObj = null
+        dragBefore = null
+      }
+    })
+
+    transform.addEventListener('objectChange', () => {
+      if (!selected) return
+      boxHelper.setFromObject(selected)
+      syncTransformFields()
+    })
+
+    function capture(obj) {
+      return {
+        position: obj.position.toArray(),
+        quaternion: obj.quaternion.toArray(),
+        scale: obj.scale.toArray()
+      }
+    }
+
+    function applySnapshot(obj, snap) {
+      obj.position.fromArray(snap.position)
+      obj.quaternion.fromArray(snap.quaternion)
+      obj.scale.fromArray(snap.scale)
+    }
+
+    function sameSnapshot(a, b) {
+      const keys = ['position', 'quaternion', 'scale']
+      for (const key of keys) {
+        for (let i = 0; i < a[key].length; i++) {
+          if (Math.abs(a[key][i] - b[key][i]) > 1e-4) return false
+        }
+      }
+      return true
+    }
+
+    /* ---------- 命令栈 ---------- */
+    const undoStack = []
+    const redoStack = []
+
+    function execute(cmd) {
+      cmd.do()
+      undoStack.push(cmd)
+      redoStack.length = 0
+      refreshUI()
+    }
+
+    function doUndo() {
+      const cmd = undoStack.pop()
+      if (!cmd) return
+      cmd.undo()
+      redoStack.push(cmd)
+      refreshUI()
+    }
+
+    function doRedo() {
+      const cmd = redoStack.pop()
+      if (!cmd) return
+      cmd.do()
+      undoStack.push(cmd)
+      refreshUI()
+    }
+
+    function execTransform(obj, before, after) {
+      const now = performance.now()
+      const top = undoStack[undoStack.length - 1]
+      const posText = (p) => `(${round(p[0], 2)},${round(p[1], 2)},${round(p[2], 2)})`
+      if (top && top.type === 'transform' && top.obj === obj && now - top.time < 800) {
+        top.after = after
+        top.argText = `${posText(before.position)} → ${posText(after.position)}`
+        top.time = now
+        redoStack.length = 0
+        refreshUI()
+        return
+      }
+      const cmd = {
+        type: 'transform',
+        name: 'TransformCommand',
+        argText: `${posText(before.position)} → ${posText(after.position)}`,
+        obj,
+        before,
+        after,
+        time: now,
+        do() {
+          applySnapshot(obj, cmd.after)
+        },
+        undo() {
+          applySnapshot(obj, cmd.before)
+        }
+      }
+      undoStack.push(cmd)
+      redoStack.length = 0
+      refreshUI()
+    }
+
+    function execColor(obj, before, after) {
+      const cmd = {
+        type: 'color',
+        name: 'MaterialCommand',
+        argText: `${before} → ${after}`,
+        obj,
+        before,
+        after,
+        do() {
+          obj.material.color.set(after)
+        },
+        undo() {
+          obj.material.color.set(before)
+        }
+      }
+      undoStack.push(cmd)
+      redoStack.length = 0
+      refreshUI()
+    }
+
+    function addFromLibrary(type) {
+      const def = TYPE_DEFS[type]
+      const spec = {
+        type,
+        id: nextId(),
+        name: `${def.name} ${nameSeq++}`,
+        color: def.color,
+        position: nextSpot(def.height),
+        quaternion: [0, 0, 0, 1],
+        scale: 1
+      }
+      const mesh = buildNode(spec)
+      const cmd = {
+        type: 'add',
+        name: 'AddCommand',
+        argText: `${type} #${spec.id}`,
+        obj: mesh,
+        do() {
+          if (!nodes.includes(mesh)) {
+            scene.add(mesh)
+            nodes.push(mesh)
+          }
+        },
+        undo() {
+          scene.remove(mesh)
+          const i = nodes.indexOf(mesh)
+          if (i >= 0) nodes.splice(i, 1)
+        }
+      }
+      execute(cmd)
+      select(mesh)
+    }
+
+    function deleteSelected() {
+      if (!selected) return
+      const obj = selected
+      const index = nodes.indexOf(obj)
+      const cmd = {
+        type: 'delete',
+        name: 'DeleteCommand',
+        argText: `${obj.userData.type} #${obj.userData.id}`,
+        obj,
+        do() {
+          scene.remove(obj)
+          const i = nodes.indexOf(obj)
+          if (i >= 0) nodes.splice(i, 1)
+        },
+        undo() {
+          if (nodes.includes(obj)) return
+          scene.add(obj)
+          nodes.splice(Math.min(index, nodes.length), 0, obj)
+        }
+      }
+      select(null)
+      execute(cmd)
+    }
+
+    /* ---------- DOM ---------- */
+    const undoBtn = document.getElementById('undo')
+    const redoBtn = document.getElementById('redo')
+    const statEl = document.getElementById('stat')
+    const propsEmpty = document.getElementById('props-empty')
+    const propsFields = document.getElementById('props-fields')
+    const pName = document.getElementById('p-name')
+    const pColor = document.getElementById('p-color')
+    const pScale = document.getElementById('p-scale')
+    const pScaleVal = document.getElementById('p-scale-val')
+    const pX = document.getElementById('p-x')
+    const pY = document.getElementById('p-y')
+    const pZ = document.getElementById('p-z')
+    const pDelete = document.getElementById('p-delete')
+    const fileInput = document.getElementById('file')
+    const toastEl = document.getElementById('toast')
+    const libraryEl = document.getElementById('library')
+
+    let toastTimer = 0
+
+    function toast(message, isError = false) {
+      toastEl.textContent = message
+      toastEl.className = 'toast show' + (isError ? ' err' : '')
+      clearTimeout(toastTimer)
+      toastTimer = setTimeout(() => {
+        toastEl.className = 'toast'
+      }, 1900)
+    }
+
+    function updateStat() {
+      statEl.textContent =
+        `${nodes.length} 个物体 · 历史 ${undoStack.length} 步` +
+        (redoStack.length ? ` · 可重做 ${redoStack.length}` : '')
+    }
+
+    function syncTransformFields() {
+      if (!selected) return
+      pX.value = selected.position.x.toFixed(2)
+      pY.value = selected.position.y.toFixed(2)
+      pZ.value = selected.position.z.toFixed(2)
+      pScale.value = selected.scale.x.toFixed(2)
+      pScaleVal.textContent = selected.scale.x.toFixed(2)
+    }
+
+    function fillFields() {
+      if (!selected) return
+      const type = selected.userData.type
+      pName.textContent = `${selected.userData.name} · ${TYPE_DEFS[type].name}`
+      pColor.value = '#' + selected.material.color.getHexString()
+      syncTransformFields()
+    }
+
+    function refreshUI() {
+      if (selected && !nodes.includes(selected)) selected = null
+
+      undoBtn.disabled = undoStack.length === 0
+      redoBtn.disabled = redoStack.length === 0
+
+      if (selected) {
+        transform.attach(selected)
+        boxHelper.setFromObject(selected)
+        boxHelper.visible = true
+        propsEmpty.hidden = true
+        propsFields.hidden = false
+        fillFields()
+      } else {
+        transform.detach()
+        boxHelper.visible = false
+        propsEmpty.hidden = false
+        propsFields.hidden = true
+      }
+      pDelete.disabled = !selected
+      updateStat()
+    }
+
+    function select(mesh) {
+      selected = mesh || null
+      resetEdit()
+      refreshUI()
+    }
+
+    /* ---------- 编辑提交（输入框时机） ---------- */
+    let editObj = null
+    let editBefore = null
+    let editColor = null
+
+    function beginEdit() {
+      editObj = selected
+      editBefore = selected ? capture(selected) : null
+      editColor = selected ? '#' + selected.material.color.getHexString() : null
+    }
+
+    function resetEdit() {
+      editObj = null
+      editBefore = null
+      editColor = null
+    }
+
+    function commitEdit() {
+      if (!selected || !editObj || selected !== editObj) {
+        resetEdit()
+        return
+      }
+      const after = capture(selected)
+      if (editBefore && !sameSnapshot(editBefore, after)) {
+        execTransform(selected, editBefore, after)
+      }
+      const afterColor = '#' + selected.material.color.getHexString()
+      if (editColor && editColor !== afterColor) {
+        execColor(selected, editColor, afterColor)
+      }
+      resetEdit()
+      if (selected) beginEdit() // 连续步进时，以当前值为新基线
+    }
+
+    /* ---------- 属性面板事件 ---------- */
+    pColor.addEventListener('focus', beginEdit)
+    pColor.addEventListener('input', () => {
+      if (!selected) return
+      selected.material.color.set(pColor.value)
+    })
+    pColor.addEventListener('change', commitEdit)
+
+    pScale.addEventListener('focus', beginEdit)
+    pScale.addEventListener('pointerdown', beginEdit)
+    pScale.addEventListener('input', () => {
+      if (!selected) return
+      const value = THREE.MathUtils.clamp(parseFloat(pScale.value), 0.2, 4)
+      if (!Number.isFinite(value)) return
+      selected.scale.setScalar(value)
+      pScaleVal.textContent = value.toFixed(2)
+      boxHelper.setFromObject(selected)
+    })
+    pScale.addEventListener('change', commitEdit)
+
+    ;[
+      [pX, 'x'],
+      [pY, 'y'],
+      [pZ, 'z']
+    ].forEach(([el, axis]) => {
+      el.addEventListener('focus', beginEdit)
+      el.addEventListener('input', () => {
+        if (!selected) return
+        const value = parseFloat(el.value)
+        if (!Number.isFinite(value)) return
+        selected.position[axis] = THREE.MathUtils.clamp(value, -40, 40)
+        boxHelper.setFromObject(selected)
+      })
+      el.addEventListener('change', commitEdit)
+    })
+
+    pDelete.addEventListener('click', deleteSelected)
+
+    /* ---------- 拾取 ---------- */
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    let downX = 0
+    let downY = 0
+    let gizmoHit = false
+
+    canvas.addEventListener('pointerdown', (event) => {
+      gizmoHit = transform.axis !== null
+      downX = event.clientX
+      downY = event.clientY
+    })
+
+    canvas.addEventListener('pointerup', (event) => {
+      if (event.button !== 0 || gizmoHit) return
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) > 4) return
+      const rect = canvas.getBoundingClientRect()
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hits = raycaster.intersectObjects(nodes, true)
+      if (!hits.length) {
+        select(null)
+        return
+      }
+      let hit = hits[0].object
+      while (hit && !nodes.includes(hit)) hit = hit.parent
+      select(hit && nodes.includes(hit) ? hit : null)
+    })
+
+    /* ---------- 资源库缩略图（Canvas 2D 程序化绘制） ---------- */
+    const PALETTES = {
+      box: ['#93c5fd', '#3b82f6', '#1e40af'],
+      sphere: ['#dbeafe', '#60a5fa', '#1d4ed8'],
+      cylinder: ['#a7f3d0', '#34d399', '#047857'],
+      cone: ['#fde68a', '#fbbf24', '#b45309'],
+      torus: ['#ddd6fe', '#a78bfa', '#6d28d9']
+    }
+
+    function drawThumb(cv, type) {
+      const ctx = cv.getContext('2d')
+      const w = cv.width
+      const h = cv.height
+      const p = PALETTES[type]
+      ctx.clearRect(0, 0, w, h)
+      ctx.save()
+      ctx.translate(w / 2, h / 2 + 3)
+
+      if (type === 'box') {
+        ctx.fillStyle = p[0]
+        ctx.beginPath()
+        ctx.moveTo(0, -20)
+        ctx.lineTo(15, -11)
+        ctx.lineTo(0, -2)
+        ctx.lineTo(-15, -11)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = p[1]
+        ctx.beginPath()
+        ctx.moveTo(-15, -11)
+        ctx.lineTo(0, -2)
+        ctx.lineTo(0, 14)
+        ctx.lineTo(-15, 5)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = p[2]
+        ctx.beginPath()
+        ctx.moveTo(15, -11)
+        ctx.lineTo(0, -2)
+        ctx.lineTo(0, 14)
+        ctx.lineTo(15, 5)
+        ctx.closePath()
+        ctx.fill()
+      } else if (type === 'sphere') {
+        const grad = ctx.createRadialGradient(-5, -6, 2, 0, 0, 19)
+        grad.addColorStop(0, p[0])
+        grad.addColorStop(0.55, p[1])
+        grad.addColorStop(1, p[2])
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        ctx.arc(0, 0, 17, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = 'rgba(255,255,255,.35)'
+        ctx.beginPath()
+        ctx.arc(-6, -7, 3.2, 0, Math.PI * 2)
+        ctx.fill()
+      } else if (type === 'cylinder') {
+        const grad = ctx.createLinearGradient(-13, 0, 13, 0)
+        grad.addColorStop(0, p[2])
+        grad.addColorStop(0.5, p[1])
+        grad.addColorStop(1, p[2])
+        ctx.fillStyle = grad
+        ctx.fillRect(-13, -7, 26, 19)
+        ctx.fillStyle = p[0]
+        ctx.beginPath()
+        ctx.ellipse(0, -7, 13, 5, 0, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.strokeStyle = p[2]
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.ellipse(0, 12, 13, 5, 0, 0, Math.PI)
+        ctx.stroke()
+      } else if (type === 'cone') {
+        ctx.fillStyle = p[1]
+        ctx.beginPath()
+        ctx.moveTo(0, -17)
+        ctx.lineTo(15, 13)
+        ctx.lineTo(-15, 13)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = p[2]
+        ctx.beginPath()
+        ctx.ellipse(0, 13, 15, 5, 0, 0, Math.PI)
+        ctx.fill()
+        ctx.fillStyle = p[0]
+        ctx.beginPath()
+        ctx.moveTo(0, -17)
+        ctx.lineTo(-4, 10)
+        ctx.lineTo(1, 10)
+        ctx.closePath()
+        ctx.fill()
+      } else {
+        ctx.lineWidth = 7
+        ctx.strokeStyle = p[1]
+        ctx.beginPath()
+        ctx.ellipse(0, 0, 15, 9, 0, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.lineWidth = 2.5
+        ctx.strokeStyle = p[2]
+        ctx.beginPath()
+        ctx.ellipse(-1, 2, 15, 9, 0, Math.PI * 0.25, Math.PI * 1.15)
+        ctx.stroke()
+        ctx.strokeStyle = p[0]
+        ctx.beginPath()
+        ctx.ellipse(-2, -3, 15, 9, 0, Math.PI * 1.1, Math.PI * 1.75)
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+
+    Object.keys(TYPE_DEFS).forEach((type) => {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'item'
+      btn.dataset.type = type
+      const cv = document.createElement('canvas')
+      cv.width = 56
+      cv.height = 56
+      cv.className = 'thumb'
+      drawThumb(cv, type)
+      const label = document.createElement('span')
+      label.textContent = TYPE_DEFS[type].name
+      btn.append(cv, label)
+      btn.addEventListener('click', () => addFromLibrary(type))
+      libraryEl.appendChild(btn)
+    })
+
+    /* ---------- 持久化与导入导出 ---------- */
+    function applyData(specs) {
+      undoStack.length = 0
+      redoStack.length = 0
+      select(null)
+      clearSceneNodes()
+      for (const spec of specs) {
+        const mesh = buildNode(spec)
+        scene.add(mesh)
+        nodes.push(mesh)
+      }
+      refreshUI()
+    }
+
+    function buildDefaults() {
+      const specs = [
+        { type: 'box', id: nextId(), name: `方块 ${nameSeq++}`, color: 0x3b82f6, position: [-2.2, 0.6, 0.5], quaternion: [0, 0, 0, 1], scale: 1.2 },
+        { type: 'sphere', id: nextId(), name: `球体 ${nameSeq++}`, color: 0x60a5fa, position: [0, 0.55, -0.7], quaternion: [0, 0, 0, 1], scale: 1 },
+        { type: 'torus', id: nextId(), name: `圆环 ${nameSeq++}`, color: 0xa78bfa, position: [2.3, 0.61, 0.6], quaternion: [0, 0, 0, 1], scale: 1 }
+      ]
+      for (const spec of specs) {
+        const mesh = buildNode(spec)
+        scene.add(mesh)
+        nodes.push(mesh)
+      }
+    }
+
+    function saveLocal(quiet = false) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(serialize()))
+        if (!quiet) toast(`已保存 ${nodes.length} 个物体到 localStorage`)
+        return true
+      } catch (err) {
+        if (!quiet) toast(`保存失败：${err.message}`, true)
+        return false
+      }
+    }
+
+    function loadLocal(quiet = false) {
+      let raw = null
+      try {
+        raw = localStorage.getItem(STORAGE_KEY)
+      } catch (err) {
+        if (!quiet) toast(`读取失败：${err.message}`, true)
+        return false
+      }
+      if (!raw) {
+        if (!quiet) toast('本地还没有存档，先点「保存」', true)
+        return false
+      }
+      try {
+        const specs = parseScene(raw)
+        applyData(specs)
+        if (!quiet) toast(`已读取 ${nodes.length} 个物体`)
+        return true
+      } catch (err) {
+        try {
+          localStorage.removeItem(STORAGE_KEY)
+        } catch (e) {
+          /* 忽略 */
+        }
+        if (!quiet) toast(`存档损坏，已忽略：${err.message}`, true)
+        return false
+      }
+    }
+
+    function exportScene() {
+      const text = JSON.stringify(serialize(), null, 2)
+      const blob = new Blob([text], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'mini-scene.json'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1200)
+      toast(`已导出 JSON（${new Blob([text]).size} B）`)
+    }
+
+    function resetEditor() {
+      try {
+        localStorage.removeItem(STORAGE_KEY)
+      } catch (err) {
+        /* 忽略 */
+      }
+      undoStack.length = 0
+      redoStack.length = 0
+      select(null)
+      clearSceneNodes()
+      buildDefaults()
+      refreshUI()
+      toast('已重置为默认场景')
+    }
+
+    undoBtn.addEventListener('click', doUndo)
+    redoBtn.addEventListener('click', doRedo)
+    document.getElementById('save').addEventListener('click', () => saveLocal())
+    document.getElementById('load').addEventListener('click', () => loadLocal())
+    document.getElementById('export').addEventListener('click', exportScene)
+    document.getElementById('reset').addEventListener('click', resetEditor)
+    document.getElementById('import').addEventListener('click', () => fileInput.click())
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0]
+      if (!file) return
+      try {
+        if (file.size > 2 * 1024 * 1024) throw new Error('文件超过 2MB')
+        const text = await file.text()
+        const specs = parseScene(text)
+        applyData(specs)
+        toast(`已导入 ${nodes.length} 个物体`)
+      } catch (err) {
+        toast(`导入失败：${err.message}`, true)
+      } finally {
+        fileInput.value = ''
+      }
+    })
+
+    /* ---------- 快捷键 ---------- */
+    addEventListener('keydown', (event) => {
+      const tag = (document.activeElement && document.activeElement.tagName) || ''
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+      const key = event.key.toLowerCase()
+
+      if ((event.metaKey || event.ctrlKey) && key === 's') {
+        event.preventDefault()
+        saveLocal()
+        return
+      }
+      if ((event.metaKey || event.ctrlKey) && key === 'z') {
+        if (typing) return
+        event.preventDefault()
+        if (event.shiftKey) doRedo()
+        else doUndo()
+        return
+      }
+      if (typing) return
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault()
+        deleteSelected()
+      } else if (event.key === 'Escape') {
+        select(null)
+      }
+    })
+
+    /* ---------- 尺寸自适应 ---------- */
+    function resize() {
+      const width = Math.max(1, viewport.clientWidth)
+      const height = Math.max(1, viewport.clientHeight)
+      camera.aspect = width / height
+      camera.updateProjectionMatrix()
+      renderer.setSize(width, height)
+    }
+
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(resize).observe(viewport)
+    }
+    addEventListener('resize', resize)
+    resize()
+
+    /* ---------- 启动：优先恢复 localStorage，失败则用默认场景 ---------- */
+    let restored = false
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        applyData(parseScene(raw))
+        restored = true
+      }
+    } catch (err) {
+      try {
+        localStorage.removeItem(STORAGE_KEY)
+      } catch (e) {
+        /* 忽略 */
+      }
+    }
+
+    if (!restored) {
+      buildDefaults()
+      refreshUI()
+    } else {
+      toast(`已恢复上次保存的场景（${nodes.length} 个物体）`)
+    }
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      orbit.update()
+      renderer.render(scene, camera)
+    })
+  </script>
+</body>
+
+</html>

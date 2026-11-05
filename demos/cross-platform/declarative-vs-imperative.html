@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>declarative-vs-imperative · 声明式 vs 命令式对照台</title>
+  <style>
+    * { box-sizing: border-box; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #viewport {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 54%;
+      height: 100%;
+    }
+
+    #viewport canvas { display: block; }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 348px;
+      padding: 11px 13px;
+      background: rgba(11, 14, 20, .8);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 10px;
+      font-size: 12.5px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .info b { color: #7cc4ff; }
+    .info .sub { color: #94a3b8; }
+
+    .info .live {
+      display: block;
+      margin-top: 6px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11.5px;
+    }
+
+    #codePanel {
+      position: fixed;
+      right: 0;
+      top: 0;
+      width: 46%;
+      height: 100%;
+      overflow-y: auto;
+      padding: 14px 16px 70px;
+      background: #0c111b;
+      border-left: 1px solid rgba(148, 163, 184, .18);
+    }
+
+    #codePanel::-webkit-scrollbar { width: 6px; }
+    #codePanel::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .3); border-radius: 3px; }
+
+    .targets {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .target-btn {
+      flex: 1;
+      padding: 6px 0;
+      border-radius: 7px;
+      border: 1px solid rgba(148, 163, 184, .26);
+      background: rgba(148, 163, 184, .1);
+      color: #cbd5e1;
+      font-size: 12px;
+      cursor: pointer;
+      transition: .18s;
+    }
+
+    .target-btn:hover { background: rgba(148, 163, 184, .2); }
+    .target-btn.active {
+      border-color: rgba(34, 211, 238, .55);
+      background: rgba(34, 211, 238, .16);
+      color: #a5f3fc;
+      font-weight: 700;
+    }
+
+    .colhead {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 2px 0 10px;
+    }
+
+    .colhead h2 {
+      margin: 0;
+      font-size: 14px;
+      color: #e2e8f0;
+    }
+
+    .tag {
+      padding: 2px 7px;
+      border-radius: 99px;
+      font-size: 10.5px;
+      color: #7dd3fc;
+      border: 1px solid rgba(34, 211, 238, .35);
+      white-space: nowrap;
+    }
+
+    .code {
+      margin: 0;
+      padding: 11px 12px;
+      background: #0a0f1c;
+      border: 1px solid rgba(34, 211, 238, .28);
+      border-radius: 9px;
+      font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+      font-size: 11.5px;
+      line-height: 1.62;
+      color: #cbd5e1;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .code .kw { color: #c4b5fd; }
+    .code .str { color: #fbbf24; }
+    .code .tag2 { color: #7dd3fc; }
+    .code .attr { color: #34d399; }
+    .code .cm { color: #64748b; }
+    .code .bound { color: #f472b6; font-weight: 700; }
+
+    .pulse { animation: pulse .6s ease; }
+    @keyframes pulse {
+      0% { background: rgba(244, 114, 182, .32); }
+      100% { background: transparent; }
+    }
+
+    .state {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: #111a30;
+      border: 1px solid #1e2a44;
+      border-radius: 9px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .state .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 2px 0;
+    }
+
+    .state .row span { color: #94a3b8; }
+    .state .row b {
+      font-family: 'SF Mono', Consolas, monospace;
+      font-weight: 600;
+      color: #f472b6;
+    }
+
+    .state .row b.acc { color: #34d399; }
+
+    .note {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-left: 3px solid #7C3AED;
+      background: rgba(124, 58, 237, .09);
+      border-radius: 0 8px 8px 0;
+      font-size: 12px;
+      line-height: 1.65;
+      color: #cbd5e1;
+    }
+
+    .note b { color: #c4b5fd; }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 27%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .74);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 11.5px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 238px;
+      right: calc(46% + 14px);
+      left: auto;
+      top: auto;
+      bottom: 54px;
+    }
+
+    @media (max-width: 760px) {
+      .info { width: 210px; font-size: 11.5px; }
+      #codePanel { padding: 10px 10px 70px; }
+      .code { font-size: 10.5px; }
+      .lil-gui.root { --width: 186px; }
+      .hint { display: none; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="viewport"></div>
+
+  <div class="info">
+    <b>声明式 vs 命令式 · 同一场景两种写法</b><br />
+    <span class="sub">左半屏：真实运行的命令式 Three.js；右半屏：等价的 Vue 3 + TresJS 代码（静态高亮，不加载运行时）。</span>
+    <span class="live" id="imperativeLine">material.color.setHSL(0.52, 0.65, 0.55)</span>
+  </div>
+
+  <div id="codePanel">
+    <div class="targets">
+      <button type="button" class="target-btn active" data-target="web">Web · TresJS</button>
+      <button type="button" class="target-btn" data-target="weapp">小程序 · 适配层</button>
+      <button type="button" class="target-btn" data-target="game">小游戏 · adapter</button>
+    </div>
+
+    <div class="colhead">
+      <h2>等价的 Vue 3 + TresJS 写法</h2>
+      <span class="tag" id="platformTag">WebGL2 · 全量能力</span>
+    </div>
+
+    <pre class="code"><span class="cm">&lt;!-- 静态对照：演示页不加载 Vue / TresJS --&gt;</span>
+<span class="kw">&lt;script setup&gt;</span>
+<span class="kw">import</span> { reactive } <span class="kw">from</span> <span class="str">'vue'</span>
+<span class="kw">import</span> { TresCanvas } <span class="kw">from</span> <span class="str">'@tresjs/core'</span>
+
+<span class="kw">const</span> scene = reactive({
+  color: <span class="str bound" id="boundColor">'#22d3ee'</span>,
+  spin: <span class="str bound" id="boundSpin">0.8</span>,
+  angle: <span class="str">0</span>,
+})
+<span class="kw">&lt;/script&gt;</span>
+
+<span class="kw">&lt;template&gt;</span>
+  <span class="tag2">&lt;TresCanvas</span> <span class="attr">:dpr</span>=<span class="str">"[1, 2]"</span>
+             <span class="attr">clear-color</span>=<span class="str">"#0b0e14"</span><span class="tag2">&gt;</span>
+    <span class="tag2">&lt;TresPerspectiveCamera</span>
+      <span class="attr">:position</span>=<span class="str">"[2.4, 1.8, 3.2]"</span> <span class="tag2">/&gt;</span>
+    <span class="tag2">&lt;TresDirectionalLight</span>
+      <span class="attr">:position</span>=<span class="str">"[3, 5, 2]"</span> <span class="tag2">/&gt;</span>
+
+    <span class="tag2">&lt;TresMesh</span> <span class="attr">:rotation-y</span>=<span class="str">"scene.angle"</span><span class="tag2">&gt;</span>
+      <span class="tag2">&lt;TresTorusKnotGeometry</span>
+        <span class="attr">:args</span>=<span class="str">"[0.75, 0.24, 180, 32]"</span> <span class="tag2">/&gt;</span>
+      <span class="cm">&lt;!-- 改 color 值，场景自动换色 --&gt;</span>
+      <span class="tag2">&lt;TresMeshStandardMaterial</span>
+        <span class="attr">:color</span>=<span class="str">"scene.color"</span> <span class="tag2">/&gt;</span>
+    <span class="tag2">&lt;/TresMesh&gt;</span>
+  <span class="tag2">&lt;/TresCanvas&gt;</span>
+<span class="kw">&lt;/template&gt;</span></pre>
+
+    <div class="state">
+      <div class="row"><span>左 · 命令式对象</span><b class="acc" id="stateHex">#22d3ee</b></div>
+      <div class="row"><span>右 · reactive.color</span><b id="reactiveHex">'#22d3ee'</b></div>
+      <div class="row"><span>右 · reactive.spin</span><b id="reactiveSpin">0.80</b></div>
+      <div class="row"><span>右 · 更新时机</span><b class="acc" id="reactiveMode">框架比对后赋值</b></div>
+      <div class="row"><span>目标端配置</span><b class="acc" id="targetMeta">DPR≤2 · 阴影开 · 段数 180</b></div>
+    </div>
+
+    <div class="note" id="platformNote">
+      <b>Web：</b>Vue 自定义渲染器直接操作 WebGL2，TresJS 模板可以全量使用；下方滑块改的是同一份响应式数据。
+    </div>
+  </div>
+
+  <div class="hint">拖动左半屏旋转视角 · 滑块同时驱动两边 · 右侧代码仅作静态对照</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const viewport = document.getElementById('viewport')
+
+    /* ---------- 渲染器与相机 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100)
+    camera.position.set(2.4, 1.8, 3.3)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.1
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    viewport.appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.9, 0)
+    controls.minDistance = 2.4
+    controls.maxDistance = 8
+
+    /* ---------- 灯光 ---------- */
+    scene.add(new THREE.HemisphereLight(0x7dd3fc, 0x0b0e14, 0.55))
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4)
+    keyLight.position.set(3, 5, 2)
+    keyLight.castShadow = true
+    keyLight.shadow.mapSize.set(1024, 1024)
+    keyLight.shadow.camera.left = -4
+    keyLight.shadow.camera.right = 4
+    keyLight.shadow.camera.top = 4
+    keyLight.shadow.camera.bottom = -4
+    keyLight.shadow.bias = -0.0012
+    scene.add(keyLight)
+
+    const rimLight = new THREE.DirectionalLight(0x22d3ee, 1.3)
+    rimLight.position.set(-3.5, 2.2, -3)
+    scene.add(rimLight)
+
+    /* ---------- 场景对象 ---------- */
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x22d3ee,
+      roughness: 0.28,
+      metalness: 0.25
+    })
+
+    const knot = new THREE.Mesh(new THREE.TorusKnotGeometry(0.75, 0.24, 180, 32), material)
+    knot.position.y = 1.1
+    knot.castShadow = true
+    knot.receiveShadow = true
+    scene.add(knot)
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(24, 24),
+      new THREE.MeshStandardMaterial({ color: 0x131a26, roughness: 1, metalness: 0 })
+    )
+    floor.rotation.x = -Math.PI / 2
+    floor.receiveShadow = true
+    scene.add(floor)
+
+    const grid = new THREE.GridHelper(24, 48, 0x1f3a5f, 0x122036)
+    grid.position.y = 0.012
+    scene.add(grid)
+
+    const halo = new THREE.Mesh(
+      new THREE.RingGeometry(1.45, 1.53, 96),
+      new THREE.MeshBasicMaterial({ color: 0x1e3a5f, side: THREE.DoubleSide })
+    )
+    halo.rotation.x = -Math.PI / 2
+    halo.position.y = 0.02
+    scene.add(halo)
+
+    /* ---------- 目标端能力配置 ---------- */
+    const TARGETS = {
+      web: {
+        tag: 'WebGL2 · 全量能力',
+        dpr: 2,
+        shadows: true,
+        detail: [180, 32],
+        meta: 'DPR≤2 · 阴影开 · 段数 180',
+        note: '<b>Web：</b>Vue 自定义渲染器直接操作 WebGL2，TresJS 模板可以全量使用；下方滑块改的是同一份响应式数据。'
+      },
+      weapp: {
+        tag: '小程序 · 适配层',
+        dpr: 2,
+        shadows: false,
+        detail: [120, 20],
+        meta: 'DPR≤2 · 阴影关 · 段数 120',
+        note: '<b>小程序：</b>没有 DOM，TresJS 模板不能直接照搬；同一份场景描述要由 three-platformize 一类适配层翻译成 canvas 组件调用，阴影先关、几何段数先降。'
+      },
+      game: {
+        tag: '小游戏 · 官方 adapter',
+        dpr: 1.5,
+        shadows: false,
+        detail: [72, 14],
+        meta: 'DPR≤1.5 · 阴影关 · 段数 72',
+        note: '<b>小游戏：</b>用微信小游戏官方 adapter 提供伪造的 window / canvas，纹理与包体预算最紧；下方滑块仍只改数据，降级逻辑由适配器读取能力清单后执行。'
+      }
+    }
+
+    let currentTarget = 'web'
+
+    function rebuildKnot(tubularSegments, radialSegments) {
+      knot.geometry.dispose()
+      knot.geometry = new THREE.TorusKnotGeometry(0.75, 0.24, tubularSegments, radialSegments)
+    }
+
+    function applyTarget(key) {
+      currentTarget = key
+      const cfg = TARGETS[key]
+
+      renderer.setPixelRatio(Math.min(devicePixelRatio, cfg.dpr))
+      renderer.shadowMap.enabled = cfg.shadows
+      keyLight.castShadow = cfg.shadows
+      knot.castShadow = cfg.shadows
+      floor.receiveShadow = cfg.shadows
+      rebuildKnot(cfg.detail[0], cfg.detail[1])
+
+      document.getElementById('platformTag').textContent = cfg.tag
+      document.getElementById('platformNote').innerHTML = cfg.note
+      document.getElementById('reactiveMode').textContent =
+        key === 'web' ? '框架比对后赋值' : '适配器读取能力清单'
+      document.getElementById('targetMeta').textContent = cfg.meta
+
+      document.querySelectorAll('.target-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.target === key)
+      })
+
+      resize()
+    }
+
+    /* ---------- 共用滑块 ---------- */
+    const params = { hue: 0.52, spin: 0.8 }
+
+    function syncRightPanel(hex) {
+      document.getElementById('stateHex').textContent = hex
+      document.getElementById('reactiveHex').textContent = "'" + hex + "'"
+      document.getElementById('boundColor').textContent = "'" + hex + "'"
+      const mark = document.getElementById('boundColor')
+      mark.classList.remove('pulse')
+      void mark.offsetWidth
+      mark.classList.add('pulse')
+    }
+
+    function applyHue(hue) {
+      // 命令式：直接调用材质 API，改完即生效
+      material.color.setHSL(hue, 0.68, 0.55)
+      const hex = '#' + material.color.getHexString()
+      // 声明式模拟：同一份值写进 reactive 对象，右侧展示框架将做的事
+      syncRightPanel(hex)
+      document.getElementById('imperativeLine').textContent =
+        'material.color.setHSL(' + hue.toFixed(2) + ', 0.68, 0.55)'
+    }
+
+    function applySpin(spin) {
+      document.getElementById('reactiveSpin').textContent = spin.toFixed(2)
+      document.getElementById('boundSpin').textContent = spin.toFixed(1)
+    }
+
+    const gui = new GUI({ title: '共用滑块 · 一份数据两边走' })
+    gui.add(params, 'hue', 0, 1, 0.01).name('色相 hue').onChange(applyHue)
+    gui.add(params, 'spin', 0, 2.5, 0.01).name('转速 spin').onChange(applySpin)
+    gui.domElement.style.zIndex = '10'
+
+    document.querySelectorAll('.target-btn').forEach((btn) => {
+      btn.addEventListener('click', () => applyTarget(btn.dataset.target))
+    })
+
+    /* ---------- 尺寸 ---------- */
+    function resize() {
+      const w = viewport.clientWidth
+      const h = viewport.clientHeight
+      if (!w || !h) return
+      camera.aspect = w / h
+      camera.updateProjectionMatrix()
+      renderer.setSize(w, h)
+    }
+
+    addEventListener('resize', resize)
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    let lastHud = 0
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+      const elapsed = timer.getElapsed()
+
+      // 命令式驱动：每帧手动累加旋转
+      knot.rotation.y += params.spin * dt
+      knot.rotation.x = Math.sin(elapsed * 0.4) * 0.16
+
+      if (elapsed - lastHud > 0.12) {
+        lastHud = elapsed
+        const angle = ((knot.rotation.y % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
+        const right = document.getElementById('reactiveSpin')
+        if (right) right.textContent = params.spin.toFixed(2)
+      }
+
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    applyHue(params.hue)
+    applySpin(params.spin)
+    applyTarget('web')
+  </script>
+</body>
+
+</html>

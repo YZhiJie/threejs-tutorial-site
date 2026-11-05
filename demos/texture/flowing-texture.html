@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>flowing-texture · 流动纹理动画</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 340px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>纹理会动，物体不用动</b>：持续修改 texture.offset（平移）与
+    texture.rotation（旋转，绕 center 中心点），就能做出传送带、
+    跑步机、能量流动等效果，且 GPU 开销极低。
+  </div>
+  <div class="hint">调速度/方向，并尝试把旋转角度拉起来看效果</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 3.4, 5.4)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.2, 0)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 0.95))
+    const dl = new THREE.DirectionalLight(0xffffff, 1.5)
+    dl.position.set(3, 6, 4)
+    scene.add(dl)
+
+    // 传送带纹理：暗色底 + 亮色斜条 + 箭头，方向感强
+    function makeBeltCanvas() {
+      const cv = document.createElement('canvas')
+      cv.width = 256; cv.height = 64
+      const g = cv.getContext('2d')
+      g.fillStyle = '#1f2937'
+      g.fillRect(0, 0, 256, 64)
+      g.fillStyle = '#38bdf8'
+      // 斜条纹
+      for (let x = -64; x < 320; x += 64) {
+        g.save()
+        g.translate(x, 0)
+        g.rotate(-0.5)
+        g.fillRect(0, -40, 22, 140)
+        g.restore()
+      }
+      // 白色箭头
+      g.fillStyle = '#f0f9ff'
+      for (let x = 32; x < 256; x += 128) {
+        g.beginPath()
+        g.moveTo(x, 14)
+        g.lineTo(x + 22, 32)
+        g.lineTo(x, 50)
+        g.lineTo(x + 8, 32)
+        g.closePath()
+        g.fill()
+      }
+      return cv
+    }
+
+    const beltTex = new THREE.CanvasTexture(makeBeltCanvas())
+    beltTex.colorSpace = THREE.SRGBColorSpace
+    beltTex.wrapS = beltTex.wrapT = THREE.RepeatWrapping
+    beltTex.repeat.set(4, 1)
+
+    // 传送带（水平平面）
+    const belt = new THREE.Mesh(
+      new THREE.PlaneGeometry(6, 1.5),
+      new THREE.MeshStandardMaterial({ map: beltTex, roughness: 0.6 })
+    )
+    belt.rotation.x = -Math.PI / 2
+    belt.position.y = 0.01
+    scene.add(belt)
+
+    // 传送带上的两个箱子，随“视觉流动”方向移动（绕回）
+    const boxes = [0, 1].map(i => {
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(0.6, 0.6, 0.6),
+        new THREE.MeshStandardMaterial({ color: i ? 0xf472b6 : 0xfbbf24, roughness: 0.45 })
+      )
+      m.position.set(-3 + i * 3, 0.3, 0)
+      scene.add(m)
+      return m
+    })
+
+    // 圆柱侧面的同纹理：展示旋转流动
+    const cylTex = beltTex.clone()           // 共享图像、独立 offset
+    cylTex.repeat.set(3, 1)
+    cylTex.needsUpdate = true
+    const cylinder = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.7, 0.7, 1.6, 48),
+      new THREE.MeshStandardMaterial({ map: cylTex, roughness: 0.5 })
+    )
+    cylinder.rotation.z = Math.PI / 2
+    cylinder.position.set(0, 1.3, -2.4)
+    scene.add(cylinder)
+
+    const params = {
+      beltSpeed: 0.8,
+      direction: 1,
+      rotation: 0,
+      boxMove: true
+    }
+    const gui = new GUI({ title: '流动纹理' })
+    gui.add(params, 'beltSpeed', 0, 3, 0.05).name('流动速度')
+    gui.add(params, 'direction', [-1, 1]).name('方向（1/-1）')
+    gui.add(params, 'rotation', 0, Math.PI, 0.01).name('纹理旋转').onChange(v => {
+      beltTex.center.set(0.5, 0.5)
+      beltTex.rotation = v
+    })
+    gui.add(params, 'boxMove').name('箱子同步移动')
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const dt = clock.getDelta()
+      // 核心：offset.x 累加；环绕模式开启时超过 1 自动循环
+      const delta = dt * params.beltSpeed * params.direction
+      beltTex.offset.x += delta
+      cylTex.offset.x -= delta * 0.8
+
+      if (params.boxMove) {
+        boxes.forEach(b => {
+          b.position.x += delta * 1.5
+          if (b.position.x > 3.3) b.position.x = -3.3
+          if (b.position.x < -3.3) b.position.x = 3.3
+        })
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

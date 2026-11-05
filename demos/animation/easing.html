@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>easing · 渲染循环与缓动函数</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 350px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 260px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>线性插值 vs 缓动</b>：线性（Linear）匀速像机器人；
+    easeInOut 先慢后快再慢，符合现实惯性。<br />
+    同一段时间内，<b>y = lerp(起点, 终点, ease(t))</b>，
+    换一个缓动函数就得到完全不同的“手感”。
+  </div>
+  <div class="hint">切换缓动函数，观察三个球与右侧曲线图的对应关系</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 2.6, 8.2)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1, 0)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 0.9))
+    const dl = new THREE.DirectionalLight(0xffffff, 1.6)
+    dl.position.set(3, 6, 4)
+    scene.add(dl)
+
+    // 三条运动轨道立柱（起点 → 终点）
+    const lanes = [-2.4, 0, 2.4]
+    lanes.forEach((x, i) => {
+      const rail = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.02, 0.02, 3, 12),
+        new THREE.MeshBasicMaterial({ color: 0x334155 })
+      )
+      rail.position.set(x, 1.5, -1.5)
+      scene.add(rail)
+    })
+    scene.add(new THREE.GridHelper(10, 10, 0x223044, 0x16202e))
+
+    // —— 缓动函数集合：输入/输出均为 0→1 ——
+    const easings = {
+      Linear: t => t,
+      easeInQuad: t => t * t,
+      easeOutQuad: t => 1 - (1 - t) ** 2,
+      easeInOutQuad: t => t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2,
+      easeOutCubic: t => 1 - (1 - t) ** 3,
+      easeInOutCubic: t => t < 0.5 ? 4 * t ** 3 : 1 - ((-2 * t + 2) ** 3) / 2,
+      easeOutBack: t => {
+        const c1 = 1.70158, c3 = c1 + 1
+        return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
+      },
+      easeOutElastic: t => {
+        const c4 = (2 * Math.PI) / 3
+        return t === 0 ? 0 : t === 1 ? 1
+          : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1
+      }
+    }
+
+    // 三个球分别演示：当前缓动 / Linear 对照 / 弹性
+    const colors = [0x60a5fa, 0xfbbf24, 0xf472b6]
+    const balls = colors.map((c, i) => {
+      const b = new THREE.Mesh(
+        new THREE.SphereGeometry(0.32, 32, 24),
+        new THREE.MeshStandardMaterial({ color: c, roughness: 0.35 })
+      )
+      b.position.set(lanes[i], 0.32, -1.5)
+      scene.add(b)
+      return b
+    })
+
+    const startY = 0.32
+    const endY = 3
+
+    const params = {
+      main: 'easeInOutQuad',
+      duration: 1.6
+    }
+    const gui = new GUI({ title: '缓动函数' })
+    gui.add(params, 'main', Object.keys(easings)).name('蓝球缓动')
+    gui.add(params, 'duration', 0.4, 4, 0.1).name('单程时长（秒）')
+
+    // 画在平面上的函数曲线（Canvas 纹理），蓝线随选择切换
+    function makeCurveCanvas(name) {
+      const cv = document.createElement('canvas')
+      cv.width = cv.height = 256
+      const g = cv.getContext('2d')
+      g.fillStyle = 'rgba(11,14,20,0.85)'
+      g.fillRect(0, 0, 256, 256)
+      g.strokeStyle = '#334155'
+      g.lineWidth = 1
+      for (let i = 0; i <= 4; i++) {
+        const p = 30 + i * 49
+        g.beginPath(); g.moveTo(30, p); g.lineTo(226, p); g.stroke()
+        g.beginPath(); g.moveTo(p, 30); g.lineTo(p, 226); g.stroke()
+      }
+      const draw = (fn, color, width) => {
+        g.strokeStyle = color
+        g.lineWidth = width
+        g.beginPath()
+        for (let i = 0; i <= 200; i++) {
+          const t = i / 200
+          const x = 30 + t * 196
+          const y = 226 - fn(t) * 196
+          i === 0 ? g.moveTo(x, y) : g.lineTo(x, y)
+        }
+        g.stroke()
+      }
+      draw(easings.Linear, 'rgba(251,191,36,0.5)', 2)
+      draw(easings[name], '#60a5fa', 4)
+      return cv
+    }
+
+    const curveSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(makeCurveCanvas(params.main)),
+      transparent: true, depthWrite: false
+    }))
+    curveSprite.position.set(0, 1.6, 1.6)
+    curveSprite.scale.set(2.2, 2.2, 1)
+    scene.add(curveSprite)
+
+    function refreshCurve() {
+      curveSprite.material.map.dispose()
+      curveSprite.material.map = new THREE.CanvasTexture(makeCurveCanvas(params.main))
+      curveSprite.material.needsUpdate = true
+    }
+    gui.onChange(refreshCurve)
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      // ping-pong 进度：0→1→0 循环
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const phase = (clock.getElapsed() % (params.duration * 2)) / params.duration
+      const t = phase <= 1 ? phase : 2 - phase
+
+      balls[0].position.y = THREE.MathUtils.lerp(startY, endY, easings[params.main](t))
+      balls[1].position.y = THREE.MathUtils.lerp(startY, endY, easings.Linear(t))
+      balls[2].position.y = THREE.MathUtils.lerp(startY, endY, easings.easeOutElastic(t))
+
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

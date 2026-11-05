@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>points-basic · Points 粒子基础</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 260px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>粒子 = 顶点 + gl_PointSize + gl_PointCoord</b><br />
+    ① 5000 颗柔光点组成盘状星云 ② 自定义 shader 控大小<br />
+    ③ Canvas 程序化贴图 ④ 加法混合发光<br />
+    动画只喂 uTime，JS 从不碰顶点数据。
+  </div>
+  <div class="hint">拖拽旋转视角 · 右侧面板调节数量 / 大小 / 配色 / 旋转</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(
+      45, window.innerWidth / window.innerHeight, 0.1, 100
+    )
+    camera.position.set(0, 5.5, 9.5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    // ---------- Canvas 程序化柔点贴图：径向渐变圆 ----------
+    function makeSoftDotTexture(size = 64) {
+      const cv = document.createElement('canvas')
+      cv.width = cv.height = size
+      const ctx = cv.getContext('2d')
+      const g = ctx.createRadialGradient(
+        size / 2, size / 2, 0, size / 2, size / 2, size / 2
+      )
+      g.addColorStop(0.0, 'rgba(255,255,255,1)')
+      g.addColorStop(0.4, 'rgba(255,255,255,0.6)')
+      g.addColorStop(1.0, 'rgba(255,255,255,0)')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, size, size)
+      return new THREE.CanvasTexture(cv)
+    }
+
+    // ---------- 顶点着色器：呼吸动画 + 透视点大小 ----------
+    const vertexShader = /* glsl */ `
+      uniform float uTime;
+      uniform float uSize;
+      attribute float aScale;
+      varying vec3 vColor;
+
+      void main() {
+        vColor = color;
+        vec3 p = position;
+        p.y += sin(uTime * 0.8 + position.x * 2.0) * 0.06;
+        vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = uSize * aScale * (300.0 / -mvPosition.z);
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `
+
+    // ---------- 片元着色器：gl_PointCoord 采样柔点 ----------
+    const fragmentShader = /* glsl */ `
+      uniform sampler2D uTexture;
+      varying vec3 vColor;
+
+      void main() {
+        vec4 tex = texture2D(uTexture, gl_PointCoord);
+        gl_FragColor = vec4(vColor * tex.rgb, tex.a);
+      }
+    `
+
+    const uniforms = {
+      uTime:    { value: 0 },
+      uSize:    { value: 3.0 },
+      uTexture: { value: makeSoftDotTexture() }
+    }
+
+    const material = new THREE.ShaderMaterial({
+      uniforms, vertexShader, fragmentShader,
+      vertexColors: true,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+
+    // ---------- 星云几何：一次性生成并上传，之后 JS 不碰 ----------
+    const colorInner = new THREE.Color()
+    const colorOuter = new THREE.Color()
+    let points = null
+
+    function buildNebula(count) {
+      const positions = new Float32Array(count * 3)
+      const colors = new Float32Array(count * 3)
+      const scales = new Float32Array(count)
+      colorInner.set(params.colorInner)
+      colorOuter.set(params.colorOuter)
+
+      for (let i = 0; i < count; i++) {
+        const r = Math.sqrt(Math.random()) * 6   // 平方根：面密度均匀
+        const a = Math.random() * Math.PI * 2
+        positions[i * 3]     = Math.cos(a) * r
+        positions[i * 3 + 1] = (Math.random() - 0.5) * 0.6 * (1 - r / 6)
+        positions[i * 3 + 2] = Math.sin(a) * r
+        const c = colorInner.clone().lerp(colorOuter, r / 6)
+        colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b
+        scales[i] = 0.5 + Math.random()
+      }
+
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+      geo.setAttribute('aScale', new THREE.BufferAttribute(scales, 1))
+      return geo
+    }
+
+    const params = {
+      count: 5000,
+      size: 3.0,
+      colorInner: '#fff3d6',
+      colorOuter: '#3b82f6',
+      rotate: true,
+      rotateSpeed: 0.5
+    }
+
+    function rebuild() {
+      if (points) {
+        scene.remove(points)
+        points.geometry.dispose()
+      }
+      points = new THREE.Points(buildNebula(params.count), material)
+      scene.add(points)
+    }
+    rebuild()
+
+    // ---------- lil-gui 面板 ----------
+    const gui = new GUI({ title: '粒子星云' })
+    gui.add(params, 'count', 1000, 30000, 1000).name('粒子数量')
+      .onFinishChange(rebuild)
+    gui.add(params, 'size', 0.5, 10, 0.1).name('粒子大小')
+      .onChange(v => uniforms.uSize.value = v)
+    gui.addColor(params, 'colorInner').name('核心颜色').onFinishChange(rebuild)
+    gui.addColor(params, 'colorOuter').name('边缘颜色').onFinishChange(rebuild)
+    gui.add(params, 'rotate').name('整体旋转')
+    gui.add(params, 'rotateSpeed', 0, 3, 0.05).name('旋转速度')
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update() // 每帧先 update，再读取 delta
+      uniforms.uTime.value += clock.getDelta()
+      if (params.rotate && points) {
+        points.rotation.y += clock.getDelta() * params.rotateSpeed * 0.12
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>multitarget-lab · 一套场景多端交付</title>
+  <style>
+    * { box-sizing: border-box; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    .topbar {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: rgba(11, 14, 20, .82);
+      backdrop-filter: blur(9px);
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 11px;
+      z-index: 20;
+    }
+
+    .topbar .brand {
+      font-size: 11.5px;
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+
+    .seg { display: flex; gap: 5px; }
+
+    .seg-btn {
+      padding: 5px 11px;
+      border-radius: 7px;
+      border: 1px solid rgba(148, 163, 184, .26);
+      background: rgba(148, 163, 184, .1);
+      color: #cbd5e1;
+      font-size: 12px;
+      cursor: pointer;
+      transition: .18s;
+    }
+
+    .seg-btn:hover { background: rgba(148, 163, 184, .2); }
+    .seg-btn.active {
+      border-color: rgba(34, 211, 238, .55);
+      background: rgba(34, 211, 238, .16);
+      color: #a5f3fc;
+      font-weight: 700;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 286px;
+      padding: 11px 13px;
+      background: rgba(11, 14, 20, .8);
+      backdrop-filter: blur(9px);
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.6;
+      z-index: 10;
+    }
+
+    .info b { color: #7cc4ff; }
+    .info .sub { color: #94a3b8; }
+    .info .line { display: block; margin-top: 5px; color: #cbd5e1; }
+    .info .line span { color: #fbbf24; font-family: 'SF Mono', Consolas, monospace; }
+
+    .info .row { display: flex; gap: 6px; margin-top: 8px; }
+
+    .ctrl-btn {
+      flex: 1;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(34, 211, 238, .4);
+      background: rgba(34, 211, 238, .13);
+      color: #a5f3fc;
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: .18s;
+      white-space: nowrap;
+    }
+
+    .ctrl-btn:hover { background: rgba(34, 211, 238, .24); }
+
+    .ctrl-btn.warn {
+      border-color: rgba(251, 113, 133, .45);
+      background: rgba(251, 113, 133, .12);
+      color: #fda4af;
+    }
+
+    .panel {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      width: 336px;
+      max-height: calc(100vh - 76px);
+      overflow-y: auto;
+      padding: 11px 12px;
+      background: rgba(13, 19, 30, .86);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 10px;
+      font-size: 11.5px;
+      z-index: 10;
+    }
+
+    .panel::-webkit-scrollbar { width: 5px; }
+    .panel::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .3); border-radius: 3px; }
+
+    .phead {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #7dd3fc;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .phead span {
+      padding: 1px 8px;
+      border-radius: 99px;
+      font-size: 10.5px;
+      background: rgba(124, 58, 237, .18);
+      color: #c4b5fd;
+      border: 1px solid rgba(124, 58, 237, .4);
+      font-weight: 400;
+    }
+
+    #targetJson {
+      margin: 0 0 10px;
+      padding: 9px 10px;
+      max-height: 250px;
+      overflow: auto;
+      background: #0a0f1c;
+      border: 1px solid rgba(34, 211, 238, .26);
+      border-radius: 8px;
+      font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.55;
+      color: #a5f3fc;
+      white-space: pre;
+    }
+
+    .fhead {
+      color: #7dd3fc;
+      font-weight: 600;
+      margin: 2px 0 6px;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .chip {
+      padding: 3px 7px;
+      border-radius: 5px;
+      font-size: 10.5px;
+      border: 1px solid rgba(148, 163, 184, .2);
+      color: #475569;
+      background: rgba(148, 163, 184, .05);
+    }
+
+    .chip.on {
+      color: #6ee7b7;
+      border-color: rgba(52, 211, 153, .4);
+      background: rgba(52, 211, 153, .1);
+    }
+
+    .chip.off {
+      text-decoration: line-through;
+      text-decoration-color: rgba(148, 163, 184, .5);
+    }
+
+    .runtime {
+      margin-top: 9px;
+      padding-top: 7px;
+      border-top: 1px solid rgba(148, 163, 184, .14);
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .runtime b { color: #fbbf24; font-family: 'SF Mono', Consolas, monospace; }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .74);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 11.5px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 10;
+    }
+
+    .touch-tip {
+      position: fixed;
+      left: 50%;
+      bottom: 46px;
+      transform: translateX(-50%);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+      color: #fbbf24;
+      background: rgba(11, 14, 20, .82);
+      border: 1px solid rgba(251, 191, 36, .32);
+      pointer-events: none;
+      opacity: 0;
+      transition: .25s;
+      z-index: 10;
+      white-space: nowrap;
+    }
+
+    .touch-tip.show { opacity: 1; }
+
+    .pause-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(11, 14, 20, .55);
+      opacity: 0;
+      pointer-events: none;
+      transition: .25s;
+      z-index: 30;
+    }
+
+    .pause-overlay.show { opacity: 1; }
+
+    .pause-overlay .card {
+      padding: 16px 22px;
+      border-radius: 12px;
+      background: rgba(13, 19, 30, .94);
+      border: 1px solid rgba(251, 113, 133, .4);
+      text-align: center;
+    }
+
+    .pause-overlay .card b {
+      display: block;
+      color: #fda4af;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .pause-overlay .card span { font-size: 11.5px; color: #94a3b8; }
+
+    .frame {
+      position: fixed;
+      inset: 26px;
+      border-radius: 26px;
+      border: 2px solid rgba(148, 163, 184, .22);
+      pointer-events: none;
+      opacity: 0;
+      transition: .3s;
+      z-index: 5;
+    }
+
+    .frame.show { opacity: 1; }
+    .frame.weapp { border-color: rgba(251, 191, 36, .3); box-shadow: inset 0 0 40px rgba(251, 191, 36, .05); }
+    .frame.game { border-color: rgba(244, 114, 182, .3); box-shadow: inset 0 0 40px rgba(244, 114, 182, .05); }
+
+    .frame .frame-label {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 2px 10px;
+      border-radius: 99px;
+      background: rgba(11, 14, 20, .9);
+      font-size: 10.5px;
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 234px;
+      right: 14px;
+      left: auto;
+      top: auto;
+      bottom: 14px;
+    }
+
+    @media (max-width: 880px) {
+      .info { width: 205px; font-size: 11px; }
+      .topbar .brand { display: none; }
+      .panel { width: 250px; font-size: 10.5px; }
+      .lil-gui.root { --width: 184px; }
+      .hint { display: none; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="topbar">
+    <span class="brand">一套场景 · 多端交付</span>
+    <div class="seg">
+      <button type="button" class="seg-btn active" data-target="web">Web</button>
+      <button type="button" class="seg-btn" data-target="weapp">小程序</button>
+      <button type="button" class="seg-btn" data-target="game">小游戏</button>
+    </div>
+  </div>
+
+  <div class="info">
+    <b>同一场景 · 三种运行时</b><br />
+    <span class="sub">切换目标端，观察纹理精度、阴影、交互提示与生命周期按钮同步变化。</span>
+    <span class="line">交互：<span id="inputLine">pointermove / pointerdown</span></span>
+    <span class="line">生命周期：<span id="lifeLine">visibilitychange</span></span>
+    <div class="row">
+      <button type="button" class="ctrl-btn" id="pauseBtn">暂停（onHide）</button>
+      <button type="button" class="ctrl-btn" id="resetBtn">重置视角</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="phead">当前目标端配置 <span id="targetName">web</span></div>
+    <pre id="targetJson">{}</pre>
+    <div class="fhead">特性清单</div>
+    <div class="chips" id="featureChips"></div>
+    <div class="runtime">
+      运行状态：<b id="runState">渲染中</b> · 纹理 <b id="texState">2048²</b> · DPR <b id="dprState">2.00</b>
+    </div>
+  </div>
+
+  <div class="touch-tip" id="touchTip">touchstart / touchmove · touches[0]</div>
+  <div class="pause-overlay" id="pauseOverlay">
+    <div class="card">
+      <b>已暂停 · onHide</b>
+      <span>渲染循环已停止，纹理与帧缓冲已释放</span>
+    </div>
+  </div>
+  <div class="frame" id="deviceFrame"><span class="frame-label" id="frameLabel">小程序 canvas 组件</span></div>
+
+  <div class="hint">顶部切换目标端 · 拖动场景模拟触摸 · 暂停按钮演示 onHide / onShow</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const app = document.getElementById('app')
+
+    /* ---------- 目标端配置：一份场景，多份能力清单 ---------- */
+    const TARGETS = {
+      web: {
+        target: 'web',
+        label: 'Web',
+        dprCap: 2,
+        textureSize: 2048,
+        maxTexture: 4096,
+        shadows: true,
+        antialias: true,
+        postprocessing: 'optional',
+        input: 'pointer',
+        lifecycle: 'visibilitychange',
+        packageBudgetMB: null,
+        extras: 8,
+        geometryDetail: 2,
+        frame: false,
+        feature: {
+          shadows: true, antialias: true, hiTex: true, post: true,
+          pointer: true, touch: false, wxTouch: false, pause: true, budget: false
+        }
+      },
+      weapp: {
+        target: 'weapp',
+        label: '小程序',
+        dprCap: 2,
+        textureSize: 512,
+        maxTexture: 1024,
+        shadows: false,
+        antialias: true,
+        postprocessing: 'off',
+        input: 'touch',
+        lifecycle: 'onHide / onShow',
+        packageBudgetMB: 20,
+        extras: 5,
+        geometryDetail: 1,
+        frame: true,
+        feature: {
+          shadows: false, antialias: true, hiTex: false, post: false,
+          pointer: false, touch: true, wxTouch: false, pause: true, budget: true
+        }
+      },
+      game: {
+        target: 'game',
+        label: '小游戏',
+        dprCap: 1.5,
+        textureSize: 256,
+        maxTexture: 512,
+        shadows: false,
+        antialias: false,
+        postprocessing: 'off',
+        input: 'wx',
+        lifecycle: 'onHide / onShow',
+        packageBudgetMB: 4,
+        extras: 3,
+        geometryDetail: 0,
+        frame: true,
+        feature: {
+          shadows: false, antialias: false, hiTex: false, post: false,
+          pointer: false, touch: true, wxTouch: true, pause: true, budget: true
+        }
+      }
+    }
+
+    const FEATURES = [
+      ['shadows', '实时阴影'],
+      ['antialias', '抗锯齿'],
+      ['hiTex', '纹理 ≥ 1024'],
+      ['post', '后处理'],
+      ['pointer', 'Pointer 事件'],
+      ['touch', 'Touch 事件'],
+      ['wxTouch', 'wx.onTouch*'],
+      ['pause', 'onHide 暂停'],
+      ['budget', '包体预算']
+    ]
+
+    let current = 'web'
+    let paused = false
+    let texture = null
+
+    const params = { spin: 0.5, showGrid: true }
+
+    /* ---------- 基础渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.FogExp2(0x0b0e14, 0.02)
+
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(4.2, 3.4, 6.2)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.12
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    app.appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.6, 0)
+    controls.minDistance = 3.4
+    controls.maxDistance = 16
+
+    /* ---------- 灯光 ---------- */
+    scene.add(new THREE.HemisphereLight(0x7dd3fc, 0x0b0e14, 0.55))
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2)
+    keyLight.position.set(4.5, 7.5, 3.5)
+    keyLight.castShadow = true
+    keyLight.shadow.mapSize.set(1024, 1024)
+    keyLight.shadow.camera.left = -7
+    keyLight.shadow.camera.right = 7
+    keyLight.shadow.camera.top = 7
+    keyLight.shadow.camera.bottom = -7
+    keyLight.shadow.bias = -0.0015
+    scene.add(keyLight)
+
+    const fill = new THREE.PointLight(0x7c3aed, 26, 18)
+    fill.position.set(-3.5, 3, -2.5)
+    scene.add(fill)
+
+    /* ---------- 地面与台座 ---------- */
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(9, 64),
+      new THREE.MeshStandardMaterial({ color: 0x101827, roughness: 0.96, metalness: 0.04 })
+    )
+    floor.rotation.x = -Math.PI / 2
+    floor.receiveShadow = true
+    scene.add(floor)
+
+    const grid = new THREE.GridHelper(18, 36, 0x1f3a5f, 0x0e1a2c)
+    grid.position.y = 0.012
+    scene.add(grid)
+
+    const pedestal = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.55, 1.78, 1.05, 40),
+      new THREE.MeshStandardMaterial({ color: 0x1b2436, roughness: 0.55, metalness: 0.35 })
+    )
+    pedestal.position.y = 0.525
+    pedestal.castShadow = true
+    pedestal.receiveShadow = true
+    scene.add(pedestal)
+
+    const pedestalTop = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.56, 1.56, 0.06, 40),
+      new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x0891b2, emissiveIntensity: 0.55, roughness: 0.3 })
+    )
+    pedestalTop.position.y = 1.08
+    scene.add(pedestalTop)
+
+    /* ---------- 主体：晶体 ---------- */
+    const crystalMat = new THREE.MeshStandardMaterial({
+      color: 0x22d3ee,
+      emissive: 0x0e7490,
+      emissiveIntensity: 0.55,
+      roughness: 0.16,
+      metalness: 0.55,
+      flatShading: true
+    })
+
+    const crystal = new THREE.Mesh(new THREE.IcosahedronGeometry(0.95, 1), crystalMat)
+    crystal.position.y = 2.15
+    crystal.castShadow = true
+    scene.add(crystal)
+
+    const orbitRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.62, 0.045, 10, 96),
+      new THREE.MeshStandardMaterial({ color: 0xa78bfa, emissive: 0x6d28d9, emissiveIntensity: 1.0 })
+    )
+    orbitRing.rotation.x = Math.PI / 2 + 0.28
+    orbitRing.position.y = 2.15
+    scene.add(orbitRing)
+
+    const satellite = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 20, 14),
+      new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
+    )
+    satellite.position.set(1.62, 2.15, 0)
+    scene.add(satellite)
+
+    /* ---------- 展示板：纹理精度的可视化 ---------- */
+    function buildTexture(size) {
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = Math.round(size * 0.64)
+      const ctx = canvas.getContext('2d')
+
+      const g = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
+      g.addColorStop(0, '#0b2a4a')
+      g.addColorStop(0.55, '#0e7490')
+      g.addColorStop(1, '#134e4a')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      const cell = canvas.width / 10
+      ctx.strokeStyle = 'rgba(125, 211, 252, .35)'
+      ctx.lineWidth = Math.max(1, size / 1024)
+      for (let i = 0; i <= 10; i++) {
+        ctx.beginPath()
+        ctx.moveTo(i * cell, 0)
+        ctx.lineTo(i * cell, canvas.height)
+        ctx.stroke()
+      }
+      for (let j = 0; j <= 6; j++) {
+        ctx.beginPath()
+        ctx.moveTo(0, j * cell)
+        ctx.lineTo(canvas.width, j * cell)
+        ctx.stroke()
+      }
+
+      ctx.fillStyle = 'rgba(11, 14, 20, .7)'
+      ctx.fillRect(0, canvas.height * 0.32, canvas.width, canvas.height * 0.36)
+      ctx.fillStyle = '#e0f2fe'
+      ctx.font = 'bold ' + Math.round(size * 0.11) + 'px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('TEX ' + size, canvas.width / 2, canvas.height * 0.5)
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
+      return tex
+    }
+
+    const boardMat = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.1 })
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 1.72), boardMat)
+    board.position.set(0, 2.2, -3.1)
+    board.receiveShadow = true
+    scene.add(board)
+
+    /* ---------- 立柱阵列 ---------- */
+    const pillars = []
+    const pillarGeo = new THREE.BoxGeometry(0.24, 1.0, 0.24)
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.7, metalness: 0.3 })
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + 0.2
+      const p = new THREE.Mesh(pillarGeo, pillarMat)
+      p.position.set(Math.cos(a) * 3.4, 0.5, Math.sin(a) * 3.4)
+      p.rotation.y = -a
+      p.castShadow = true
+      p.receiveShadow = true
+      scene.add(p)
+      pillars.push(p)
+    }
+
+    /* ---------- 触摸 / 指针 ---------- */
+    const focus = new THREE.Mesh(
+      new THREE.RingGeometry(0.2, 0.28, 40),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+    )
+    focus.rotation.x = -Math.PI / 2
+    focus.position.set(0, 0.03, 2.4)
+    scene.add(focus)
+
+    function moveFocus(nx, ny) {
+      focus.position.x = (nx - 0.5) * 9
+      focus.position.z = (ny - 0.5) * 9
+    }
+
+    let unbindInput = null
+
+    function bindInput(mode) {
+      if (unbindInput) unbindInput()
+      const el = renderer.domElement
+      const fromClient = (cx, cy) => {
+        const r = el.getBoundingClientRect()
+        moveFocus((cx - r.left) / r.width, (cy - r.top) / r.height)
+      }
+      const onPointer = (e) => fromClient(e.clientX, e.clientY)
+      const onTouch = (e) => {
+        const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0])
+        if (t) fromClient(t.clientX, t.clientY)
+      }
+
+      if (mode === 'pointer') {
+        el.addEventListener('pointermove', onPointer)
+        unbindInput = () => el.removeEventListener('pointermove', onPointer)
+      } else {
+        el.addEventListener('touchstart', onTouch, { passive: true })
+        el.addEventListener('touchmove', onTouch, { passive: true })
+        el.addEventListener('pointermove', onPointer)
+        unbindInput = () => {
+          el.removeEventListener('touchstart', onTouch)
+          el.removeEventListener('touchmove', onTouch)
+          el.removeEventListener('pointermove', onPointer)
+        }
+      }
+    }
+
+    /* ---------- 应用目标端 ---------- */
+    function applyTarget(key) {
+      current = key
+      const cfg = TARGETS[key]
+
+      // DPR
+      renderer.setPixelRatio(Math.min(devicePixelRatio, cfg.dprCap))
+
+      // 阴影
+      renderer.shadowMap.enabled = cfg.shadows
+      keyLight.castShadow = cfg.shadows
+      crystal.castShadow = cfg.shadows
+      pedestal.castShadow = cfg.shadows
+      floor.receiveShadow = cfg.shadows
+      pillars.forEach((p) => {
+        p.castShadow = cfg.shadows
+        p.receiveShadow = cfg.shadows
+      })
+
+      // 几何精度
+      crystal.geometry.dispose()
+      crystal.geometry = new THREE.IcosahedronGeometry(0.95, cfg.geometryDetail)
+
+      // 装饰数量
+      pillars.forEach((p, i) => { p.visible = i < cfg.extras })
+
+      // 纹理
+      if (texture) texture.dispose()
+      texture = buildTexture(cfg.textureSize)
+      boardMat.map = texture
+      boardMat.needsUpdate = true
+
+      // 交互
+      bindInput(cfg.input)
+
+      // 触摸提示
+      const tip = document.getElementById('touchTip')
+      if (cfg.input === 'pointer') {
+        tip.classList.remove('show')
+      } else if (cfg.input === 'touch') {
+        tip.textContent = 'touchstart / touchmove · e.touches[0]'
+        tip.classList.add('show')
+      } else {
+        tip.textContent = 'wx.onTouchStart / wx.onTouchMove · changedTouches[0]'
+        tip.classList.add('show')
+      }
+
+      // 设备外框
+      const frame = document.getElementById('deviceFrame')
+      frame.className = 'frame' + (cfg.frame ? ' show ' + key : '')
+      document.getElementById('frameLabel').textContent =
+        key === 'weapp' ? '小程序 canvas 组件 · 安全区' : key === 'game' ? '小游戏全屏 canvas · 无 DOM' : ''
+
+      // HUD
+      document.getElementById('inputLine').textContent =
+        cfg.input === 'pointer' ? 'pointermove / pointerdown'
+          : cfg.input === 'touch' ? 'touchstart / touchmove' : 'wx.onTouchStart / wx.onTouchMove'
+      document.getElementById('lifeLine').textContent = cfg.lifecycle
+      document.getElementById('targetName').textContent = key
+
+      renderJson(cfg)
+      renderFeatures(cfg)
+
+      document.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.target === key)
+      })
+
+      document.getElementById('pauseBtn').textContent = paused
+        ? '恢复（onShow）'
+        : (key === 'web' ? '暂停（visibilitychange）' : '暂停（onHide）')
+
+      updateRuntime()
+      resize()
+    }
+
+    function renderJson(cfg) {
+      const data = {
+        target: cfg.target,
+        dprCap: cfg.dprCap,
+        textureSize: cfg.textureSize,
+        maxTexture: cfg.maxTexture,
+        shadows: cfg.shadows,
+        antialias: cfg.antialias,
+        postprocessing: cfg.postprocessing,
+        input: cfg.input,
+        lifecycle: cfg.lifecycle,
+        packageBudgetMB: cfg.packageBudgetMB,
+        decorativeMeshes: cfg.extras,
+        geometryDetail: cfg.geometryDetail
+      }
+      document.getElementById('targetJson').textContent = JSON.stringify(data, null, 2)
+    }
+
+    function renderFeatures(cfg) {
+      const box = document.getElementById('featureChips')
+      box.innerHTML = ''
+      FEATURES.forEach(([key, label]) => {
+        const on = !!cfg.feature[key]
+        const chip = document.createElement('span')
+        chip.className = 'chip ' + (on ? 'on' : 'off')
+        chip.textContent = (on ? '✓ ' : '✗ ') + label
+        box.appendChild(chip)
+      })
+    }
+
+    function updateRuntime() {
+      document.getElementById('runState').textContent = paused ? '已暂停' : '渲染中'
+      document.getElementById('texState').textContent = TARGETS[current].textureSize + '²'
+      document.getElementById('dprState').textContent = Math.min(devicePixelRatio, TARGETS[current].dprCap).toFixed(2)
+    }
+
+    /* ---------- 暂停 / 恢复：onHide / onShow ---------- */
+    function setPaused(value) {
+      paused = value
+      const cfg = TARGETS[current]
+
+      document.getElementById('pauseOverlay').classList.toggle('show', value)
+      document.getElementById('pauseBtn').classList.toggle('warn', value)
+      document.getElementById('pauseBtn').textContent = value
+        ? '恢复（onShow）'
+        : (cfg.input === 'pointer' ? '暂停（visibilitychange）' : '暂停（onHide）')
+
+      if (value && texture) {
+        texture.dispose()
+        texture = null
+        boardMat.map = null
+        boardMat.needsUpdate = true
+      }
+
+      if (!value) {
+        texture = buildTexture(cfg.textureSize)
+        boardMat.map = texture
+        boardMat.needsUpdate = true
+      }
+
+      updateRuntime()
+    }
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '调试' })
+    gui.add(params, 'spin', 0, 2, 0.01).name('晶体转速')
+    gui.add(params, 'showGrid').name('地面网格').onChange((v) => { grid.visible = v })
+    gui.domElement.style.zIndex = '25'
+
+    document.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => applyTarget(btn.dataset.target))
+    })
+
+    document.getElementById('pauseBtn').addEventListener('click', () => setPaused(!paused))
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      camera.position.set(4.2, 3.4, 6.2)
+      controls.target.set(0, 1.6, 0)
+      controls.update()
+    })
+
+    /* ---------- 尺寸 ---------- */
+    function resize() {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      if (paused) renderer.render(scene, camera)
+    }
+
+    addEventListener('resize', resize)
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+
+      if (paused) return
+
+      const t = timer.getElapsed()
+      crystal.rotation.y += dt * params.spin
+      crystal.rotation.x = Math.sin(t * 0.5) * 0.18
+      crystal.position.y = 2.15 + Math.sin(t * 1.2) * 0.06
+
+      orbitRing.rotation.z += dt * 0.35
+      orbitRing.rotation.x = Math.PI / 2 + 0.28 + Math.sin(t * 0.6) * 0.1
+
+      satellite.position.set(
+        Math.cos(t * 0.9) * 1.62,
+        2.15 + Math.sin(t * 1.8) * 0.28,
+        Math.sin(t * 0.9) * 1.62
+      )
+
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    applyTarget('web')
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>uniforms-playground · Uniforms 调参游乐场</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 250px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>Uniforms：JS 向 GPU 喂参数的通道</b><br />
+    uTime 驱动噪声流动 · uMouse 跟随光斑<br />
+    双色 mix 渐变 + value noise 扰动<br />
+    所有滑杆都通过 <code>.value</code> 原地更新。
+  </div>
+  <div class="hint">移动鼠标看光斑跟随 · 右侧滑杆实时调参</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(
+      45, window.innerWidth / window.innerHeight, 0.1, 100
+    )
+    camera.position.set(0, 0, 3.2)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    // 顶点着色器：平面原样上屏，只把 uv 递出去
+    const vertexShader = /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `
+
+    // 片元着色器：noise + mix + smoothstep 的组合练习场
+    const fragmentShader = /* glsl */ `
+      uniform float uTime;
+      uniform vec2 uMouse;
+      uniform vec3 uColorA;
+      uniform vec3 uColorB;
+      uniform float uNoiseAmp;
+      uniform float uNoiseScale;
+      uniform float uMouseGlow;
+      uniform float uStripe;
+      varying vec2 vUv;
+
+      // hash: same input, same pseudo-random output in (0,1)
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+
+      // value noise: bilinear smooth interpolation of corner hashes
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        float a = hash(i);
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+      }
+
+      void main() {
+        // 1. flowing noise distorts the gradient axis
+        float n = noise(vUv * uNoiseScale + uTime * 0.3);
+        float t = clamp(vUv.y + (n - 0.5) * uNoiseAmp * 2.0, 0.0, 1.0);
+        vec3 color = mix(uColorA, uColorB, t);
+
+        // 2. mouse glow: soft circle around uMouse
+        float d = distance(vUv, uMouse);
+        float glow = smoothstep(0.35, 0.0, d) * uMouseGlow;
+        color += glow;
+
+        // 3. optional repeating stripes via fract
+        float stripe = step(0.5, fract(vUv.y * 10.0 + uTime * 0.2));
+        color = mix(color, vec3(1.0), stripe * uStripe);
+
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `
+
+    // uniforms 字典：JS 侧的"参数面板数据源"
+    const uniforms = {
+      uTime:       { value: 0 },
+      uMouse:      { value: new THREE.Vector2(0.5, 0.5) },
+      uColorA:     { value: new THREE.Color(0x22d3ee) },
+      uColorB:     { value: new THREE.Color(0x7c3aed) },
+      uNoiseAmp:   { value: 0.35 },
+      uNoiseScale: { value: 5.0 },
+      uMouseGlow:  { value: 0.5 },
+      uStripe:     { value: 0.12 },
+      uSpeed:      { value: 1.0 }
+    }
+
+    const quad = new THREE.Mesh(
+      new THREE.PlaneGeometry(4.6, 2.8),
+      new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader })
+    )
+    scene.add(quad)
+
+    // lil-gui 滑杆 → uniform：一律通过 .value 原地更新
+    const params = {
+      speed: 1.0, noiseAmp: 0.35, noiseScale: 5.0,
+      mouseGlow: 0.5, stripe: 0.12,
+      colorA: '#22d3ee', colorB: '#7c3aed'
+    }
+    const gui = new GUI({ title: 'Uniforms 面板' })
+    gui.add(params, 'speed', 0, 3, 0.05).name('时间流速')
+      .onChange(v => uniforms.uSpeed.value = v)
+    gui.add(params, 'noiseAmp', 0, 1, 0.01).name('噪声强度')
+      .onChange(v => uniforms.uNoiseAmp.value = v)
+    gui.add(params, 'noiseScale', 1, 20, 0.5).name('噪声密度')
+      .onChange(v => uniforms.uNoiseScale.value = v)
+    gui.add(params, 'mouseGlow', 0, 1.5, 0.05).name('鼠标光斑')
+      .onChange(v => uniforms.uMouseGlow.value = v)
+    gui.add(params, 'stripe', 0, 0.5, 0.01).name('条纹混合')
+      .onChange(v => uniforms.uStripe.value = v)
+    gui.addColor(params, 'colorA').name('颜色 A')
+      .onChange(v => uniforms.uColorA.value.set(v))
+    gui.addColor(params, 'colorB').name('颜色 B')
+      .onChange(v => uniforms.uColorB.value.set(v))
+
+    // 鼠标：屏幕坐标 → uv 坐标（Y 轴要翻转）
+    addEventListener('pointermove', e => {
+      uniforms.uMouse.value.set(
+        e.clientX / innerWidth,
+        1 - e.clientY / innerHeight
+      )
+    })
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update() // 每帧先 update，再读取 delta
+      uniforms.uTime.value += clock.getDelta() * uniforms.uSpeed.value
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

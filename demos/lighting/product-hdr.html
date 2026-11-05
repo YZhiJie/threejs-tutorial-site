@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>product-hdr · 高保真产品渲染</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 350px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 260px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>对标汽车官网的展车台</b><br />
+    车漆 = 金属底色 + clearcoat 清漆层；HDR 日落供反射，
+    背景压暗突出主体；方向光软阴影 + 圆形发光地台。<br />
+    拖动「环境旋转」看日落倒影绕着车身流动。
+  </div>
+  <div class="hint">转展台看高光流动 · 面板调车漆 / 清漆 / 曝光 / 环境旋转</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RGBELoader } from 'three/addons/loaders/RGBELoader.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const HDR_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r186/examples/textures/equirectangular/venice_sunset_1k.hdr'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(4.8, 2.1, 5.2)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.1
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFShadowMap
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.7, 0)
+
+    // ---- ① HDR 环境：供反射与照明，背景压暗突出展车 ----
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    new RGBELoader().load(HDR_URL, (tex) => {
+      tex.mapping = THREE.EquirectangularReflectionMapping
+      scene.environment = pmrem.fromEquirectangular(tex).texture
+      scene.environmentIntensity = 1.1
+      scene.background = tex
+      scene.backgroundIntensity = 0.4 // 同一张图：清晰但当配角
+    }, undefined, () => {
+      // CDN 不可达时的兜底：程序化摄影棚，功能演示不受影响
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    })
+
+    // ---- ② 软阴影钥匙光 ----
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2)
+    keyLight.position.set(4, 6, 3)
+    keyLight.castShadow = true
+    keyLight.shadow.mapSize.set(2048, 2048)
+    keyLight.shadow.camera.left = keyLight.shadow.camera.bottom = -4.5
+    keyLight.shadow.camera.right = keyLight.shadow.camera.top = 4.5
+    keyLight.shadow.camera.near = 1
+    keyLight.shadow.camera.far = 20
+    keyLight.shadow.bias = -0.0002
+    keyLight.shadow.normalBias = 0.03
+    scene.add(keyLight)
+
+    // ---- ③ 展台：圆形地台 + 发光描边环 ----
+    const stage = new THREE.Group()
+    scene.add(stage)
+
+    const platform = new THREE.Mesh(
+      new THREE.CylinderGeometry(3.6, 3.6, 0.12, 64),
+      new THREE.MeshStandardMaterial({
+        color: 0x151b28, roughness: 0.32, metalness: 0.7, envMapIntensity: 0.9
+      })
+    )
+    platform.receiveShadow = true // 接住车身接触阴影
+    stage.add(platform)
+
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(3.6, 0.035, 12, 100),
+      new THREE.MeshBasicMaterial({ color: 0x1899b4 })
+    )
+    ring.rotation.x = Math.PI / 2
+    ring.position.y = 0.06
+    stage.add(ring)
+
+    // ---- ④ 展车（纯几何体概念车）----
+    const car = new THREE.Group()
+    stage.add(car)
+
+    // 车漆：色漆层（金属颗粒感）+ 清漆层（锐利镜面倒影）
+    const paint = new THREE.MeshPhysicalMaterial({
+      color: 0xb3162e,
+      metalness: 0.85, roughness: 0.3,
+      clearcoat: 1.0, clearcoatRoughness: 0.06,
+      envMapIntensity: 1.25
+    })
+    const glass = new THREE.MeshPhysicalMaterial({
+      color: 0x10151d, metalness: 0.9, roughness: 0.05, envMapIntensity: 1.4
+    })
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0xd8dee9, metalness: 1.0, roughness: 0.18
+    })
+    const tireMat = new THREE.MeshStandardMaterial({
+      color: 0x0b0d10, roughness: 0.92, metalness: 0
+    })
+
+    // 车侧轮廓 → 沿宽度方向拉伸成车身
+    const profile = new THREE.Shape()
+    profile.moveTo(-2.3, 0.4)
+    profile.lineTo(-2.36, 0.72)                                  // 车尾立起
+    profile.quadraticCurveTo(-2.4, 1.0, -1.85, 1.03)             // 尾部圆润
+    profile.lineTo(-0.9, 1.08)                                   // 长甲板
+    profile.quadraticCurveTo(-0.2, 1.1, 0.55, 0.98)              // 过渡到引擎盖
+    profile.lineTo(1.6, 0.94)                                    // 引擎盖
+    profile.quadraticCurveTo(2.25, 0.88, 2.34, 0.62)             // 车头下压
+    profile.lineTo(2.3, 0.4)                                     // 前保险杠
+    profile.quadraticCurveTo(1.2, 0.26, 0, 0.28)                 // 车底弧线
+    profile.quadraticCurveTo(-1.2, 0.26, -2.3, 0.4)
+    const bodyGeo = new THREE.ExtrudeGeometry(profile, {
+      depth: 1.5, bevelEnabled: true,
+      bevelThickness: 0.08, bevelSize: 0.08, bevelSegments: 6, curveSegments: 24
+    })
+    bodyGeo.translate(0, 0, -0.75) // 沿车宽居中
+    const body = new THREE.Mesh(bodyGeo, paint)
+    body.castShadow = true
+    car.add(body)
+
+    // 座舱：压扁的半球玻璃罩
+    const cabin = new THREE.Mesh(
+      new THREE.SphereGeometry(0.95, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2),
+      glass
+    )
+    cabin.scale.set(1.45, 0.72, 0.98)
+    cabin.position.set(-0.25, 0.98, 0)
+    cabin.castShadow = true
+    car.add(cabin)
+
+    // 车轮：轮胎（环结）+ 轮毂（圆柱），轴沿车宽 Z 向
+    const tireGeo = new THREE.TorusGeometry(0.31, 0.11, 18, 36)
+    const rimGeo = new THREE.CylinderGeometry(0.26, 0.26, 0.12, 24)
+    rimGeo.rotateX(Math.PI / 2)
+    for (const x of [-1.35, 1.35]) {
+      for (const z of [-0.86, 0.86]) {
+        const tire = new THREE.Mesh(tireGeo, tireMat)
+        tire.position.set(x, 0.48, z)
+        tire.castShadow = true
+        car.add(tire)
+        const rim = new THREE.Mesh(rimGeo, rimMat)
+        rim.position.set(x, 0.48, z)
+        car.add(rim)
+      }
+    }
+
+    // 前大灯：两粒高亮点缀
+    const lampGeo = new THREE.SphereGeometry(0.07, 16, 12)
+    const lampMat = new THREE.MeshBasicMaterial({ color: 0xbfe6ff })
+    for (const z of [-0.52, 0.52]) {
+      const lamp = new THREE.Mesh(lampGeo, lampMat)
+      lamp.position.set(2.3, 0.68, z)
+      car.add(lamp)
+    }
+
+    // ---- ⑤ 展示面板 ----
+    const params = {
+      paintColor: '#b3162e',
+      clearcoat: 1.0,
+      exposure: 1.1,
+      envRotation: 0,     // 度
+      autoRotate: true,
+      rotateSpeed: 0.5
+    }
+    const gui = new GUI({ title: '展车设置' })
+    gui.addColor(params, 'paintColor').name('车漆颜色')
+      .onChange(v => paint.color.set(v))
+    gui.add(params, 'clearcoat', 0, 1, 0.01).name('clearcoat 清漆')
+      .onChange(v => paint.clearcoat = v)
+    gui.add(params, 'exposure', 0.3, 2, 0.05).name('曝光')
+      .onChange(v => renderer.toneMappingExposure = v)
+    gui.add(params, 'envRotation', 0, 360, 1).name('环境旋转°')
+      .onChange(v => {
+        const rad = v * Math.PI / 180
+        scene.environmentRotation.y = rad // 光照跟着转
+        scene.backgroundRotation.y = rad  // 背景跟着转
+      })
+    gui.add(params, 'autoRotate').name('自动旋转')
+    gui.add(params, 'rotateSpeed', 0, 2, 0.05).name('旋转速度')
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update()
+      const delta = clock.getDelta()
+      if (params.autoRotate) stage.rotation.y += delta * params.rotateSpeed
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

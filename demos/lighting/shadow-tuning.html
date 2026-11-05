@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>shadow-tuning · 阴影参数调优</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 350px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 270px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>方向光阴影调优台</b><br />
+    把 bias 拉到 0：厚板顶面出现条纹（阴影痤疮 acne）；拖回 -0.0005 消失。<br />
+    mapSize 越小边缘锯齿越重；收紧阴影相机范围 = 零成本的清晰度。<br />
+    radius 在 PCF 下扩散采样、VSM 下模糊边缘。
+  </div>
+  <div class="hint">按顺序调：mapSize → 相机范围 → bias → normalBias → radius</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(6.5, 5.5, 8.5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true               // 阴影总开关
+    renderer.shadowMap.type = THREE.PCFShadowMap    // r186 默认；PCFSoft 已移除，软边用 VSM
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.8, 0)
+
+    // 弱环境光让阴影区可见，突出阴影本身
+    scene.add(new THREE.AmbientLight(0xffffff, 0.25))
+
+    // ---- 主角：一盏投影的方向光 ----
+    const sun = new THREE.DirectionalLight(0xffffff, 2.6)
+    sun.position.set(5, 7, 4)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(1024, 1024) // 阴影贴图分辨率
+    sun.shadow.bias = -0.0002          // 治痤疮：深度比较微偏
+    sun.shadow.normalBias = 0.02       // 治斜面条纹：沿法线偏移采样点
+    sun.shadow.radius = 4              // PCF 扩散采样 / VSM 模糊半径
+    scene.add(sun)
+
+    // 收紧阴影相机：贴图分辨率摊在更小的盒子上 = 免费变清晰
+    function setShadowRange(half) {
+      const cam = sun.shadow.camera
+      cam.left = -half; cam.right = half
+      cam.top = half; cam.bottom = -half
+      cam.near = 1; cam.far = 25
+      cam.updateProjectionMatrix()
+    }
+    setShadowRange(6)
+
+    // 阴影相机辅助线：直观看到"盒子"罩住了谁
+    const helper = new THREE.CameraHelper(sun.shadow.camera)
+    helper.visible = false
+    scene.add(helper)
+
+    // ---- 地面与投影物体 ----
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(26, 26),
+      new THREE.MeshStandardMaterial({ color: 0x1b2230, roughness: 0.9, metalness: 0 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    function addCaster(geo, x, y, z, color = 0x4f9cf9) {
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color, roughness: 0.5, metalness: 0.1
+      }))
+      m.position.set(x, y, z)
+      m.castShadow = true
+      m.receiveShadow = true // 自阴影才能演示痤疮
+      scene.add(m)
+      return m
+    }
+    addCaster(new THREE.BoxGeometry(1.5, 1.5, 1.5), -2.6, 0.75, -0.6)
+    addCaster(new THREE.SphereGeometry(0.9, 48, 32), 0.1, 0.9, -2.0, 0xf59e0b)
+    addCaster(new THREE.TorusKnotGeometry(0.55, 0.18, 160, 24), 2.4, 1.15, 0.2, 0x34d399)
+    addCaster(new THREE.CylinderGeometry(0.45, 0.45, 2.2, 32), -0.8, 1.1, 2.1, 0xa78bfa)
+    // 厚板：顶面大而平，是观察痤疮条纹的"试验田"
+    addCaster(new THREE.BoxGeometry(3.0, 0.24, 2.0), 1.2, 0.12, 2.2, 0x64748b)
+
+    // ---- 调优面板 ----
+    const params = {
+      mapSize: 1024,
+      type: 'PCF',
+      bias: -0.0002,
+      normalBias: 0.02,
+      radius: 4,
+      range: 6,
+      showHelper: false,
+      lightOrbit: false
+    }
+
+    // 运行时改 mapSize：必须销毁旧阴影贴图，下一帧才会按新尺寸重建
+    function dropShadowMap() {
+      if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null }
+    }
+
+    const gui = new GUI({ title: '阴影调优' })
+    gui.add(params, 'mapSize', [256, 512, 1024, 2048, 4096]).name('mapSize 分辨率')
+      .onChange(v => { sun.shadow.mapSize.set(v, v); dropShadowMap() })
+    gui.add(params, 'type', ['PCF', 'VSM']).name('阴影类型')
+      .onChange(v => {
+        // 换阴影类型 = 换着色器分支，所有材质需要重编译
+        renderer.shadowMap.type = v === 'VSM' ? THREE.VSMShadowMap : THREE.PCFShadowMap
+        scene.traverse(o => { if (o.material) o.material.needsUpdate = true })
+        dropShadowMap()
+      })
+    gui.add(params, 'bias', -0.005, 0.005, 0.0001).name('bias（治痤疮）')
+      .onChange(v => sun.shadow.bias = v)
+    gui.add(params, 'normalBias', 0, 0.15, 0.005).name('normalBias（治条纹）')
+      .onChange(v => sun.shadow.normalBias = v)
+    gui.add(params, 'radius', 0, 12, 0.5).name('radius（边缘柔化）')
+      .onChange(v => sun.shadow.radius = v)
+    gui.add(params, 'range', 2, 14, 0.5).name('阴影相机范围')
+      .onChange(v => { setShadowRange(v); helper.update() })
+    gui.add(params, 'showHelper').name('相机辅助线')
+      .onChange(v => helper.visible = v)
+    gui.add(params, 'lightOrbit').name('光源摆动')
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update()
+      const t = clock.getElapsed()
+      if (params.lightOrbit) {
+        const a = t * 0.5
+        sun.position.set(Math.cos(a) * 6.4, 7, Math.sin(a) * 6.4)
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

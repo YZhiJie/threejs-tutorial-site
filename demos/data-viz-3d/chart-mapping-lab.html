@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>chart-mapping-lab · 图表形态对比台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 386px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .verdict {
+      display: block;
+      margin-top: 6px;
+      color: #fbbf24;
+      font-size: 12.5px;
+    }
+
+    .legend {
+      display: block;
+      margin-top: 7px;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .legend .swatches {
+      display: flex;
+      gap: 4px;
+      margin-top: 5px;
+    }
+
+    .legend i {
+      width: 20px;
+      height: 8px;
+      border-radius: 2px;
+      display: block;
+    }
+
+    .legend .ramp {
+      width: 100%;
+      max-width: 260px;
+      height: 8px;
+      margin-top: 5px;
+      border-radius: 2px;
+    }
+
+    .perf {
+      display: block;
+      margin-top: 7px;
+      color: #64748b;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 252px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 208px;
+        font-size: 12px;
+      }
+
+      .hint {
+        font-size: 11px;
+      }
+
+      .lil-gui.root {
+        --width: 194px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>chart-mapping-lab · 图表形态对比台</b><br />
+    同一份销售数据，三种画法：柱状看大小、散点看关系、曲面看趋势。<br />
+    <span class="verdict" id="verdict"></span>
+    <span class="legend" id="legend"></span>
+    <span class="perf" id="perf">FPS -- · draw calls --</span>
+  </div>
+  <div class="hint">拖拽旋转视角 · 滚轮缩放 · 右上角切换形态与色板</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 基础场景 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 34, 78)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(12.5, 13.5, 19)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 3.4, 0)
+    controls.maxPolarAngle = Math.PI / 2.05
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x1a2028, 1.3))
+    const dir = new THREE.DirectionalLight(0xffffff, 2.2)
+    dir.position.set(9, 15, 9)
+    scene.add(dir)
+
+    /* ---------- 数据：一份表格，三种形态共用 ---------- */
+    const MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月',
+      '7月', '8月', '9月', '10月', '11月', '12月']
+    const CATEGORIES = ['手机', '电脑', '家电', '服饰', '美妆', '食品']
+
+    let seed = 20261104
+    function rand() {
+      seed = (seed * 1664525 + 1013904223) % 4294967296
+      return seed / 4294967296
+    }
+
+    const matrix = CATEGORIES.map(() => new Array(MONTHS.length).fill(0))
+    const rows = []
+    for (let m = 0; m < MONTHS.length; m++) {
+      for (let c = 0; c < CATEGORIES.length; c++) {
+        const base = 52 + c * 21
+        const season = 20 * Math.sin((m / 12) * Math.PI * 2 + c * 0.3)
+        const promo = (m === 5 || m === 10) ? 1.45 : 1
+        const sales = Math.max(6, (base + season + (rand() - 0.5) * 38) * promo)
+        const orders = 18 + sales / 4 + rand() * 25
+        const avgPrice = 55 + rand() * 185
+        matrix[c][m] = sales
+        rows.push({ month: m, category: c, sales, orders, avgPrice })
+      }
+    }
+
+    const monthlyTotal = MONTHS.map((_, m) =>
+      CATEGORIES.reduce((sum, __, c) => sum + matrix[c][m], 0))
+    const maxMonthly = Math.max(...monthlyTotal)
+    const maxCell = Math.max(...rows.map(r => r.sales))
+    const meanMonthly = monthlyTotal.reduce((a, b) => a + b, 0) / monthlyTotal.length
+    const maxDev = Math.max(...monthlyTotal.map(v => Math.abs(v - meanMonthly)))
+    const maxOrders = Math.max(...rows.map(r => r.orders))
+    const maxPrice = Math.max(...rows.map(r => r.avgPrice))
+    const minPrice = Math.min(...rows.map(r => r.avgPrice))
+
+    /* ---------- 色板：分类 / 连续 / 发散 ---------- */
+    const PALETTES = {
+      categorical: ['#22d3ee', '#a78bfa', '#f472b6', '#fbbf24', '#34d399', '#60a5fa', '#fb7185', '#facc15'],
+      continuous: ['#1e3a8a', '#2563eb', '#22d3ee', '#fbbf24'],
+      diverging: ['#3b82f6', '#93c5fd', '#e2e8f0', '#fbbf24', '#f97316']
+    }
+    const stopColors = {}
+    Object.keys(PALETTES).forEach((name) => {
+      stopColors[name] = PALETTES[name].map(hex => new THREE.Color(hex))
+    })
+
+    function sampleRamp(name, t) {
+      const stops = stopColors[name]
+      const x = Math.min(Math.max(t, 0), 0.9999) * (stops.length - 1)
+      const i = Math.floor(x)
+      return new THREE.Color().copy(stops[i]).lerp(stops[i + 1], x - i)
+    }
+
+    function colorFor(value, max, index) {
+      if (params.palette === 'categorical') {
+        return new THREE.Color(PALETTES.categorical[index % PALETTES.categorical.length])
+      }
+      if (params.palette === 'continuous') {
+        return sampleRamp('continuous', value / max)
+      }
+      const t = 0.5 + (value - meanMonthly) / (2 * maxDev)
+      return sampleRamp('diverging', t)
+    }
+
+    /* ---------- 形态一：3D 柱状（高度 = 月销售额） ---------- */
+    const barGroup = new THREE.Group()
+    scene.add(barGroup)
+
+    const barHeights = monthlyTotal.map(v => 0.25 + (v / maxMonthly) * 8.2)
+    const barGeometry = new THREE.BoxGeometry(0.78, 1, 0.78)
+    const barMaterial = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.15 })
+    const bars = new THREE.InstancedMesh(barGeometry, barMaterial, MONTHS.length)
+    bars.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+
+    const dummy = new THREE.Object3D()
+    MONTHS.forEach((_, i) => {
+      dummy.position.set((i - 5.5) * 1.32, barHeights[i] / 2, 0)
+      dummy.scale.set(1, barHeights[i], 1)
+      dummy.rotation.set(0, 0, 0)
+      dummy.updateMatrix()
+      bars.setMatrixAt(i, dummy.matrix)
+    })
+    bars.instanceMatrix.needsUpdate = true
+    barGroup.add(bars)
+
+    /* ---------- 形态二：散点（x=订单量，y=客单价，z=销售额） ---------- */
+    const scatterGroup = new THREE.Group()
+    scene.add(scatterGroup)
+
+    const scatterGeometry = new THREE.BufferGeometry()
+    const scatterPositions = new Float32Array(rows.length * 3)
+    const scatterColors = new Float32Array(rows.length * 3)
+
+    rows.forEach((r, i) => {
+      scatterPositions[i * 3] = ((r.orders / maxOrders) - 0.5) * 12
+      scatterPositions[i * 3 + 1] = 0.4 + ((r.avgPrice - minPrice) / (maxPrice - minPrice)) * 7.4
+      scatterPositions[i * 3 + 2] = (r.sales / maxCell) * 7.5
+    })
+    scatterGeometry.setAttribute('position', new THREE.BufferAttribute(scatterPositions, 3))
+    scatterGeometry.setAttribute('color', new THREE.BufferAttribute(scatterColors, 3))
+
+    const points = new THREE.Points(
+      scatterGeometry,
+      new THREE.PointsMaterial({
+        size: 0.42,
+        vertexColors: true,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false
+      })
+    )
+    scatterGroup.add(points)
+
+    // 从 z=0 拉一条细线到散点，帮助读者判断"数值深度"
+    const stemPositions = new Float32Array(rows.length * 6)
+    rows.forEach((_, i) => {
+      stemPositions[i * 6] = scatterPositions[i * 3]
+      stemPositions[i * 6 + 1] = scatterPositions[i * 3 + 1]
+      stemPositions[i * 6 + 2] = 0
+      stemPositions[i * 6 + 3] = scatterPositions[i * 3]
+      stemPositions[i * 6 + 4] = scatterPositions[i * 3 + 1]
+      stemPositions[i * 6 + 5] = scatterPositions[i * 3 + 2]
+    })
+    const stemGeometry = new THREE.BufferGeometry()
+    stemGeometry.setAttribute('position', new THREE.BufferAttribute(stemPositions, 3))
+    scatterGroup.add(new THREE.LineSegments(
+      stemGeometry,
+      new THREE.LineBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.5 })
+    ))
+
+    /* ---------- 形态三：曲面高度图（月 × 品类） ---------- */
+    const surfaceGroup = new THREE.Group()
+    scene.add(surfaceGroup)
+
+    const SEG_X = 48
+    const SEG_Z = 24
+    const surfacePositions = new Float32Array((SEG_X + 1) * (SEG_Z + 1) * 3)
+    const surfaceColors = new Float32Array((SEG_X + 1) * (SEG_Z + 1) * 3)
+    const surfaceIndices = []
+
+    function sampleGrid(u, v) {
+      const fm = Math.min(Math.max(u, 0), 1) * (MONTHS.length - 1)
+      const fc = Math.min(Math.max(v, 0), 1) * (CATEGORIES.length - 1)
+      const m0 = Math.min(MONTHS.length - 2, Math.floor(fm))
+      const c0 = Math.min(CATEGORIES.length - 2, Math.floor(fc))
+      const tm = fm - m0
+      const tc = fc - c0
+      const top = matrix[c0][m0] * (1 - tm) + matrix[c0][m0 + 1] * tm
+      const bottom = matrix[c0 + 1][m0] * (1 - tm) + matrix[c0 + 1][m0 + 1] * tm
+      return top * (1 - tc) + bottom * tc
+    }
+
+    const surfaceValues = []
+    let vi = 0
+    for (let iz = 0; iz <= SEG_Z; iz++) {
+      for (let ix = 0; ix <= SEG_X; ix++) {
+        const u = ix / SEG_X
+        const v = iz / SEG_Z
+        const value = sampleGrid(u, v)
+        surfaceValues.push(value)
+        surfacePositions[vi * 3] = -8 + u * 16
+        surfacePositions[vi * 3 + 1] = 0.15 + (value / maxCell) * 8.2
+        surfacePositions[vi * 3 + 2] = -4 + v * 8
+        vi++
+      }
+    }
+
+    for (let iz = 0; iz < SEG_Z; iz++) {
+      for (let ix = 0; ix < SEG_X; ix++) {
+        const a = iz * (SEG_X + 1) + ix
+        const b = a + 1
+        const c = a + (SEG_X + 1)
+        const d = c + 1
+        surfaceIndices.push(a, c, b, b, c, d)
+      }
+    }
+
+    const surfaceGeometry = new THREE.BufferGeometry()
+    surfaceGeometry.setAttribute('position', new THREE.BufferAttribute(surfacePositions, 3))
+    surfaceGeometry.setAttribute('color', new THREE.BufferAttribute(surfaceColors, 3))
+    surfaceGeometry.setIndex(surfaceIndices)
+    surfaceGeometry.computeVertexNormals()
+
+    const surface = new THREE.Mesh(
+      surfaceGeometry,
+      new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.6,
+        metalness: 0.12,
+        side: THREE.DoubleSide
+      })
+    )
+    surfaceGroup.add(surface)
+
+    /* ---------- 基线与网格 ---------- */
+    const baseline = new THREE.Mesh(
+      new THREE.PlaneGeometry(18, 10),
+      new THREE.MeshBasicMaterial({ color: 0x131c2c })
+    )
+    baseline.rotation.x = -Math.PI / 2
+    baseline.position.y = -0.015
+    scene.add(baseline)
+
+    const grid = new THREE.GridHelper(18, 18, 0x2c3d5a, 0x1b2740)
+    grid.position.y = 0.01
+    scene.add(grid)
+
+    /* ---------- 色板上色 ---------- */
+    const tempColor = new THREE.Color()
+
+    function paint() {
+      // 柱状：按月份数值上色
+      monthlyTotal.forEach((value, i) => {
+        bars.setColorAt(i, colorFor(value, maxMonthly, i))
+      })
+      if (bars.instanceColor) bars.instanceColor.needsUpdate = true
+
+      // 散点：按销售额上色
+      rows.forEach((r, i) => {
+        const color = colorFor(r.sales, maxCell, i)
+        scatterColors[i * 3] = color.r
+        scatterColors[i * 3 + 1] = color.g
+        scatterColors[i * 3 + 2] = color.b
+      })
+      scatterGeometry.attributes.color.needsUpdate = true
+
+      // 曲面：按插值后的高度上色
+      surfaceValues.forEach((value, i) => {
+        const color = colorFor(value, maxCell, i)
+        surfaceColors[i * 3] = color.r
+        surfaceColors[i * 3 + 1] = color.g
+        surfaceColors[i * 3 + 2] = color.b
+      })
+      surfaceGeometry.attributes.color.needsUpdate = true
+
+      renderLegend()
+    }
+
+    function renderLegend() {
+      const el = document.getElementById('legend')
+      if (params.palette === 'categorical') {
+        el.innerHTML = '分类色：每个品类一个色相，适合比较离散类别' +
+          '<span class="swatches">' +
+          PALETTES.categorical.slice(0, 6).map(hex => `<i style="background:${hex}"></i>`).join('') +
+          '</span>'
+      } else if (params.palette === 'continuous') {
+        el.innerHTML = '连续色：数值低 → 高，适合表达大小与温度式的渐变' +
+          `<span class="ramp" style="display:block;background:linear-gradient(90deg,${PALETTES.continuous.join(',')})"></span>`
+      } else {
+        el.innerHTML = '发散色：以均值为中点，两端表达偏离方向' +
+          `<span class="ramp" style="display:block;background:linear-gradient(90deg,${PALETTES.diverging.join(',')})"></span>`
+      }
+    }
+
+    /* ---------- 形态切换与读数 ---------- */
+    const VERDICT = {
+      bars: '柱状：比较大小最准。高度从 0 起算，读数误差最小；但只能承载两个维度（类别 + 数值）。',
+      scatter: '散点：看相关与离群点最准。x / y 是维度、z 是数值，颜色再补一维；单点定位比柱状难。',
+      surface: '曲面：看整体趋势最准。波峰波谷一眼可见，但单点精确读数最难，也最容易被遮挡。'
+    }
+
+    const params = {
+      form: 'bars',
+      palette: 'continuous',
+      baseline: true,
+      grid: true,
+      autoRotate: false
+    }
+
+    function applyForm() {
+      barGroup.visible = params.form === 'bars'
+      scatterGroup.visible = params.form === 'scatter'
+      surfaceGroup.visible = params.form === 'surface'
+      baseline.visible = params.baseline
+      grid.visible = params.grid
+      document.getElementById('verdict').textContent = VERDICT[params.form]
+    }
+
+    const gui = new GUI({ title: '图表形态' })
+    gui.add(params, 'form', {
+      '3D 柱状（高度=数值）': 'bars',
+      '散点（x/y=维度，z=数值）': 'scatter',
+      '曲面高度图': 'surface'
+    }).name('形态').onChange(applyForm)
+    gui.add(params, 'palette', {
+      '分类色': 'categorical',
+      '连续色': 'continuous',
+      '发散色': 'diverging'
+    }).name('色板').onChange(() => { paint(); applyForm() })
+    gui.add(params, 'baseline').name('0 基线').onChange(applyForm)
+    gui.add(params, 'grid').name('网格').onChange(applyForm)
+    gui.add(params, 'autoRotate').name('自动旋转').onChange((v) => {
+      controls.autoRotate = v
+      controls.autoRotateSpeed = 0.6
+    })
+
+    paint()
+    applyForm()
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    let fps = 60
+    const perfEl = document.getElementById('perf')
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+      if (dt > 0) fps = fps * 0.92 + (1 / dt) * 0.08
+
+      controls.update()
+      renderer.render(scene, camera)
+
+      perfEl.textContent =
+        `FPS ${fps.toFixed(0)} · draw calls ${renderer.info.render.calls}` +
+        ` · 三角面 ${(renderer.info.render.triangles / 1000).toFixed(1)}k`
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

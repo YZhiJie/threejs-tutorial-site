@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>parametric-tree-lab · 参数化生长树</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 390px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .stats {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .mode {
+      display: block;
+      margin-top: 3px;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 262px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 208px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 188px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>参数化生长树 · 递归分支</b><br />
+    规则 + 种子 → 枝段 → 输出几何。切换三种输出方式看 draw call 差距。<br />
+    <span class="stats" id="stats"></span>
+    <span class="mode" id="modeNote"></span>
+  </div>
+  <div class="hint">右上角调递归深度 / 角度 / 衰减 / 种子与叶密度 · 拖拽旋转视角</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 基础渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 16, 42)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 120)
+    camera.position.set(5.2, 4.6, 8.4)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.05
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 2.9, 0)
+    controls.minDistance = 3
+    controls.maxDistance = 30
+
+    /* ---------- 灯光与地面 ---------- */
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x1a2433, 1.2))
+    const sun = new THREE.DirectionalLight(0xfff3d6, 2.2)
+    sun.position.set(6, 10, 6)
+    scene.add(sun)
+    const fill = new THREE.DirectionalLight(0xa78bfa, 0.9)
+    fill.position.set(-6, 4, -5)
+    scene.add(fill)
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(10, 48),
+      new THREE.MeshStandardMaterial({ color: 0x121a28, roughness: 0.95 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    scene.add(ground)
+    scene.add(new THREE.GridHelper(20, 20, 0x334155, 0x1c2638))
+
+    /* ---------- 可复用单元几何 ---------- */
+    const branchGeo = new THREE.CylinderGeometry(0.7, 1, 1, 7, 1)
+    const leafGeo = new THREE.ConeGeometry(0.15, 0.4, 4, 1)
+
+    const barkMat = new THREE.MeshStandardMaterial({
+      color: 0x9a6a45,
+      roughness: 0.92,
+      metalness: 0,
+      flatShading: true
+    })
+    const leafMat = new THREE.MeshStandardMaterial({
+      color: 0x3fbf7f,
+      roughness: 0.82,
+      metalness: 0,
+      flatShading: true,
+      side: THREE.DoubleSide
+    })
+
+    const outputGroup = new THREE.Group()
+    scene.add(outputGroup)
+
+    /* ---------- 伪随机 ---------- */
+    function mulberry32(seed) {
+      let a = seed >>> 0
+      return function () {
+        a = (a + 0x6D2B79F5) >>> 0
+        let t = Math.imul(a ^ (a >>> 15), 1 | a)
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+      }
+    }
+
+    /* ---------- 参数 ---------- */
+    const params = {
+      depth: 4,
+      angle: 32,
+      decay: 0.72,
+      seed: 12,
+      leafDensity: 0.7,
+      mode: '合并几何',
+      autoRotate: true
+    }
+
+    const statsEl = document.getElementById('stats')
+    const modeNoteEl = document.getElementById('modeNote')
+
+    /* ---------- 生长：递归分支 ---------- */
+    const UP = new THREE.Vector3(0, 1, 0)
+    const dummy = new THREE.Object3D()
+    const scratchDir = new THREE.Vector3()
+    const scratchEnd = new THREE.Vector3()
+    const quat = new THREE.Quaternion()
+    const axis = new THREE.Vector3()
+    const tint = new THREE.Color()
+
+    let branches = []
+    let leaves = []
+    let ownedGeometries = []
+
+    function generate() {
+      branches = []
+      leaves = []
+      const rand = mulberry32(params.seed)
+      const maxDepth = params.depth
+      const angle = THREE.MathUtils.degToRad(params.angle)
+      const decay = params.decay
+      const leafDensity = params.leafDensity
+
+      const stack = [{
+        origin: new THREE.Vector3(0, 0.02, 0),
+        dir: new THREE.Vector3(0, 1, 0),
+        length: 1.7,
+        radius: 0.24,
+        depth: 0
+      }]
+
+      // 显式栈而非递归函数：深度可控，也不会爆调用栈
+      while (stack.length) {
+        const seg = stack.pop()
+        scratchEnd.copy(seg.origin).addScaledVector(seg.dir, seg.length)
+        branches.push({
+          a: seg.origin.clone(),
+          b: scratchEnd.clone(),
+          radius: seg.radius
+        })
+
+        if (seg.depth >= maxDepth) {
+          const count = Math.round(leafDensity * 5)
+          for (let i = 0; i < count; i++) {
+            const off = new THREE.Vector3(
+              (rand() - 0.5) * 0.85,
+              (rand() - 0.5) * 0.7,
+              (rand() - 0.5) * 0.85
+            )
+            leaves.push({
+              pos: scratchEnd.clone().add(off),
+              scale: 0.7 + rand() * 0.9,
+              yaw: rand() * Math.PI * 2,
+              tilt: (rand() - 0.5) * 0.9,
+              tone: rand()
+            })
+          }
+          continue
+        }
+
+        const childCount = seg.depth === 0 ? 3 : 2
+        for (let i = 0; i < childCount; i++) {
+          const az = (i / childCount) * Math.PI * 2 + rand() * 0.9
+          axis.set(Math.cos(az), 0, Math.sin(az))
+          quat.setFromAxisAngle(axis, angle * (0.72 + rand() * 0.6))
+          const dir = seg.dir.clone().applyQuaternion(quat)
+          dir.y += 0.14
+          dir.normalize()
+          const len = seg.length * decay * (0.9 + rand() * 0.2)
+          stack.push({
+            origin: scratchEnd.clone(),
+            dir,
+            length: len,
+            radius: Math.max(0.012, seg.radius * 0.64),
+            depth: seg.depth + 1
+          })
+        }
+      }
+    }
+
+    function branchMatrix(a, b, radius) {
+      scratchDir.copy(b).sub(a)
+      const len = scratchDir.length()
+      scratchDir.normalize()
+      dummy.position.copy(a).addScaledVector(scratchDir, len * 0.5)
+      dummy.quaternion.setFromUnitVectors(UP, scratchDir)
+      dummy.scale.set(radius, len, radius)
+      dummy.updateMatrix()
+      return dummy.matrix
+    }
+
+    function leafMatrix(leaf) {
+      dummy.position.copy(leaf.pos)
+      dummy.quaternion.setFromEuler(new THREE.Euler(leaf.tilt, leaf.yaw, leaf.tilt * 0.5))
+      dummy.scale.setScalar(leaf.scale)
+      dummy.updateMatrix()
+      return dummy.matrix
+    }
+
+    /* ---------- 三种输出 ---------- */
+    function buildPerMesh() {
+      for (const seg of branches) {
+        const m = new THREE.Mesh(branchGeo, barkMat)
+        m.applyMatrix4(branchMatrix(seg.a, seg.b, seg.radius))
+        outputGroup.add(m)
+      }
+      for (const leaf of leaves) {
+        const m = new THREE.Mesh(leafGeo, leafMat)
+        m.applyMatrix4(leafMatrix(leaf))
+        outputGroup.add(m)
+      }
+    }
+
+    function buildMerged() {
+      const branchParts = branches.map((seg) =>
+        branchGeo.clone().applyMatrix4(branchMatrix(seg.a, seg.b, seg.radius)))
+      const leafParts = leaves.map((leaf) =>
+        leafGeo.clone().applyMatrix4(leafMatrix(leaf)))
+
+      if (branchParts.length) {
+        const mergedBark = mergeGeometries(branchParts, false)
+        branchParts.forEach((g) => g.dispose())
+        ownedGeometries.push(mergedBark)
+        outputGroup.add(new THREE.Mesh(mergedBark, barkMat))
+      }
+      if (leafParts.length) {
+        const mergedLeaf = mergeGeometries(leafParts, false)
+        leafParts.forEach((g) => g.dispose())
+        ownedGeometries.push(mergedLeaf)
+        outputGroup.add(new THREE.Mesh(mergedLeaf, leafMat))
+      }
+    }
+
+    function buildInstanced() {
+      if (branches.length) {
+        const bark = new THREE.InstancedMesh(branchGeo, barkMat, branches.length)
+        branches.forEach((seg, i) => {
+          bark.setMatrixAt(i, branchMatrix(seg.a, seg.b, seg.radius).clone())
+          tint.setHSL(0.07, 0.28, 0.8 + (i % 7) * 0.012)
+          bark.setColorAt(i, tint)
+        })
+        bark.instanceMatrix.needsUpdate = true
+        if (bark.instanceColor) bark.instanceColor.needsUpdate = true
+        outputGroup.add(bark)
+      }
+      if (leaves.length) {
+        const foliage = new THREE.InstancedMesh(leafGeo, leafMat, leaves.length)
+        leaves.forEach((leaf, i) => {
+          foliage.setMatrixAt(i, leafMatrix(leaf).clone())
+          tint.setHSL(0.36 - leaf.tone * 0.06, 0.4, 0.72 + leaf.tone * 0.16)
+          foliage.setColorAt(i, tint)
+        })
+        foliage.instanceMatrix.needsUpdate = true
+        if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true
+        outputGroup.add(foliage)
+      }
+    }
+
+    function clearOutput() {
+      outputGroup.children.forEach((obj) => {
+        if (obj.isInstancedMesh) obj.dispose()
+      })
+      outputGroup.clear()
+      ownedGeometries.forEach((g) => g.dispose())
+      ownedGeometries = []
+    }
+
+    function rebuild() {
+      clearOutput()
+      generate()
+
+      if (params.mode === '每枝一 Mesh') buildPerMesh()
+      else if (params.mode === '合并几何') buildMerged()
+      else buildInstanced()
+
+      const tri = branches.length * (branchGeo.index.count / 3) +
+        leaves.length * (leafGeo.index.count / 3)
+      statsEl.textContent =
+        `枝 ${branches.length} · 叶 ${leaves.length} · 三角 ${Math.round(tri)}`
+      modeNoteEl.textContent = params.mode === '每枝一 Mesh'
+        ? '每段几何各占一次 draw call，可单独控制但数量一多就卡。'
+        : params.mode === '合并几何'
+          ? '所有枝烘焙成一份缓冲，1~2 次 draw call，但无法再单独动某一枝。'
+          : '1 个 InstancedMesh 画全部枝，内存最省，可逐实例换色。'
+    }
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '生长参数' })
+    gui.add(params, 'depth', 1, 6, 1).name('递归深度').onChange(rebuild)
+    gui.add(params, 'angle', 10, 62, 1).name('分枝角度°').onChange(rebuild)
+    gui.add(params, 'decay', 0.5, 0.86, 0.01).name('长度衰减').onChange(rebuild)
+    gui.add(params, 'seed', 1, 999, 1).name('随机种子').onChange(rebuild)
+    gui.add(params, 'leafDensity', 0, 1, 0.01).name('叶密度').onChange(rebuild)
+    gui.add(params, 'mode', ['每枝一 Mesh', '合并几何', 'InstancedMesh']).name('输出方式')
+      .onChange(rebuild)
+    gui.add(params, 'autoRotate').name('自动旋转')
+
+    rebuild()
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    let callsElapsed = 0
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+      if (params.autoRotate) outputGroup.rotation.y += dt * 0.18
+      controls.update()
+      renderer.render(scene, camera)
+
+      callsElapsed += dt
+      if (callsElapsed > 0.4) {
+        callsElapsed = 0
+        statsEl.textContent =
+          `枝 ${branches.length} · 叶 ${leaves.length} · ` +
+          `三角 ${renderer.info.render.triangles} · draw calls ${renderer.info.render.calls}`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

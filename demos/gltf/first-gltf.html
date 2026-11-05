@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>first-gltf · 加载第一个 glTF 模型</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 330px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* 加载覆盖层：进度条 + 百分比 */
+    .loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: rgba(11, 14, 20, .88);
+      z-index: 10;
+      transition: opacity .4s;
+    }
+
+    .loading.done {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading .label {
+      font-size: 14px;
+      color: #9fb4d4;
+    }
+
+    .loading .bar {
+      width: 260px;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .1);
+      overflow: hidden;
+    }
+
+    .loading .bar i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #22d3ee, #a78bfa);
+      transition: width .2s;
+    }
+
+    /* 错误卡片 */
+    .error {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      max-width: 420px;
+      padding: 18px 20px;
+      background: rgba(40, 14, 20, .92);
+      border: 1px solid rgba(244, 114, 182, .4);
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.7;
+      z-index: 20;
+      display: none;
+    }
+
+    .error b {
+      color: #f472b6;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info" id="infoCard">
+    <b>第一个 glTF 模型：DamagedHelmet</b><br />
+    PBR 材质头盔（.gltf + 同目录 5 张贴图）。<br />
+    用面板关掉「环境贴图」观察：PBR 没有 scene.environment 会灰黑。
+  </div>
+  <div class="hint">拖拽旋转 · 滚轮缩放 · 面板可关环境贴图看「全黑」现象</div>
+
+  <div class="loading" id="loading">
+    <div class="label" id="loadingLabel">正在加载模型… 0%</div>
+    <div class="bar"><i id="loadingBar"></i></div>
+  </div>
+  <div class="error" id="errorCard"></div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    // ---- 模型地址：three.js 官方仓库（jsDelivr GitHub 模式）----
+    const HELMET_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r186/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf'
+    // 头盔贴图存放在 Git LFS，部分地区网络会被 301 到不可达的域名；失败时回退到单文件士兵模型
+    const FALLBACK_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r186/examples/models/gltf/Soldier.glb'
+
+    // ---- 基础设施 ----
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 100)
+    camera.position.set(0, 0.6, 2.6)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping // PBR 模型建议配 ACES
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.4, 0)
+
+    // 程序化摄影棚环境：为 PBR 材质提供反射内容（没有它金属会发黑）
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    const envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    scene.environment = envTexture
+
+    // ---- 加载进度 UI ----
+    const loadingEl = document.getElementById('loading')
+    const labelEl = document.getElementById('loadingLabel')
+    const barEl = document.getElementById('loadingBar')
+    const errorEl = document.getElementById('errorCard')
+    const infoEl = document.getElementById('infoCard')
+
+    // LoadingManager 跟踪「文件数」进度（.gltf 主文件 + 同目录贴图共 6 个请求）
+    const manager = new THREE.LoadingManager()
+    let fileDone = 0, fileTotal = 0
+    manager.onProgress = (url, loaded, total) => {
+      fileDone = loaded; fileTotal = total
+      labelEl.textContent = `正在加载模型… 文件 ${loaded}/${total}`
+    }
+
+    let autoRotate = true
+    let currentModel = null
+
+    function loadModel(url, isFallback = false) {
+      loadingEl.classList.remove('done')
+      new GLTFLoader(manager).load(
+        url,
+        // onLoad：解析完成，gltf.scene 是整个模型场景
+        (gltf) => {
+          const model = gltf.scene
+          // 用包围盒把模型居中并缩放到统一大小
+          const box = new THREE.Box3().setFromObject(model)
+          const size = box.getSize(new THREE.Vector3())
+          const center = box.getCenter(new THREE.Vector3())
+          const scale = 1.2 / Math.max(size.x, size.y, size.z)
+          model.scale.setScalar(scale)
+          model.position.sub(center.multiplyScalar(scale))
+          model.position.y -= 0.45
+          scene.add(model)
+          currentModel = model
+          loadingEl.classList.add('done')
+          if (isFallback) {
+            infoEl.innerHTML = '<b>已回退到 Soldier.glb（单文件士兵模型）</b><br />头盔贴图经 Git LFS 重定向，你的网络访问不了对应域名。<br />这正是正文「CORS 与路径」一节的活例子。'
+          }
+        },
+        // onProgress：字节级进度（服务器不给 Content-Length 时 total 为 0）
+        (xhr) => {
+          if (xhr.total > 0) {
+            const pct = Math.round(xhr.loaded / xhr.total * 100)
+            labelEl.textContent = `正在加载模型… ${pct}%（文件 ${fileDone}/${fileTotal}）`
+            barEl.style.width = pct + '%'
+          }
+        },
+        // onError：网络错误 / 解析失败 / 贴图加载失败都会走到这里
+        (err) => {
+          console.error('glTF 加载失败：', err)
+          if (!isFallback) {
+            errorEl.style.display = 'block'
+            errorEl.innerHTML = '<b>头盔模型加载失败</b><br />常见原因：贴图经 LFS 重定向被网络阻断。<br />3 秒后自动回退到 Soldier.glb …'
+            setTimeout(() => { errorEl.style.display = 'none'; loadModel(FALLBACK_URL, true) }, 3000)
+          } else {
+            errorEl.style.display = 'block'
+            errorEl.innerHTML = '<b>模型加载失败</b><br />请检查网络是否能访问 cdn.jsdelivr.net，<br />或把模型下载到本地后用相对路径加载。'
+            loadingEl.classList.add('done')
+          }
+        }
+      )
+    }
+    loadModel(HELMET_URL)
+
+    // ---- 参数面板 ----
+    const params = {
+      环境贴图: true,
+      自动旋转: true
+    }
+    const gui = new GUI({ title: 'glTF 观察台' })
+    gui.add(params, '环境贴图').onChange(v => {
+      // 关掉环境贴图，PBR 金属/光滑表面立刻失去反射内容
+      scene.environment = v ? envTexture : null
+    })
+    gui.add(params, '自动旋转').onChange(v => autoRotate = v)
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r183 起 Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update()
+      if (autoRotate && currentModel) currentModel.rotation.y += clock.getDelta() * 0.5
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

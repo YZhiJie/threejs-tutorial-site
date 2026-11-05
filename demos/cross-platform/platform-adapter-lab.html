@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>platform-adapter-lab · 平台约束模拟器</title>
+  <style>
+    * { box-sizing: border-box; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 392px;
+      max-height: calc(100vh - 70px);
+      overflow-y: auto;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .82);
+      backdrop-filter: blur(9px);
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .info::-webkit-scrollbar { width: 5px; }
+    .info::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .3); border-radius: 3px; }
+
+    .info b { color: #7cc4ff; }
+    .info .sub { color: #94a3b8; }
+    .info .line { display: block; margin-top: 3px; }
+
+    .pause-badge {
+      display: inline-block;
+      margin: 6px 0 2px;
+      padding: 2px 9px;
+      border-radius: 99px;
+      font-size: 11px;
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, .4);
+      background: rgba(52, 211, 153, .1);
+    }
+
+    .pause-badge.on {
+      color: #fb7185;
+      border-color: rgba(251, 113, 133, .5);
+      background: rgba(251, 113, 133, .12);
+    }
+
+    table {
+      width: 100%;
+      margin-top: 8px;
+      border-collapse: collapse;
+      font-size: 11.5px;
+    }
+
+    th,
+    td {
+      padding: 3px 5px;
+      text-align: left;
+      border-bottom: 1px solid rgba(148, 163, 184, .14);
+      vertical-align: top;
+    }
+
+    th { color: #7dd3fc; font-weight: 600; }
+    td.k { color: #94a3b8; white-space: nowrap; }
+    td.v { color: #e2e8f0; font-family: 'SF Mono', Consolas, monospace; }
+
+    .budget {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #111a30;
+      border: 1px solid #1e2a44;
+    }
+
+    .budget .head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: #cbd5e1;
+    }
+
+    .budget .head b { color: #fbbf24; font-family: 'SF Mono', Consolas, monospace; }
+
+    .bar {
+      height: 7px;
+      margin: 6px 0 4px;
+      border-radius: 99px;
+      background: rgba(148, 163, 184, .16);
+      overflow: hidden;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      width: 20%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, #22d3ee, #34d399);
+      transition: width .3s, background .3s;
+    }
+
+    .bar i.warn { background: linear-gradient(90deg, #fbbf24, #f97316); }
+
+    .budget .foot { font-size: 10.5px; color: #64748b; }
+
+    .log-title {
+      margin: 10px 0 4px;
+      font-size: 11px;
+      color: #7dd3fc;
+      letter-spacing: .04em;
+    }
+
+    ul.log {
+      margin: 0;
+      padding-left: 16px;
+      font-size: 11px;
+      line-height: 1.55;
+      color: #94a3b8;
+    }
+
+    ul.log li::marker { color: #7C3AED; }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .74);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 11.5px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 256px;
+      right: 14px;
+      left: auto;
+      top: 14px;
+    }
+
+    @media (max-width: 820px) {
+      .info { width: 250px; font-size: 11px; }
+      .lil-gui.root { --width: 198px; }
+      .hint { display: none; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="info">
+    <b>平台约束模拟器 · Web / 小程序 / 小游戏</b><br />
+    <span class="sub">切换目标端，观察适配层如何改写 canvas、纹理、事件与生命周期。</span>
+    <span class="line" id="platformLine">当前：Web · 全量 WebGL2</span>
+    <span class="pause-badge" id="pauseBadge">运行中 · requestAnimationFrame</span>
+
+    <table>
+      <tr><th>约束项</th><th>当前值</th></tr>
+      <tr><td class="k">DOM</td><td class="v" id="cDom">有</td></tr>
+      <tr><td class="k">纹理上限</td><td class="v" id="cTex">2048</td></tr>
+      <tr><td class="k">DPR 上限</td><td class="v" id="cDpr">2.00</td></tr>
+      <tr><td class="k">事件模型</td><td class="v" id="cEvent">pointermove</td></tr>
+      <tr><td class="k">生命周期</td><td class="v" id="cLife">visibilitychange</td></tr>
+      <tr><td class="k">包体预算</td><td class="v" id="cBudget">不设上限</td></tr>
+    </table>
+
+    <div class="budget">
+      <div class="head"><span>资源包估算</span><b id="budgetText">--</b></div>
+      <div class="bar"><i id="budgetFill"></i></div>
+      <div class="foot" id="budgetFoot">纹理按压缩后体积估算，含基础包与代码</div>
+    </div>
+
+    <div class="log-title">适配层执行记录</div>
+    <ul class="log" id="adaptLog"></ul>
+  </div>
+
+  <div class="hint">GUI 切换目标端 / 纹理尺寸 · 移动指针模拟触摸 · 勾选 onHide 观察暂停与释放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const app = document.getElementById('app')
+
+    /* ---------- 平台约束表 ---------- */
+    const PLATFORMS = {
+      web: {
+        label: 'Web · 全量 WebGL2',
+        dom: '有（DOM + CSS）',
+        maxTexture: 2048,
+        dprCap: 2,
+        shadows: true,
+        eventModel: 'pointermove / pointerdown',
+        life: 'visibilitychange 自动暂停',
+        budgetText: '不设上限',
+        budgetMB: Infinity,
+        baseMB: 6.4,
+        extras: 8,
+        marker: 0x22d3ee,
+        input: 'pointer'
+      },
+      weapp: {
+        label: '小程序 · canvas 组件 + 适配层',
+        dom: '无（canvas 组件）',
+        maxTexture: 1024,
+        dprCap: 2,
+        shadows: false,
+        eventModel: 'touchstart / touchmove + touches[0]',
+        life: 'onHide / onShow',
+        budgetText: '20 MB',
+        budgetMB: 20,
+        baseMB: 9.2,
+        extras: 5,
+        marker: 0xfbbf24,
+        input: 'touch'
+      },
+      game: {
+        label: '小游戏 · 官方 adapter',
+        dom: '无（伪造 canvas / window）',
+        maxTexture: 512,
+        dprCap: 1.5,
+        shadows: false,
+        eventModel: 'wx.onTouchStart / wx.onTouchMove',
+        life: 'onHide / onShow + 释放纹理',
+        budgetText: '4 MB',
+        budgetMB: 4,
+        baseMB: 2.8,
+        extras: 3,
+        marker: 0xf472b6,
+        input: 'wx'
+      }
+    }
+
+    let current = 'web'
+    const params = { platform: 'web', texSize: 1024, paused: false }
+
+    /* ---------- 基础渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.FogExp2(0x0b0e14, 0.022)
+
+    const camera = new THREE.PerspectiveCamera(44, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(3.6, 3.1, 5.4)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.15
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    app.appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.1, 0)
+    controls.minDistance = 3
+    controls.maxDistance = 14
+
+    /* ---------- 灯光 ---------- */
+    scene.add(new THREE.HemisphereLight(0x7dd3fc, 0x0b0e14, 0.5))
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2)
+    keyLight.position.set(4, 7, 3)
+    keyLight.castShadow = true
+    keyLight.shadow.mapSize.set(1024, 1024)
+    keyLight.shadow.camera.left = -6
+    keyLight.shadow.camera.right = 6
+    keyLight.shadow.camera.top = 6
+    keyLight.shadow.camera.bottom = -6
+    keyLight.shadow.bias = -0.0015
+    scene.add(keyLight)
+
+    const rim = new THREE.PointLight(0x22d3ee, 28, 16)
+    rim.position.set(-3, 2.6, -3)
+    scene.add(rim)
+
+    /* ---------- 地面 ---------- */
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(9, 64),
+      new THREE.MeshStandardMaterial({ color: 0x121a28, roughness: 0.95, metalness: 0.05 })
+    )
+    floor.rotation.x = -Math.PI / 2
+    floor.receiveShadow = true
+    scene.add(floor)
+
+    const grid = new THREE.GridHelper(18, 36, 0x1f3a5f, 0x101c2e)
+    grid.position.y = 0.012
+    scene.add(grid)
+
+    /* ---------- 程序化纹理：尺寸可降级 ---------- */
+    function buildTexture(size) {
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d')
+
+      const g = ctx.createLinearGradient(0, 0, size, size)
+      g.addColorStop(0, '#0b2a4a')
+      g.addColorStop(0.5, '#0e7490')
+      g.addColorStop(1, '#134e4a')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, size, size)
+
+      const cell = size / 8
+      ctx.strokeStyle = 'rgba(125, 211, 252, .45)'
+      ctx.lineWidth = Math.max(1, size / 512)
+      for (let i = 0; i <= 8; i++) {
+        ctx.beginPath()
+        ctx.moveTo(i * cell, 0)
+        ctx.lineTo(i * cell, size)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(0, i * cell)
+        ctx.lineTo(size, i * cell)
+        ctx.stroke()
+      }
+
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          if ((x + y) % 2 === 0) continue
+          ctx.fillStyle = 'rgba(34, 211, 238, .16)'
+          ctx.fillRect(x * cell, y * cell, cell, cell)
+        }
+      }
+
+      ctx.fillStyle = 'rgba(11, 14, 20, .72)'
+      ctx.fillRect(0, size * 0.36, size, size * 0.28)
+      ctx.fillStyle = '#e0f2fe'
+      ctx.font = 'bold ' + Math.round(size * 0.16) + 'px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('TEX ' + size, size / 2, size * 0.5)
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.wrapS = THREE.RepeatWrapping
+      tex.wrapT = THREE.RepeatWrapping
+      tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
+      return tex
+    }
+
+    let texture = null
+
+    function textureMB(size) {
+      // 压缩后的粗估：RGBA 原始字节 × 0.35
+      return (size * size * 4 * 0.35) / (1024 * 1024)
+    }
+
+    function totalMB(size) {
+      return PLATFORMS[current].baseMB + textureMB(size) + 0.35
+    }
+
+    /* ---------- 主体（贴图球 + 环 + 立柱） ---------- */
+    const ballMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.34,
+      metalness: 0.28
+    })
+
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(1.25, 48, 32), ballMat)
+    ball.position.y = 1.42
+    ball.castShadow = true
+    ball.receiveShadow = true
+    scene.add(ball)
+
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.78, 0.055, 12, 96),
+      new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x0891b2, emissiveIntensity: 1.1 })
+    )
+    ring.rotation.x = Math.PI / 2 + 0.34
+    ring.position.y = 1.42
+    scene.add(ring)
+
+    const pillars = []
+    const pillarGeo = new THREE.BoxGeometry(0.22, 0.9, 0.22)
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.7, metalness: 0.3 })
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      const p = new THREE.Mesh(pillarGeo, pillarMat)
+      p.position.set(Math.cos(a) * 3.1, 0.45, Math.sin(a) * 3.1)
+      p.rotation.y = -a
+      p.castShadow = true
+      p.receiveShadow = true
+      scene.add(p)
+      pillars.push(p)
+    }
+
+    /* ---------- 触摸标记 ---------- */
+    const marker = new THREE.Mesh(
+      new THREE.RingGeometry(0.22, 0.3, 40),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
+    )
+    marker.rotation.x = -Math.PI / 2
+    marker.position.set(0, 0.03, 2)
+    scene.add(marker)
+
+    const markerDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.075, 18, 12),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee })
+    )
+    markerDot.position.set(0, 0.1, 2)
+    scene.add(markerDot)
+
+    function moveMarker(nx, ny) {
+      const x = (nx - 0.5) * 9
+      const z = (ny - 0.5) * 9
+      marker.position.x = x
+      marker.position.z = z
+      markerDot.position.x = x
+      markerDot.position.z = z
+    }
+
+    /* ---------- 事件绑定：按平台切换模型 ---------- */
+    let unbindInput = null
+
+    function bindInput(mode) {
+      if (unbindInput) unbindInput()
+      const el = renderer.domElement
+
+      const fromClient = (cx, cy) => {
+        const r = el.getBoundingClientRect()
+        moveMarker((cx - r.left) / r.width, (cy - r.top) / r.height)
+      }
+
+      const onPointer = (e) => fromClient(e.clientX, e.clientY)
+      const onTouch = (e) => {
+        const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0])
+        if (t) fromClient(t.clientX, t.clientY)
+      }
+
+      if (mode === 'pointer') {
+        el.addEventListener('pointermove', onPointer)
+        unbindInput = () => el.removeEventListener('pointermove', onPointer)
+      } else {
+        // 小程序 / 小游戏：真实端监听 touchstart / touchmove（wx.onTouch*）
+        el.addEventListener('touchstart', onTouch, { passive: true })
+        el.addEventListener('touchmove', onTouch, { passive: true })
+        // 桌面调试兜底：没有触摸屏时仍可用鼠标模拟，HUD 会标注
+        el.addEventListener('pointermove', onPointer)
+        unbindInput = () => {
+          el.removeEventListener('touchstart', onTouch)
+          el.removeEventListener('touchmove', onTouch)
+          el.removeEventListener('pointermove', onPointer)
+        }
+      }
+    }
+
+    /* ---------- HUD ---------- */
+    const logEl = document.getElementById('adaptLog')
+
+    function addLog(text) {
+      const li = document.createElement('li')
+      li.textContent = text
+      logEl.prepend(li)
+      while (logEl.children.length > 6) logEl.lastChild.remove()
+    }
+
+    function updateBudget() {
+      const cfg = PLATFORMS[current]
+      const total = totalMB(params.texSize)
+      const fill = document.getElementById('budgetFill')
+      const label = document.getElementById('budgetText')
+      const foot = document.getElementById('budgetFoot')
+
+      if (cfg.budgetMB === Infinity) {
+        label.textContent = total.toFixed(2) + ' MB'
+        fill.style.width = '22%'
+        fill.className = ''
+        foot.textContent = 'Web 端不设包体上限，体积只影响首屏加载'
+        return
+      }
+
+      const pct = Math.min(100, (total / cfg.budgetMB) * 100)
+      label.textContent = total.toFixed(2) + ' / ' + cfg.budgetMB + ' MB'
+      fill.style.width = pct.toFixed(1) + '%'
+      fill.className = total / cfg.budgetMB > 0.82 ? 'warn' : ''
+      foot.textContent = pct >= 100 ? '已超预算：适配器会先降纹理，再裁模型' : '预算余量 ' + Math.max(0, cfg.budgetMB - total).toFixed(2) + ' MB'
+    }
+
+    function updateHUD() {
+      const cfg = PLATFORMS[current]
+      document.getElementById('platformLine').textContent = '当前：' + cfg.label
+      document.getElementById('cDom').textContent = cfg.dom
+      document.getElementById('cTex').textContent = cfg.maxTexture + '（实际 ' + params.texSize + '）'
+      document.getElementById('cDpr').textContent =
+        Math.min(devicePixelRatio, cfg.dprCap).toFixed(2) + ' / 屏幕 ' + devicePixelRatio.toFixed(2)
+      document.getElementById('cEvent').textContent = cfg.eventModel
+      document.getElementById('cLife').textContent = cfg.life
+      document.getElementById('cBudget').textContent = cfg.budgetText
+      updateBudget()
+    }
+
+    /* ---------- 应用平台约束 ---------- */
+    function resolveTextureSize(requested) {
+      const cfg = PLATFORMS[current]
+      const cap = Math.min(cfg.maxTexture, renderer.capabilities.maxTextureSize || 2048)
+      let size = Math.max(128, Math.min(requested, cap))
+      let downgraded = size < Math.min(requested, cfg.maxTexture)
+      while (cfg.budgetMB !== Infinity && totalMB(size) > cfg.budgetMB && size > 128) {
+        size /= 2
+        downgraded = true
+      }
+      return { size, downgraded, cap }
+    }
+
+    function applyTexture(requested) {
+      const { size, downgraded } = resolveTextureSize(requested)
+
+      if (texture) texture.dispose()
+      texture = buildTexture(size)
+      ballMat.map = texture
+      ballMat.needsUpdate = true
+
+      params.texSize = size
+      gui.controllersRecursive().forEach((c) => c.updateDisplay())
+
+      addLog('纹理重建：' + size + '²（目标 ' + requested + '²）' + (downgraded ? ' · 触发上限/预算降级' : ''))
+      updateHUD()
+    }
+
+    function applyPlatform(key) {
+      current = key
+      const cfg = PLATFORMS[key]
+
+      params.platform = key
+      renderer.setPixelRatio(Math.min(devicePixelRatio, cfg.dprCap))
+      renderer.shadowMap.enabled = cfg.shadows
+      keyLight.castShadow = cfg.shadows
+      ball.castShadow = cfg.shadows
+      floor.receiveShadow = cfg.shadows
+
+      pillars.forEach((p, i) => {
+        p.visible = i < cfg.extras
+        p.castShadow = cfg.shadows
+      })
+
+      marker.material.color.setHex(cfg.marker)
+      markerDot.material.color.setHex(cfg.marker)
+
+      bindInput(cfg.input)
+      applyTexture(cfg.maxTexture)
+
+      addLog('切换目标端：' + cfg.label)
+      addLog('canvas 尺寸：按安全区重算，' + cfg.dom)
+      addLog('事件绑定：' + cfg.eventModel)
+      addLog('生命周期：' + cfg.life)
+      updateHUD()
+
+      if (params.paused) setPaused(false, true)
+    }
+
+    /* ---------- 暂停 / 恢复 ---------- */
+    let savedSize = 1024
+
+    function setPaused(value, silent) {
+      if (params.paused === value) return
+      params.paused = value
+      const badge = document.getElementById('pauseBadge')
+
+      if (value) {
+        savedSize = params.texSize
+        if (texture) {
+          texture.dispose()
+          texture = null
+          ballMat.map = null
+          ballMat.needsUpdate = true
+        }
+        badge.textContent = '已 onHide · 渲染停止 · 纹理已释放'
+        badge.className = 'pause-badge on'
+        addLog('onHide：暂停渲染循环，释放 ' + savedSize + '² 纹理')
+      } else {
+        badge.textContent = '运行中 · ' + (current === 'web' ? 'requestAnimationFrame' : 'adapter rAF')
+        badge.className = 'pause-badge'
+        if (!silent) {
+          addLog('onShow：重建纹理并恢复渲染')
+          applyTexture(savedSize)
+        }
+      }
+
+      gui.controllersRecursive().forEach((c) => c.updateDisplay())
+    }
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '平台约束模拟器' })
+
+    gui.add(params, 'platform', {
+      'Web': 'web',
+      '小程序': 'weapp',
+      '小游戏': 'game'
+    }).name('目标端').onChange((v) => applyPlatform(v))
+
+    gui.add(params, 'texSize', [128, 256, 512, 1024, 2048])
+      .name('请求纹理尺寸').onChange((v) => applyTexture(Number(v)))
+
+    gui.add(params, 'paused').name('模拟 onHide（暂停）')
+      .onChange((v) => setPaused(!!v))
+
+    gui.add({
+      reset: () => {
+        applyPlatform(current)
+        addLog('重置适配层状态')
+      }
+    }, 'reset').name('重放适配流程')
+
+    gui.domElement.style.zIndex = '10'
+
+    /* ---------- 尺寸 ---------- */
+    function resize() {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      if (params.paused) renderer.render(scene, camera)
+    }
+
+    addEventListener('resize', resize)
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+
+      if (params.paused) return
+
+      const t = timer.getElapsed()
+      ball.rotation.y += dt * 0.55
+      ball.position.y = 1.42 + Math.sin(t * 1.1) * 0.05
+      ring.rotation.z += dt * 0.2
+      marker.scale.setScalar(1 + Math.sin(t * 3.2) * 0.08)
+
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    applyPlatform('web')
+  </script>
+</body>
+
+</html>

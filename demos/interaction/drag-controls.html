@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>drag-controls · 相机控制器与 DragControls</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 350px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .toolbar {
+      position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    }
+    .toolbar button {
+      padding: 8px 14px; font-size: 13px; color: #e6edf3;
+      background: #1f2937; border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px; cursor: pointer;
+    }
+    .toolbar button.active { background: #2563eb; border-color: #2563eb; }
+    @media (max-width: 600px) { .info { max-width: 200px; font-size: 12px; } }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>两套控制器各司其职</b><br />
+    <b>OrbitControls</b>：操作相机（左键旋转 / 右键平移 / 滚轮缩放）。<br />
+    <b>DragControls</b>：操作物体（直接在 3D 空间拖动物体）。<br />
+    拖拽物体时必须临时<b>禁用 OrbitControls</b>，否则两者会打架。
+  </div>
+  <div class="toolbar">
+    <button id="mode-orbit" class="active">🖱 视角模式（旋转相机）</button>
+    <button id="mode-drag">✋ 拖拽模式（拖动物体）</button>
+    <button id="reset" class="ghost">↺ 重置布局</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { DragControls } from 'three/addons/controls/DragControls.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 5, 9)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.domElement.style.touchAction = 'none'
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const orbit = new OrbitControls(camera, renderer.domElement)
+    orbit.enableDamping = true
+    orbit.target.set(0, 0.5, 0)
+    orbit.maxPolarAngle = Math.PI / 2 - 0.04
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 0.8))
+    const sun = new THREE.DirectionalLight(0xffffff, 2)
+    sun.position.set(4, 8, 5)
+    sun.castShadow = true
+    sun.shadow.camera.left = -8
+    sun.shadow.camera.right = 8
+    sun.shadow.camera.top = 8
+    sun.shadow.camera.bottom = -8
+    scene.add(sun)
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(16, 16),
+      new THREE.MeshStandardMaterial({ color: 0x2b3340, roughness: 0.95 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+    scene.add(new THREE.GridHelper(16, 16, 0x3a4657, 0x232c38))
+
+    // 可拖动物体
+    const items = []
+    const defs = [
+      [new THREE.BoxGeometry(0.9, 0.9, 0.9), 0x60a5fa, -2.5, 0.45, 0],
+      [new THREE.SphereGeometry(0.55, 32, 24), 0xf472b6, 0, 0.55, -1],
+      [new THREE.ConeGeometry(0.5, 1.1, 32), 0x34d399, 2.5, 0.55, 0.5]
+    ]
+    const home = []
+    defs.forEach(([geo, color, x, y, z]) => {
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.4 }))
+      m.position.set(x, y, z)
+      m.castShadow = m.receiveShadow = true
+      scene.add(m)
+      items.push(m)
+      home.push(m.position.clone())
+    })
+
+    // DragControls 把射线拾取+平面投影封装好了
+    const drag = new DragControls(items, camera, renderer.domElement)
+    drag.enabled = false                         // 默认是视角模式
+
+    // 关键：拖拽期间关闭相机控制器，并给出视觉反馈
+    let dragging = null
+    drag.addEventListener('dragstart', event => {
+      orbit.enabled = false
+      dragging = event.object
+      event.object.material.emissive.setHex(0x2a3a55)
+    })
+    drag.addEventListener('drag', event => {
+      // 把物体“吸”在地面上方（物体高度的一半），避免拖入地下
+      const half = event.object.geometry.parameters?.height
+        ? event.object.geometry.parameters.height / 2
+        : 0.55
+      event.object.position.y = Math.max(event.object.position.y, half)
+    })
+    drag.addEventListener('dragend', event => {
+      orbit.enabled = true
+      event.object.position.y = 0.45
+      event.object.material.emissive.setHex(0x000000)
+      dragging = null
+    })
+    drag.addEventListener('hoveron', event => {
+      if (!drag.enabled) return
+      event.object.material.emissive.setHex(0x2a3a55)
+      renderer.domElement.style.cursor = 'grab'
+    })
+    drag.addEventListener('hoveroff', event => {
+      if (event.object !== dragging) event.object.material.emissive.setHex(0x000000)
+      renderer.domElement.style.cursor = 'auto'
+    })
+
+    // 模式切换
+    const btnOrbit = document.getElementById('mode-orbit')
+    const btnDrag = document.getElementById('mode-drag')
+    function setMode(mode) {
+      drag.enabled = mode === 'drag'
+      orbit.enabled = mode === 'orbit'
+      btnOrbit.classList.toggle('active', mode === 'orbit')
+      btnDrag.classList.toggle('active', mode === 'drag')
+      renderer.domElement.style.cursor = 'auto'
+    }
+    btnOrbit.addEventListener('click', () => setMode('orbit'))
+    btnDrag.addEventListener('click', () => setMode('drag'))
+    document.getElementById('reset').addEventListener('click', () => {
+      items.forEach((m, i) => m.position.copy(home[i]))
+    })
+
+    renderer.setAnimationLoop(() => {
+      orbit.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

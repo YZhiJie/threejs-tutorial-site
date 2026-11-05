@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>frame-budget-lab · 帧时间拆解台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 360px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .num {
+      font-family: 'SF Mono', Consolas, monospace;
+      color: #e2e8f0;
+    }
+
+    .info .js {
+      color: #22d3ee;
+    }
+
+    .info .gpu {
+      color: #f472b6;
+    }
+
+    .bars {
+      position: fixed;
+      left: 14px;
+      bottom: 46px;
+      width: 360px;
+      padding: 10px 12px 8px;
+      background: rgba(11, 14, 20, .78);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .bars .head {
+      display: flex;
+      justify-content: space-between;
+      color: #9fb4d4;
+      margin-bottom: 6px;
+    }
+
+    .bars .head em {
+      font-style: normal;
+      color: #64748b;
+    }
+
+    .bars .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 5px;
+    }
+
+    .bars .row label {
+      width: 30px;
+      color: #94a3b8;
+      flex: none;
+    }
+
+    .bars .track {
+      position: relative;
+      flex: 1;
+      height: 13px;
+      background: rgba(255, 255, 255, .05);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .bars .track.over {
+      box-shadow: inset 0 0 0 1px #f87171;
+    }
+
+    .bars .seg {
+      position: absolute;
+      top: 0;
+      height: 100%;
+    }
+
+    .bars .seg.js {
+      left: 0;
+      background: #22d3ee;
+    }
+
+    .bars .seg.gpu {
+      background: #f472b6;
+    }
+
+    .bars .mark {
+      position: absolute;
+      top: -1px;
+      width: 1px;
+      height: 15px;
+      background: #fbbf24;
+      opacity: .9;
+    }
+
+    .bars .value {
+      width: 66px;
+      text-align: right;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+      color: #cbd5e1;
+      white-space: nowrap;
+      flex: none;
+    }
+
+    .bars .legend {
+      display: flex;
+      gap: 14px;
+      margin-top: 4px;
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    .bars .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 268px;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        max-width: 220px;
+        font-size: 12px;
+      }
+
+      .bars {
+        width: 240px;
+        left: 8px;
+        bottom: 40px;
+      }
+
+      .bars .legend {
+        display: none;
+      }
+
+      .lil-gui.root {
+        --width: 200px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>frame-budget-lab · 帧时间拆解台</b><br />
+    一帧预算 <span class="num">16.6ms</span>。勾选右上角三类负载，看哪条时间线先超标。<br />
+    <span class="js">JS</span> = 脚本 + <code>render()</code> 提交；<span class="gpu">GPU</span> = 估算值
+    （帧间隔 − JS，受垂直同步影响）。<br />
+    帧间隔 <span class="num" id="hudFrame">--</span> ms ·
+    <span class="js">JS <span class="num" id="hudJs">--</span></span> ·
+    <span class="gpu">GPU <span class="num" id="hudGpu">--</span></span><br />
+    draw calls <span class="num" id="hudCalls">--</span> ·
+    triangles <span class="num" id="hudTris">--</span>
+  </div>
+  <div class="bars">
+    <div class="head"><span>时间线（堆叠）</span><em>预算红线 16.6ms</em></div>
+    <div class="row">
+      <label>基线</label>
+      <div class="track" id="trackBase">
+        <span class="seg js" id="baseJs"></span>
+        <span class="seg gpu" id="baseGpu"></span>
+        <span class="mark" id="baseMark"></span>
+      </div>
+      <span class="value" id="baseVal">--</span>
+    </div>
+    <div class="row">
+      <label>当前</label>
+      <div class="track" id="trackNow">
+        <span class="seg js" id="nowJs"></span>
+        <span class="seg gpu" id="nowGpu"></span>
+        <span class="mark" id="nowMark"></span>
+      </div>
+      <span class="value" id="nowVal">--</span>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:#22d3ee"></i>JS 主线程</span>
+      <span><i class="dot" style="background:#f472b6"></i>GPU 估算</span>
+    </div>
+  </div>
+  <div class="hint">右上角勾选负载 · 拖拽旋转 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const BUDGET_MS = 16.6
+
+    /* ---------- 渲染器与相机 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(0, 13, 19)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75))
+    document.getElementById('app').appendChild(renderer.domElement)
+    scene.add(camera) // 相机入场景，后面挂 GPU 负载面
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.8, 0)
+    controls.maxPolarAngle = Math.PI / 2.05
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x1a1a26, 1))
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2)
+    sun.position.set(6, 12, 8)
+    scene.add(sun)
+
+    /* ---------- 基础场景：地面 + 网格 + 一个 InstancedMesh ---------- */
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(70, 70),
+      new THREE.MeshStandardMaterial({ color: 0x131a29, roughness: 0.95 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    scene.add(ground)
+    scene.add(new THREE.GridHelper(70, 35, 0x2b3a55, 0x1b2536))
+
+    const BASE_COUNT = 256
+    const baseMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.7, 0.7, 0.7),
+      new THREE.MeshStandardMaterial({ color: 0x9aa7c7, roughness: 0.5, metalness: 0.15 }),
+      BASE_COUNT
+    )
+    const dummy = new THREE.Object3D()
+    const tint = new THREE.Color()
+    const side = 16
+    let idx = 0
+    for (let x = 0; x < side; x++) {
+      for (let z = 0; z < side; z++) {
+        dummy.position.set((x - side / 2) * 0.95, 0.45 + (i2(x, z) % 3) * 0.55, (z - side / 2) * 0.95)
+        dummy.updateMatrix()
+        baseMesh.setMatrixAt(idx, dummy.matrix)
+        baseMesh.setColorAt(idx, tint.setHSL(0.56 + (idx % 32) / 160, 0.55, 0.6))
+        idx++
+      }
+    }
+    baseMesh.instanceMatrix.needsUpdate = true
+    scene.add(baseMesh)
+
+    function i2(x, z) {
+      return (x * 7 + z * 13) % 11
+    }
+
+    /* ---------- 负载一：draw call（400 个独立 Mesh） ---------- */
+    const callGroup = new THREE.Group()
+    callGroup.visible = false
+    const callGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32)
+    const callMat = new THREE.MeshStandardMaterial({ color: 0xf5a524, roughness: 0.6 })
+    for (let i = 0; i < 400; i++) {
+      const m = new THREE.Mesh(callGeo, callMat)
+      const a = i * 0.618 * Math.PI * 2
+      const r = 13 + (i % 7) * 0.9
+      m.position.set(Math.cos(a) * r, 0.5 + (i % 5) * 0.5, Math.sin(a) * r)
+      m.rotation.y = a
+      m.frustumCulled = false // 保证读数稳定：400 个独立提交，不受相机角度影响
+      callGroup.add(m)
+    }
+    scene.add(callGroup)
+
+    /* ---------- 负载二：GPU（挂在相机上的重片元着色面） ---------- */
+    const gpuMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uIter: { value: 64 }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        precision highp float;
+        varying vec2 vUv;
+        uniform float uTime;
+        uniform float uIter;
+
+        void main() {
+          vec2 p = vUv * 3.0 - vec2(1.5, 1.0);
+          vec3 col = vec3(0.012, 0.018, 0.040);
+          float acc = 0.0;
+          for (int i = 0; i < 128; i++) {
+            if (float(i) >= uIter) break;
+            p = vec2(
+              p.x + p.y * 0.045 + 0.011,
+              p.y - p.x * 0.038 - 0.009
+            );
+            acc += 1.0 / (1.0 + dot(p, p) * 0.8);
+          }
+          float breathe = 0.85 + 0.15 * sin(uTime * 0.6);
+          col += vec3(acc * 0.010, acc * 0.007, acc * 0.020) * breathe;
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+      side: THREE.DoubleSide
+    })
+    const gpuPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 160, 160), gpuMat)
+    gpuPlane.position.set(0, 0, -24)
+    gpuPlane.visible = false
+    camera.add(gpuPlane)
+
+    function fitGpuPlane() {
+      const dist = 24
+      const h = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * dist
+      gpuPlane.scale.set(h * camera.aspect * 1.06, h * 1.06, 1)
+    }
+    fitGpuPlane()
+
+    /* ---------- 负载三：CPU（每帧向量/矩阵运算） ---------- */
+    const cpuVec = new THREE.Vector3()
+    const cpuMat = new THREE.Matrix4()
+    let cpuSink = 0
+
+    function burnCpu(count) {
+      for (let i = 0; i < count; i++) {
+        cpuMat.makeRotationY(i * 0.0013)
+        cpuVec.set(1, i * 0.0002, 2).applyMatrix4(cpuMat).normalize()
+        cpuSink += cpuVec.x + cpuVec.y + cpuVec.z
+      }
+    }
+
+    /* ---------- GUI ---------- */
+    const params = {
+      cpuLoad: false,
+      cpuIterations: 52000,
+      drawLoad: false,
+      gpuLoad: false,
+      gpuIterations: 64,
+      autoRotate: true
+    }
+    const gui = new GUI({ title: '负载开关' })
+    gui.add(params, 'cpuLoad').name('叠加 CPU 负载')
+    gui.add(params, 'cpuIterations', 4000, 160000, 2000).name('CPU 迭代次数')
+    gui.add(params, 'drawLoad').name('叠加 draw call 负载').onChange(v => {
+      callGroup.visible = v
+    })
+    gui.add(params, 'gpuLoad').name('叠加 GPU 负载').onChange(v => {
+      gpuPlane.visible = v
+      gpuMat.uniforms.uIter.value = v ? params.gpuIterations : 1
+    })
+    gui.add(params, 'gpuIterations', 8, 128, 2).name('GPU 采样循环次数').onChange(v => {
+      if (params.gpuLoad) gpuMat.uniforms.uIter.value = v
+    })
+    gui.add(params, 'autoRotate').name('自动旋转')
+
+    /* ---------- HUD 与条形图 ---------- */
+    const hud = {
+      frame: document.getElementById('hudFrame'),
+      js: document.getElementById('hudJs'),
+      gpu: document.getElementById('hudGpu'),
+      calls: document.getElementById('hudCalls'),
+      tris: document.getElementById('hudTris')
+    }
+    const bar = {
+      baseJs: document.getElementById('baseJs'),
+      baseGpu: document.getElementById('baseGpu'),
+      baseMark: document.getElementById('baseMark'),
+      baseVal: document.getElementById('baseVal'),
+      nowJs: document.getElementById('nowJs'),
+      nowGpu: document.getElementById('nowGpu'),
+      nowMark: document.getElementById('nowMark'),
+      nowVal: document.getElementById('nowVal')
+    }
+
+    const samples = { js: 0, interval: 0, frames: 0, last: performance.now() }
+    const baseline = { js: 8, gpu: 8 }
+    let bound = 1
+    let lastUpdate = performance.now()
+
+    function paintBar(js, gpu, els) {
+      const html = (js + gpu).toFixed(1) + ' ms'
+      els.js.style.width = (js / bound) * 100 + '%'
+      els.gpu.style.left = (js / bound) * 100 + '%'
+      els.gpu.style.width = (gpu / bound) * 100 + '%'
+      els.mark.style.left = (BUDGET_MS / bound) * 100 + '%'
+      els.val.textContent = html
+    }
+
+    function updateHud() {
+      const avgJs = samples.js / samples.frames
+      const avgInterval = samples.interval / samples.frames
+      const gpuEst = Math.max(0, avgInterval - avgJs)
+      const anyLoad = params.cpuLoad || params.drawLoad || params.gpuLoad
+
+      if (!anyLoad) {
+        baseline.js = avgJs
+        baseline.gpu = gpuEst
+      }
+
+      bound = Math.max(BUDGET_MS * 1.35, avgJs + gpuEst, baseline.js + baseline.gpu)
+      paintBar(avgJs, gpuEst, { js: bar.nowJs, gpu: bar.nowGpu, mark: bar.nowMark, val: bar.nowVal })
+      paintBar(baseline.js, baseline.gpu, { js: bar.baseJs, gpu: bar.baseGpu, mark: bar.baseMark, val: bar.baseVal })
+
+      const over = [bar.nowJs, bar.nowGpu].map(e => e.parentElement)
+      const isOver = avgInterval > BUDGET_MS * 1.06 || avgJs > BUDGET_MS
+      over.forEach(t => t.classList.toggle('over', isOver))
+
+      hud.frame.textContent = avgInterval.toFixed(1)
+      hud.js.textContent = avgJs.toFixed(1)
+      hud.gpu.textContent = gpuEst.toFixed(1)
+      hud.calls.textContent = renderer.info.render.calls
+      hud.tris.textContent = renderer.info.render.triangles.toLocaleString()
+
+      samples.js = 0
+      samples.interval = 0
+      samples.frames = 0
+    }
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    let frameStamp = performance.now()
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+      const frameStart = performance.now()
+
+      if (params.cpuLoad) burnCpu(params.cpuIterations)
+      if (params.autoRotate) {
+        baseMesh.rotation.y += dt * 0.16
+        callGroup.rotation.y -= dt * 0.1
+      }
+      gpuMat.uniforms.uTime.value += dt
+
+      controls.update()
+      renderer.render(scene, camera)
+
+      const jsMs = performance.now() - frameStart
+      const now = performance.now()
+      samples.js += jsMs
+      samples.interval += now - frameStamp
+      samples.frames++
+      frameStamp = now
+
+      if (now - lastUpdate >= 600 && samples.frames > 0) {
+        lastUpdate = now
+        updateHud()
+      }
+      if (cpuSink > 1e12) cpuSink = 0 // 让累加值被真实读取，避免被优化掉
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      fitGpuPlane()
+    })
+  </script>
+</body>
+
+</html>

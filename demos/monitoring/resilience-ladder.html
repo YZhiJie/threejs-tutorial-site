@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>resilience-ladder · 3D 应用黑匣子</title>
+  <style>
+    * { box-sizing: border-box; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 360px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .8);
+      backdrop-filter: blur(9px);
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .info b { color: #7cc4ff; }
+
+    .state-line {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 6px 0 8px;
+      font-size: 12px;
+    }
+
+    .state-line .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #34d399;
+      box-shadow: 0 0 9px currentColor;
+      color: #34d399;
+    }
+
+    .state-line .dot.degraded { background: #fbbf24; color: #fbbf24; }
+    .state-line .dot.suspended { background: #f97316; color: #f97316; }
+    .state-line .dot.recovering { background: #22d3ee; color: #22d3ee; animation: blink 1s infinite; }
+    .state-line .dot.failed { background: #f87171; color: #f87171; }
+
+    @keyframes blink { 50% { opacity: .35; } }
+
+    .row {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .btn {
+      pointer-events: auto;
+      flex: 1;
+      padding: 6px 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(148, 163, 184, .26);
+      background: rgba(148, 163, 184, .12);
+      color: #cbd5e1;
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: .18s;
+      white-space: nowrap;
+    }
+
+    .btn:hover { background: rgba(148, 163, 184, .22); }
+    .btn.primary { border-color: rgba(34, 211, 238, .45); background: rgba(34, 211, 238, .14); color: #a5f3fc; }
+    .btn.danger { border-color: rgba(248, 113, 113, .45); background: rgba(248, 113, 113, .13); color: #fca5a5; }
+    .btn.active { border-color: rgba(52, 211, 153, .55); background: rgba(52, 211, 153, .18); color: #6ee7b7; }
+    .btn:disabled { opacity: .35; cursor: default; }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* 右侧黑匣子 */
+    .panel {
+      position: fixed;
+      right: 14px;
+      top: 14px;
+      width: 330px;
+      max-height: calc(100vh - 80px);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 11px 12px;
+      background: rgba(13, 19, 30, .87);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 10px;
+      font-size: 12px;
+    }
+
+    .panel::-webkit-scrollbar { width: 6px; }
+    .panel::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .28); border-radius: 3px; }
+
+    .p-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #cbd5e1;
+    }
+
+    .p-head b { color: #7cc4ff; }
+
+    .live {
+      margin-left: auto;
+      font-size: 10.5px;
+      color: #34d399;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .live i {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #34d399;
+      box-shadow: 0 0 8px #34d399;
+    }
+
+    .states {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+    }
+
+    .st {
+      padding: 4px 0;
+      text-align: center;
+      font-size: 9.5px;
+      border-radius: 5px;
+      color: #64748b;
+      border: 1px solid rgba(148, 163, 184, .18);
+      transition: .2s;
+    }
+
+    .st.on { color: #0b1220; font-weight: 700; background: #34d399; border-color: #34d399; }
+    .st.on.degraded { background: #fbbf24; border-color: #fbbf24; }
+    .st.on.suspended { background: #f97316; border-color: #f97316; }
+    .st.on.recovering { background: #22d3ee; border-color: #22d3ee; }
+    .st.on.failed { background: #f87171; border-color: #f87171; }
+
+    .ladder { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip {
+      padding: 2px 6px;
+      border-radius: 5px;
+      font-size: 10.5px;
+      color: #64748b;
+      border: 1px solid rgba(148, 163, 184, .2);
+    }
+    .chip.on {
+      color: #0b1220;
+      font-weight: 700;
+      background: #fbbf24;
+      border-color: #fbbf24;
+    }
+
+    .qname { font-size: 11px; color: #94a3b8; }
+
+    #ring {
+      width: 100%;
+      height: 52px;
+      border-radius: 6px;
+      background: rgba(8, 12, 20, .82);
+      border: 1px solid rgba(148, 163, 184, .12);
+    }
+
+    .legend {
+      display: flex;
+      justify-content: space-between;
+      font-size: 9.5px;
+      color: #64748b;
+    }
+
+    .evlog {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      max-height: 110px;
+      overflow: hidden;
+    }
+
+    .evlog div {
+      font-size: 10.5px;
+      line-height: 1.45;
+      font-family: 'SF Mono', Consolas, monospace;
+      color: #94a3b8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .evlog div.warn { color: #fbbf24; }
+    .evlog div.bad { color: #f87171; }
+    .evlog div.ok { color: #34d399; }
+    .evlog div.info { color: #7dd3fc; }
+
+    #snapshot {
+      margin: 0;
+      padding: 7px 8px;
+      max-height: 120px;
+      overflow: auto;
+      border-radius: 6px;
+      background: #080c14;
+      border: 1px solid rgba(148, 163, 184, .14);
+      color: #7dd3fc;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 10px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .hint-bar {
+      display: flex;
+      gap: 6px;
+      font-size: 10.5px;
+      color: #64748b;
+    }
+
+    .hint-bar b { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+
+    /* 中央遮罩：挂起 / 恢复 */
+    .veil {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 4;
+      background: radial-gradient(circle at 50% 45%, rgba(8, 12, 20, .45), rgba(8, 12, 20, .9));
+      pointer-events: none;
+    }
+
+    .veil.show { display: flex; }
+
+    .veil .card {
+      text-align: center;
+      padding: 22px 30px;
+      border-radius: 13px;
+      background: rgba(12, 18, 30, .92);
+      border: 1px solid rgba(148, 163, 184, .2);
+    }
+
+    .veil .t { font-size: 19px; font-weight: 700; color: #fbbf24; letter-spacing: 1px; }
+    .veil .s { margin-top: 7px; font-size: 12.5px; color: #94a3b8; line-height: 1.7; }
+
+    /* 静态兜底图 */
+    .fallback {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 5;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 50% 38%, rgba(248, 113, 113, .1), transparent 58%),
+        linear-gradient(155deg, #070b13, #0c1422 55%, #140c1a);
+    }
+
+    .fallback.show { display: flex; }
+
+    .fallback .card {
+      text-align: center;
+      padding: 26px 34px;
+      border-radius: 14px;
+      border: 1px solid rgba(248, 113, 113, .28);
+      background: rgba(10, 14, 24, .88);
+      pointer-events: auto;
+    }
+
+    .fallback .tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      color: #f87171;
+      border: 1px solid rgba(248, 113, 113, .4);
+    }
+
+    .fallback .t {
+      margin-top: 10px;
+      font-size: 21px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: #e2e8f0;
+    }
+
+    .fallback .s {
+      margin-top: 8px;
+      font-size: 12.5px;
+      color: #94a3b8;
+      line-height: 1.75;
+    }
+
+    .fallback .retry {
+      margin-top: 14px;
+      padding: 8px 22px;
+      border-radius: 8px;
+      border: 1px solid rgba(34, 211, 238, .45);
+      background: rgba(34, 211, 238, .14);
+      color: #a5f3fc;
+      font-size: 12.5px;
+      cursor: pointer;
+    }
+
+    .lil-gui.root {
+      --width: 238px;
+      top: auto !important;
+      right: auto !important;
+      left: 14px;
+      bottom: 14px;
+      max-height: 44vh;
+      overflow-y: auto;
+    }
+
+    @media (max-width: 840px) {
+      .info { width: 265px; font-size: 12px; }
+      .panel { width: 250px; top: 190px; }
+      .states { grid-template-columns: repeat(3, 1fr); }
+      .lil-gui.root { --width: 180px; }
+    }
+
+    @media (max-width: 640px) {
+      .panel { display: none; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="info">
+    <b>resilience-ladder · 3D 应用黑匣子</b><br />
+    <div class="state-line">
+      <span class="dot" id="dot"></span>
+      <span id="stateText">healthy · 全画质运行中</span>
+    </div>
+
+    <div class="row">
+      <button class="btn primary" id="timelineBtn">▶ 演示时间线</button>
+      <button class="btn danger" id="crashBtn">⚡ 模拟崩溃</button>
+    </div>
+    <div class="row">
+      <button class="btn active" id="autoBtn">自动</button>
+      <button class="btn" id="manualBtn">手动</button>
+      <button class="btn" id="downBtn">降一级</button>
+      <button class="btn" id="upBtn">升一级</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="stressBtn">重负载：关</button>
+      <button class="btn" id="snapBtn">导出快照</button>
+    </div>
+  </div>
+
+  <div class="veil" id="veil">
+    <div class="card">
+      <div class="t" id="veilTitle">信号中断</div>
+      <div class="s" id="veilSub">正在等待 GPU 上下文，随后重建场景资源</div>
+    </div>
+  </div>
+
+  <div class="fallback" id="fallback">
+    <div class="card">
+      <span class="tag">FAILED · 兜底模式</span>
+      <div class="t">场景暂时不可用</div>
+      <div class="s">已切换为静态兜底图，不会让用户看到白屏或黑屏<br />最后一条快照已写入控制台：window.__BLACK_BOX__</div>
+      <button class="retry" id="retryBtn">重试恢复 · 重建场景</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <div class="p-head">
+      <b>黑匣子 · Black Box</b>
+      <span class="live"><i></i>REC 30s</span>
+    </div>
+
+    <div class="states" id="states">
+      <span class="st on" data-s="healthy">healthy</span>
+      <span class="st" data-s="degraded">degraded</span>
+      <span class="st" data-s="suspended">suspended</span>
+      <span class="st" data-s="recovering">recovering</span>
+      <span class="st" data-s="failed">failed</span>
+    </div>
+
+    <div class="ladder" id="ladder"></div>
+    <div class="qname" id="qname">L0 全画质</div>
+
+    <canvas id="ring" width="620" height="104"></canvas>
+    <div class="legend">
+      <span>最近 30 秒帧时间</span>
+      <span>红线 16.6ms 预算</span>
+    </div>
+
+    <div class="evlog" id="evlog"></div>
+
+    <div class="hint-bar">
+      <span>p50 <b id="p50">--</b>ms</span>
+      <span>p95 <b id="p95">--</b>ms</span>
+      <span>calls <b id="calls">--</b></span>
+      <span>tri <b id="tri">--</b></span>
+    </div>
+
+    <pre id="snapshot">尚未捕获快照。挂起或失败时会自动落盘最近 30 秒的数据。</pre>
+  </aside>
+
+  <div class="hint">点「演示时间线」看完整降级—恢复闭环 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ==================================================================
+       ① 基础设施（只创建一次）
+    ================================================================== */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.FogExp2(0x0b0e14, 0.026)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 140)
+    camera.position.set(0, 6.5, 15)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    document.getElementById('app').appendChild(renderer.domElement)
+    const canvas = renderer.domElement
+
+    const controls = new OrbitControls(camera, canvas)
+    controls.enableDamping = true
+    controls.target.set(0, 2, 0)
+    controls.minDistance = 6
+    controls.maxDistance = 32
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x0d1018, 0.7))
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2)
+    sun.position.set(7, 13, 8)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(2048, 2048)
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -18
+    sun.shadow.camera.right = sun.shadow.camera.top = 18
+    sun.shadow.camera.far = 70
+    scene.add(sun)
+    const fill = new THREE.DirectionalLight(0xf472b6, 1.1)
+    fill.position.set(-9, 5, -7)
+    scene.add(fill)
+
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    scene.environment = envTex
+
+    const composer = new EffectComposer(renderer)
+    composer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    composer.addPass(new RenderPass(scene, camera))
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.5, 0.84)
+    composer.addPass(bloomPass)
+    composer.addPass(new OutputPass())
+    composer.setSize(innerWidth, innerHeight)
+
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    /* ==================================================================
+       ② 场景重建：与 25.1 同一个纪律——整组 dispose，整组重建
+    ================================================================== */
+    let world = null
+    let floorMat = null
+    let particles = null
+    let stressMesh = null
+    let knot = null
+    let rings = []
+    let rebuilds = 0
+
+    const PARTICLE_COUNT = 2600
+    const STRESS_MAX = 1200
+
+    function disposeWorld(root) {
+      root.traverse((o) => {
+        if (o.geometry) o.geometry.dispose()
+        const list = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : [])
+        for (const m of list) {
+          for (const k of ['map', 'normalMap', 'roughnessMap', 'envMap']) {
+            if (m[k] && m[k].isTexture) m[k].dispose()
+          }
+          m.dispose()
+        }
+      })
+    }
+
+    function buildWorld() {
+      if (world) {
+        scene.remove(world)
+        disposeWorld(world)
+      }
+      world = new THREE.Group()
+      rings = []
+
+      floorMat = new THREE.MeshStandardMaterial({
+        color: 0x1a2336,
+        metalness: 0.9,
+        roughness: 0.14,
+        envMapIntensity: 1.1
+      })
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), floorMat)
+      floor.rotation.x = -Math.PI / 2
+      floor.receiveShadow = true
+      world.add(floor)
+
+      const grid = new THREE.GridHelper(90, 90, 0x2c4066, 0x172033)
+      grid.position.y = 0.012
+      world.add(grid)
+
+      // 主体：三层同心环 + 核心球，像一台冷却塔
+      knot = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(1.0, 3),
+        new THREE.MeshStandardMaterial({ color: 0x0f172a, emissive: 0x22d3ee, emissiveIntensity: 1.4, roughness: 0.3 })
+      )
+      knot.position.y = 2.4
+      world.add(knot)
+
+      for (let i = 0; i < 3; i++) {
+        const r = new THREE.Mesh(
+          new THREE.TorusGeometry(1.7 + i * 0.55, 0.055, 16, 128),
+          new THREE.MeshStandardMaterial({
+            color: 0x111827,
+            emissive: i === 1 ? 0xf472b6 : 0x22d3ee,
+            emissiveIntensity: 2.2 - i * 0.35
+          })
+        )
+        r.position.y = 2.4
+        r.rotation.x = Math.PI / 2 + i * 0.32
+        r.userData.spin = (i % 2 ? -1 : 1) * (0.6 + i * 0.28)
+        world.add(r)
+        rings.push(r)
+      }
+
+      const pillarGeo = new THREE.CylinderGeometry(0.18, 0.28, 2.8, 12)
+      const pillarMat = new THREE.MeshStandardMaterial({ color: 0x24304a, roughness: 0.55, metalness: 0.35 })
+      const pillars = new THREE.InstancedMesh(pillarGeo, pillarMat, 24)
+      const d = new THREE.Object3D()
+      for (let i = 0; i < 24; i++) {
+        const a = i / 24 * Math.PI * 2
+        d.position.set(Math.cos(a) * 7.6, 1.4, Math.sin(a) * 7.6)
+        d.rotation.y = -a
+        d.updateMatrix()
+        pillars.setMatrixAt(i, d.matrix)
+      }
+      pillars.castShadow = true
+      pillars.receiveShadow = true
+      world.add(pillars)
+
+      const pos = new Float32Array(PARTICLE_COUNT * 3)
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const a = Math.random() * Math.PI * 2
+        const r = 2 + Math.random() * 11
+        pos[i * 3] = Math.cos(a) * r
+        pos[i * 3 + 1] = Math.random() * 9 + 0.2
+        pos[i * 3 + 2] = Math.sin(a) * r
+      }
+      const pGeo = new THREE.BufferGeometry()
+      pGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      particles = new THREE.Points(pGeo, new THREE.PointsMaterial({
+        color: 0x22d3ee, size: 0.065, transparent: true, opacity: 0.8,
+        depthWrite: false, blending: THREE.AdditiveBlending
+      }))
+      world.add(particles)
+
+      const sGeo = new THREE.TorusKnotGeometry(0.2, 0.062, 48, 10)
+      const sMat = new THREE.MeshStandardMaterial({ color: 0x4b5a78, roughness: 0.5, metalness: 0.3 })
+      stressMesh = new THREE.InstancedMesh(sGeo, sMat, STRESS_MAX)
+      stressMesh.castShadow = true
+      for (let i = 0; i < STRESS_MAX; i++) {
+        const a = Math.random() * Math.PI * 2
+        const r = 3 + Math.random() * 24
+        d.position.set(Math.cos(a) * r, Math.random() * 9, Math.sin(a) * r)
+        d.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6)
+        d.scale.setScalar(0.6 + Math.random() * 1.2)
+        d.updateMatrix()
+        stressMesh.setMatrixAt(i, d.matrix)
+      }
+      stressMesh.count = 0
+      world.add(stressMesh)
+
+      scene.add(world)
+      rebuilds++
+    }
+
+    /* ==================================================================
+       ③ 降级阶梯：L0 全画质 → L5 最低画质，L6 交给 failed 的静态兜底
+    ================================================================== */
+    const QUALITY = [
+      { name: 'L0 全画质', dpr: 2.0, bloom: true, shadows: true, reflect: true, particles: true },
+      { name: 'L1 降分辨率', dpr: 1.5, bloom: true, shadows: true, reflect: true, particles: true },
+      { name: 'L2 关泛光', dpr: 1.5, bloom: false, shadows: true, reflect: true, particles: true },
+      { name: 'L3 关阴影', dpr: 1.5, bloom: false, shadows: false, reflect: true, particles: true },
+      { name: 'L4 关反射', dpr: 1.25, bloom: false, shadows: false, reflect: false, particles: true },
+      { name: 'L5 关粒子', dpr: 1.0, bloom: false, shadows: false, reflect: false, particles: false }
+    ]
+
+    let level = 0
+    let lastQuality = 0
+    let rendering = true
+
+    function applyQuality(n) {
+      const Q = QUALITY[n]
+      level = n
+      renderer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr))
+      composer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr))
+      bloomPass.enabled = Q.bloom
+      sun.castShadow = Q.shadows
+      if (floorMat) {
+        floorMat.metalness = Q.reflect ? 0.9 : 0.05
+        floorMat.roughness = Q.reflect ? 0.14 : 0.95
+      }
+      if (particles) particles.visible = Q.particles
+      if (stressMesh) stressMesh.count = params.stress ? STRESS_MAX : 0
+
+      document.getElementById('qname').textContent = Q.name
+      ;[...document.querySelectorAll('#ladder .chip')].forEach((c, i) => c.classList.toggle('on', i === n))
+
+      if (!params.auto) params.level = n
+      if (state === 'healthy' || state === 'degraded') {
+        setState(n === 0 ? 'healthy' : 'degraded')
+      }
+    }
+
+    /* ==================================================================
+       ④ 状态机：healthy / degraded / suspended / recovering / failed
+    ================================================================== */
+    let state = 'healthy'
+    const dotEl = document.getElementById('dot')
+    const stateText = document.getElementById('stateText')
+    const veil = document.getElementById('veil')
+    const veilTitle = document.getElementById('veilTitle')
+    const veilSub = document.getElementById('veilSub')
+    const fallback = document.getElementById('fallback')
+
+    const STATE_LABEL = {
+      healthy: 'healthy · 全画质运行中',
+      degraded: 'degraded · 已降级运行',
+      suspended: 'suspended · 渲染已挂起',
+      recovering: 'recovering · 正在重建',
+      failed: 'failed · 已切静态兜底'
+    }
+
+    function setState(next) {
+      state = next
+      dotEl.className = 'dot ' + next
+      stateText.textContent = STATE_LABEL[next]
+      ;[...document.querySelectorAll('.st')].forEach((el) => {
+        el.classList.toggle('on', el.dataset.s === next)
+      })
+      fallback.classList.toggle('show', next === 'failed')
+      veil.classList.toggle('show', next === 'suspended' || next === 'recovering')
+      if (next === 'suspended') {
+        veilTitle.textContent = '信号中断 · suspended'
+        veilSub.textContent = '场景冻结，黑匣子正在落盘最近 30 秒数据'
+      } else if (next === 'recovering') {
+        veilTitle.textContent = '正在重建 · recovering'
+        veilSub.textContent = '释放旧资源 → 重建场景 → 恢复原画质'
+      }
+    }
+
+    /* ---------- 事件日志 ---------- */
+    const logs = []
+    const logEl = document.getElementById('evlog')
+
+    function log(type, text, cls = 'info') {
+      const t = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      const entry = { t, type, text }
+      logs.unshift(entry)
+      if (logs.length > 120) logs.pop()
+
+      const d = document.createElement('div')
+      d.className = cls
+      d.textContent = `[${t}] ${type} · ${text}`
+      logEl.prepend(d)
+      while (logEl.children.length > 7) logEl.lastChild.remove()
+    }
+
+    /* ==================================================================
+       ⑤ 环形缓冲：最近 30 秒的帧时间，崩溃时可回溯
+    ================================================================== */
+    const RING_SIZE = 1800
+    const ring = new Float32Array(RING_SIZE)
+    let ringHead = 0
+    let ringLen = 0
+
+    function pushFrame(ms) {
+      ring[ringHead] = Math.min(ms, 200)
+      ringHead = (ringHead + 1) % RING_SIZE
+      ringLen = Math.min(ringLen + 1, RING_SIZE)
+    }
+
+    function ringValues() {
+      const out = []
+      const start = (ringHead - ringLen + RING_SIZE) % RING_SIZE
+      for (let i = 0; i < ringLen; i++) out.push(ring[(start + i) % RING_SIZE])
+      return out
+    }
+
+    function percentile(arr, p) {
+      if (!arr.length) return 0
+      const s = [...arr].sort((a, b) => a - b)
+      return s[Math.min(s.length - 1, Math.floor(s.length * p))]
+    }
+
+    const ringCanvas = document.getElementById('ring')
+    const rc = ringCanvas.getContext('2d')
+
+    function drawRing() {
+      if (!rc) return
+      const w = ringCanvas.width
+      const h = ringCanvas.height
+      rc.clearRect(0, 0, w, h)
+      rc.fillStyle = 'rgba(8,12,20,.85)'
+      rc.fillRect(0, 0, w, h)
+
+      // 16.6ms 预算线（y 轴上限 50ms）
+      const yBudget = h - (16.6 / 50) * h
+      rc.strokeStyle = 'rgba(248,113,113,.6)'
+      rc.setLineDash([4, 3])
+      rc.beginPath()
+      rc.moveTo(0, yBudget)
+      rc.lineTo(w, yBudget)
+      rc.stroke()
+      rc.setLineDash([])
+
+      const vals = ringValues()
+      if (!vals.length) return
+      const step = Math.max(1, Math.floor(vals.length / w))
+      for (let x = 0; x < w; x++) {
+        const i = Math.floor((x / w) * vals.length)
+        const v = Math.min(vals[i] || 0, 50)
+        const bh = (v / 50) * h
+        rc.fillStyle = v > 33 ? 'rgba(248,113,113,.85)' : v > 18 ? 'rgba(251,191,36,.8)' : 'rgba(34,211,238,.75)'
+        rc.fillRect(x, h - bh, 1, bh)
+      }
+    }
+
+    /* ==================================================================
+       ⑥ 黑匣子快照：最后 30 秒 + renderer.info + 最近事件
+    ================================================================== */
+    let snapshot = null
+    const snapEl = document.getElementById('snapshot')
+
+    function takeSnapshot(reason) {
+      const vals = ringValues()
+      snapshot = {
+        t: new Date().toISOString(),
+        reason,
+        state,
+        quality: level,
+        rebuilds,
+        frame: {
+          samples: vals.length,
+          p50: +percentile(vals, 0.5).toFixed(1),
+          p95: +percentile(vals, 0.95).toFixed(1),
+          max: +(vals.length ? Math.max(...vals) : 0).toFixed(1)
+        },
+        render: {
+          calls: renderer.info.render.calls,
+          triangles: renderer.info.render.triangles,
+          points: renderer.info.render.points
+        },
+        memory: {
+          geometries: renderer.info.memory.geometries,
+          textures: renderer.info.memory.textures,
+          programs: renderer.info.programs ? renderer.info.programs.length : 0
+        },
+        scene: {
+          children: scene.children.length,
+          particles: PARTICLE_COUNT,
+          stress: params.stress ? STRESS_MAX : 0
+        },
+        events: logs.slice(0, 12).map((e) => e.t + ' ' + e.type + ' ' + e.text)
+      }
+      window.__BLACK_BOX__ = snapshot
+      snapEl.textContent = JSON.stringify(snapshot, null, 1).slice(0, 1200)
+      console.log('[black-box] snapshot', snapshot)
+      return snapshot
+    }
+
+    /* ==================================================================
+       ⑦ 帧窗口 + 自动降级（迟滞）
+    ================================================================== */
+    let lastRaf = performance.now()
+    let frameAcc = 0
+    let frameN = 0
+    let lowStreak = 0
+    let highStreak = 0
+    let lastChange = 0
+    const WINDOW = 30
+
+    function onWindow(avgMs) {
+      const fps = 1000 / avgMs
+      document.getElementById('p50').textContent = percentile(ringValues(), 0.5).toFixed(1)
+      document.getElementById('p95').textContent = percentile(ringValues(), 0.95).toFixed(1)
+      document.getElementById('calls').textContent = renderer.info.render.calls
+      document.getElementById('tri').textContent = renderer.info.render.triangles
+      drawRing()
+      if (!params.auto || state !== 'healthy' && state !== 'degraded') return
+
+      const now = performance.now()
+      if (now - lastChange < 1500) return
+
+      if (fps < 50) {
+        lowStreak++
+        highStreak = 0
+      } else if (fps > 56) {
+        highStreak++
+        lowStreak = 0
+      } else {
+        lowStreak = 0
+        highStreak = 0
+      }
+
+      if (lowStreak >= 3 && level < 5) {
+        lowStreak = 0
+        lastChange = now
+        applyQuality(level + 1)
+        log('level', `自动降级 L${level} · 连续 3 窗口 < 50fps（${Math.round(fps)}fps）`, 'warn')
+      } else if (highStreak >= 5 && level > 0) {
+        highStreak = 0
+        lastChange = now
+        applyQuality(level - 1)
+        log('level', `自动恢复 L${level} · 连续 5 窗口 > 56fps`, 'ok')
+      }
+    }
+
+    /* ==================================================================
+       ⑧ 崩溃 / 恢复流程
+    ================================================================== */
+    let recoveringTimer = null
+
+    function simulateCrash() {
+      if (state === 'suspended' || state === 'recovering' || state === 'failed') return
+      lastQuality = level
+      rendering = false
+      renderer.setAnimationLoop(null)
+      setState('suspended')
+      takeSnapshot('suspended')
+      log('crash', `模拟 GPU 信号中断，冻结在 ${QUALITY[level].name}`, 'bad')
+
+      clearTimeout(recoveringTimer)
+      recoveringTimer = setTimeout(() => {
+        setState('recovering')
+        log('recover', '开始释放旧资源并重建场景', 'info')
+
+        setTimeout(() => {
+          if (params.failOnce) {
+            params.failOnce = false
+            setState('failed')
+            takeSnapshot('failed')
+            log('recover', '重建抛出异常 → failed，展示静态兜底图', 'bad')
+            return
+          }
+          try {
+            buildWorld()
+            applyQuality(lastQuality)   // 恢复后自动回到原画质
+            rendering = true
+            lastRaf = performance.now()
+            renderer.setAnimationLoop(tick)
+            setState(lastQuality === 0 ? 'healthy' : 'degraded')
+            log('recover', `恢复完成：回到 ${QUALITY[lastQuality].name}，重建第 ${rebuilds} 次`, 'ok')
+          } catch (err) {
+            setState('failed')
+            takeSnapshot('failed')
+            log('recover', '重建失败：' + err.message, 'bad')
+          }
+        }, 850)
+      }, 1400)
+    }
+
+    function retryRecover() {
+      if (state !== 'failed') return
+      setState('recovering')
+      log('retry', '人工触发重试：重建场景', 'info')
+      setTimeout(() => {
+        try {
+          buildWorld()
+          applyQuality(lastQuality)
+          rendering = true
+          lastRaf = performance.now()
+          renderer.setAnimationLoop(tick)
+          setState(lastQuality === 0 ? 'healthy' : 'degraded')
+          log('retry', '重试成功，已恢复原画质', 'ok')
+        } catch (err) {
+          setState('failed')
+          log('retry', '重试仍失败：' + err.message, 'bad')
+        }
+      }, 900)
+    }
+
+    /* ==================================================================
+       ⑨ 主循环
+    ================================================================== */
+    const params = {
+      auto: true,
+      stress: false,
+      stressMs: 13,
+      level: 0,
+      failOnce: false,
+      重负载: false,
+      重置: () => {
+        setState('recovering')
+        buildWorld()
+        applyQuality(0)
+        rendering = true
+        renderer.setAnimationLoop(tick)
+        setState('healthy')
+        log('reset', '手动重置：回到 L0', 'ok')
+      }
+    }
+
+    function busy(ms) {
+      if (!ms) return
+      const t0 = performance.now()
+      while (performance.now() - t0 < ms) { /* 合成主线程占用 */ }
+    }
+
+    function tick() {
+      const now = performance.now()
+      const raw = now - lastRaf
+      lastRaf = now
+
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+      const t = timer.getElapsed()
+
+      if (knot) {
+        knot.rotation.y = t * 0.35
+        knot.position.y = 2.4 + Math.sin(t * 1.1) * 0.14
+      }
+      rings.forEach((r) => { r.rotation.z = t * r.userData.spin })
+      if (particles) particles.rotation.y = t * 0.12
+      if (stressMesh && params.stress) stressMesh.rotation.y = t * 0.05
+
+      controls.update()
+      if (params.stress) busy(params.stressMs)
+
+      composer.render()
+
+      if (raw > 0 && raw < 500) {
+        pushFrame(raw)
+        frameAcc += raw
+        frameN++
+        if (frameN >= WINDOW) {
+          const avg = frameAcc / frameN
+          frameAcc = 0
+          frameN = 0
+          onWindow(avg)
+        }
+      }
+    }
+
+    /* ==================================================================
+       ⑩ 时间线：高负载 → 逐级降级 → 恢复
+    ================================================================== */
+    let timelineRunning = false
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+    async function runTimeline() {
+      if (timelineRunning) return
+      if (state === 'suspended' || state === 'recovering' || state === 'failed') return
+      timelineRunning = true
+      const wasAuto = params.auto
+      params.auto = false
+      syncModeButtons()
+
+      log('timeline', '时间线开始：注入高负载，观察逐级降级', 'warn')
+      setStress(true)
+      await sleep(1400)
+
+      for (const target of [1, 2, 3]) {
+        if (level < target) {
+          applyQuality(target)
+          log('level', `降级 → ${QUALITY[target].name}（时间线）`, 'warn')
+        }
+        await sleep(900)
+      }
+
+      log('timeline', '解除高负载，开始逐级恢复', 'ok')
+      setStress(false)
+      await sleep(1600)
+
+      while (level > 0) {
+        applyQuality(level - 1)
+        log('level', `恢复 → ${QUALITY[level].name}（时间线）`, 'ok')
+        await sleep(750)
+      }
+
+      log('timeline', '时间线结束：回到 L0 全画质', 'ok')
+      params.auto = wasAuto
+      syncModeButtons()
+      timelineRunning = false
+    }
+
+    /* ==================================================================
+       ⑪ UI 绑定
+    ================================================================== */
+    const stressBtn = document.getElementById('stressBtn')
+    const autoBtn = document.getElementById('autoBtn')
+    const manualBtn = document.getElementById('manualBtn')
+    const downBtn = document.getElementById('downBtn')
+    const upBtn = document.getElementById('upBtn')
+
+    function syncModeButtons() {
+      autoBtn.classList.toggle('active', params.auto)
+      manualBtn.classList.toggle('active', !params.auto)
+      downBtn.disabled = params.auto || level <= 0
+      upBtn.disabled = params.auto || level >= 5
+      if (levelCtl) levelCtl.disable(params.auto)
+    }
+
+    function updateStressLabel() {
+      stressBtn.textContent = '重负载：' + (params.stress ? '开' : '关')
+      stressBtn.classList.toggle('active', params.stress)
+      if (stressMesh) stressMesh.count = params.stress ? STRESS_MAX : 0
+    }
+
+    function setStress(v) {
+      params.stress = v
+      updateStressLabel()
+    }
+
+    stressBtn.addEventListener('click', () => {
+      setStress(!params.stress)
+      log('stress', params.stress ? '注入重负载：1200 实例 + 13ms 主线程占用' : '解除重负载', params.stress ? 'warn' : 'ok')
+    })
+
+    autoBtn.addEventListener('click', () => {
+      params.auto = true
+      syncModeButtons()
+      log('mode', '切换为自动调节')
+    })
+
+    manualBtn.addEventListener('click', () => {
+      params.auto = false
+      params.level = level
+      syncModeButtons()
+      log('mode', '切换为手动档位')
+    })
+
+    downBtn.addEventListener('click', () => {
+      if (level > 0) {
+        applyQuality(level - 1)
+        log('level', `手动降级 → ${QUALITY[level].name}`, 'warn')
+        syncModeButtons()
+      }
+    })
+
+    upBtn.addEventListener('click', () => {
+      if (level < 5) {
+        applyQuality(level + 1)
+        log('level', `手动升级 → ${QUALITY[level].name}`, 'ok')
+        syncModeButtons()
+      }
+    })
+
+    document.getElementById('timelineBtn').addEventListener('click', runTimeline)
+    document.getElementById('crashBtn').addEventListener('click', simulateCrash)
+    document.getElementById('retryBtn').addEventListener('click', retryRecover)
+    document.getElementById('snapBtn').addEventListener('click', () => {
+      takeSnapshot('manual-export')
+      log('snapshot', '快照已导出到控制台 window.__BLACK_BOX__', 'info')
+    })
+
+    // 业务侧 <canvas> 容器的错误边界：任何未捕获错误都进 failed
+    function onGlobalError(reason) {
+      if (state === 'failed' || state === 'recovering') return
+      log('error', '捕获未处理异常：' + reason, 'bad')
+      rendering = false
+      renderer.setAnimationLoop(null)
+      setState('failed')
+      takeSnapshot('global-error')
+    }
+    addEventListener('error', (e) => onGlobalError(e.message))
+    addEventListener('unhandledrejection', (e) => onGlobalError(String(e.reason)))
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '黑匣子设置' })
+    gui.add(params, '重负载').name('重负载').onChange((v) => {
+      setStress(v)
+      log('stress', v ? '重负载已开启' : '重负载已关闭', v ? 'warn' : 'ok')
+    })
+    gui.add(params, 'stressMs', 0, 20, 1).name('合成负载 (ms/帧)')
+    gui.add(params, 'auto').name('自动降级').onChange((v) => {
+      syncModeButtons()
+      log('mode', v ? '切换为自动调节' : '切换为手动档位')
+    })
+    const levelCtl = gui.add(params, 'level', 0, 5, 1).name('手动档位').onChange((v) => {
+      if (!params.auto) applyQuality(v)
+    })
+    levelCtl.disable(true)
+    gui.add(params, 'failOnce').name('恢复时注入故障')
+    gui.add(params, '重置')
+
+    /* ---------- 启动 ---------- */
+    buildWorld()
+    applyQuality(0)
+    setState('healthy')
+    syncModeButtons()
+    updateStressLabel()
+    // 阶梯芯片
+    const ladderEl = document.getElementById('ladder')
+    QUALITY.forEach((Q, i) => {
+      const c = document.createElement('span')
+      c.className = 'chip' + (i === 0 ? ' on' : '')
+      c.textContent = 'L' + i
+      c.title = Q.name
+      ladderEl.appendChild(c)
+    })
+    drawRing()
+    renderer.setAnimationLoop(tick)
+    log('boot', '场景初始化完成，黑匣子开始录制', 'ok')
+
+    // 每 0.5 秒刷新一次面板（渲染循环暂停时也能更新）
+    setInterval(() => {
+      const vals = ringValues()
+      document.getElementById('p50').textContent = percentile(vals, 0.5).toFixed(1)
+      document.getElementById('p95').textContent = percentile(vals, 0.95).toFixed(1)
+      document.getElementById('calls').textContent = renderer.info.render.calls
+      document.getElementById('tri').textContent = renderer.info.render.triangles
+      drawRing()
+      syncModeButtons()
+    }, 500)
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      composer.setSize(innerWidth, innerHeight)
+      if (stressMesh && params.stress) stressMesh.count = STRESS_MAX
+    })
+  </script>
+</body>
+
+</html>

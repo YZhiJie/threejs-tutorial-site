@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>custom-pbr-lab · 自定义 PBR 对比台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 382px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .stat {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .note {
+      display: block;
+      margin-top: 4px;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 266px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 205px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 198px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>自定义 PBR 对比台 · Standard / Physical / 自定义 BRDF</b><br />
+    同一颗球，三种诚实程度：基础金属、物理清漆、手写 sheen 项。<br />
+    <span class="stat" id="stat"></span>
+    <span class="note">切换时首次编译有一次性成本，再次切回会命中程序缓存。</span>
+  </div>
+  <div class="hint">右上角切换材质实现 · 观察高光形状与帧耗时 · 拖拽旋转</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 10, 20)
+
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 0.9, 6.4)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.0
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.3, 0)
+
+    /* ---------- 程序化环境（不加载外部图片） ---------- */
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    pmrem.dispose()
+
+    /* ---------- 灯光与地面 ---------- */
+    scene.add(new THREE.AmbientLight(0xffffff, 0.15))
+    const key = new THREE.DirectionalLight(0xffffff, 1.4)
+    key.position.set(4, 6, 5)
+    scene.add(key)
+    const fill = new THREE.DirectionalLight(0x7cc4ff, 0.7)
+    fill.position.set(-5, 1, -4)
+    scene.add(fill)
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(10, 64),
+      new THREE.MeshStandardMaterial({ color: 0x161d2b, roughness: 0.8, metalness: 0.2 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.position.y = -1.15
+    scene.add(ground)
+
+    /* ---------- 公共基础参数：只换材质实现，不换颜色 ---------- */
+    const BASE = { color: 0x6f8dff, metalness: 0.35, roughness: 0.26, envMapIntensity: 1.3 }
+
+    /* ---------- ① MeshStandardMaterial ---------- */
+    const standardMat = new THREE.MeshStandardMaterial({ ...BASE })
+
+    /* ---------- ② MeshPhysicalMaterial：清漆层 ---------- */
+    const physicalMat = new THREE.MeshPhysicalMaterial({
+      ...BASE,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.03,
+      ior: 1.5
+    })
+
+    /* ---------- ③ 自定义 BRDF：手写布料 sheen ---------- */
+    const sheenUniforms = {
+      uSheenColor: { value: new THREE.Color(0xffb4d2) },
+      uSheenStrength: { value: 0.55 },
+      uSheenRoughness: { value: 0.35 }
+    }
+
+    const sheenMat = new THREE.MeshStandardMaterial({
+      ...BASE,
+      color: 0x8a7bd8,
+      metalness: 0.05,
+      roughness: 0.62
+    })
+
+    sheenMat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, sheenUniforms)
+
+      shader.fragmentShader = `
+        uniform vec3 uSheenColor;
+        uniform float uSheenStrength;
+        uniform float uSheenRoughness;
+      ` + shader.fragmentShader
+
+      // 在光照结算之后追加一项「视线掠射」的软高光
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        float ndv = saturate( dot( normal, normalize( vViewPosition ) ) );
+        float sheenTerm = pow( 1.0 - ndv, 2.0 + uSheenRoughness * 2.0 );
+        vec3 sheenColor = uSheenColor * sheenTerm * uSheenStrength;
+        reflectedLight.indirectDiffuse += sheenColor;`
+      )
+    }
+    sheenMat.customProgramCacheKey = () => 'standard-sheen-v1'
+
+    const materials = {
+      'Standard': standardMat,
+      'Physical · clearcoat': physicalMat,
+      '自定义 sheen': sheenMat
+    }
+
+    /* ---------- 球体 ---------- */
+    const sphere = new THREE.Mesh(new THREE.SphereGeometry(1.25, 128, 80), standardMat)
+    sphere.position.set(0, 0.3, 0)
+    scene.add(sphere)
+
+    /* 装饰环：给环境反射一个参照物，也让「高光形状」更容易比较 */
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.9, 0.035, 12, 128),
+      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.8 })
+    )
+    ring.rotation.x = Math.PI / 2
+    ring.position.y = -1.1
+    scene.add(ring)
+
+    /* ---------- 参数与切换 ---------- */
+    const params = { mode: 'Physical · clearcoat', autoRotate: true }
+    let compileMs = 0
+    let frameMs = 16.7
+
+    function setMode() {
+      sphere.material = materials[params.mode]
+      const t0 = performance.now()
+      renderer.compile(scene, camera) // 强制编译，让切换成本可见
+      compileMs = performance.now() - t0
+    }
+    setMode()
+
+    const gui = new GUI({ title: '材质实现' })
+    gui.add(params, 'mode', Object.keys(materials)).name('实现方式')
+      .onChange(() => setMode())
+    gui.add(params, 'autoRotate').name('自动旋转')
+    gui.add(sheenUniforms.uSheenStrength, 'value', 0, 1.2, 0.01).name('sheen 强度')
+    gui.add(sheenUniforms.uSheenRoughness, 'value', 0, 0.8, 0.01).name('sheen 粗糙度')
+
+    /* ---------- HUD ---------- */
+    const statEl = document.getElementById('stat')
+    function updateStat() {
+      const r = renderer.info.render
+      const programs = renderer.info.programs ? renderer.info.programs.length : 0
+      statEl.textContent =
+        `draw calls ${r.calls} · 程序 ${programs} · 帧耗时 ${frameMs.toFixed(1)} ms · 切换编译 ${compileMs.toFixed(1)} ms`
+    }
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const delta = timer.getDelta()
+      frameMs = frameMs * 0.9 + Math.min(delta * 1000, 100) * 0.1
+      if (params.autoRotate) sphere.rotation.y += delta * 0.45
+      controls.update()
+      renderer.render(scene, camera)
+      updateStat()
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>raycaster · Raycaster 鼠标拾取</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 350px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    #tooltip {
+      position: fixed;
+      display: none;
+      pointer-events: none;
+      z-index: 10;
+      padding: 5px 10px;
+      background: rgba(37, 99, 235, .95);
+      color: #fff;
+      border-radius: 6px;
+      font-size: 12.5px;
+      white-space: nowrap;
+      transform: translate(12px, 12px);
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div id="tooltip"></div>
+  <div class="info">
+    <b>Raycaster 射线拾取</b>：从相机出发，穿过鼠标在 NDC 空间的坐标
+    （x/y 都是 −1~1）发射一条 3D 射线，与物体求交。<br />
+    <b>悬停</b>高亮 + <b>点击</b>变色，信息面板显示交点坐标与距离。
+  </div>
+  <div class="hint">移动鼠标悬停 · 点击方块切换颜色</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 3.4, 7)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.domElement.style.touchAction = 'none'
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 0.85))
+    const dl = new THREE.DirectionalLight(0xffffff, 1.8)
+    dl.position.set(4, 7, 5)
+    scene.add(dl)
+    scene.add(new THREE.GridHelper(12, 12, 0x334155, 0x1e293b))
+
+    // 一排可交互方块，userData 存放自定义信息（拾取回调里读）
+    const pickables = []
+    const baseColors = [0x60a5fa, 0xf472b6, 0x34d399, 0xfbbf24, 0xa78bfa]
+    const names = ['蓝色立方体', '粉色立方体', '绿色立方体', '黄色立方体', '紫色立方体']
+    baseColors.forEach((c, i) => {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.9, 0.9, 0.9),
+        new THREE.MeshStandardMaterial({ color: c, roughness: 0.4, emissive: 0x000000 })
+      )
+      mesh.position.set((i - 2) * 1.8, 0.45, 0)
+      mesh.userData = { name: names[i], index: i, clicked: false }
+      scene.add(mesh)
+      pickables.push(mesh)
+    })
+
+    // 拾取辅助可视化：一条从相机指向交点的射线
+    const rayLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: 0xfde047, transparent: true, opacity: 0.8 })
+    )
+    rayLine.visible = false
+    scene.add(rayLine)
+
+    // 交点标记
+    const hitMarker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfde047 })
+    )
+    hitMarker.visible = false
+    scene.add(hitMarker)
+
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    const tooltip = document.getElementById('tooltip')
+    let hovered = null
+
+    function updatePointer(event) {
+      const rect = renderer.domElement.getBoundingClientRect()
+      // 屏幕像素 → NDC 归一化设备坐标（-1 ~ 1）
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+    }
+
+    function pick(event) {
+      updatePointer(event)
+      raycaster.setFromCamera(pointer, camera)
+      // intersectObjects 返回按距离排序的相交结果数组
+      const hits = raycaster.intersectObjects(pickables, false)
+
+      if (hits.length > 0) {
+        const hit = hits[0]
+        const obj = hit.object
+
+        // 悬停高亮：只有新悬停对象才改状态
+        if (hovered !== obj) {
+          if (hovered && !hovered.userData.clicked) {
+            hovered.material.emissive.setHex(0x000000)
+          }
+          hovered = obj
+          if (!obj.userData.clicked) obj.material.emissive.setHex(0x334155)
+          renderer.domElement.style.cursor = 'pointer'
+        }
+
+        // 可视化射线与交点
+        rayLine.visible = true
+        hitMarker.visible = true
+        rayLine.geometry.dispose()
+        const farPoint = raycaster.ray.origin.clone()
+          .add(raycaster.ray.direction.clone().multiplyScalar(hit.distance))
+        rayLine.geometry.setFromPoints([raycaster.ray.origin.clone(), farPoint])
+        hitMarker.position.copy(hit.point)
+
+        tooltip.style.display = 'block'
+        tooltip.style.left = `${event.clientX}px`
+        tooltip.style.top = `${event.clientY}px`
+        tooltip.innerHTML =
+          `${obj.userData.name}<br>` +
+          `距离 ${hit.distance.toFixed(2)} · 面 ${hit.faceIndex ?? '-'}`
+
+        return obj
+      }
+
+      // 未命中：恢复状态
+      if (hovered && !hovered.userData.clicked) hovered.material.emissive.setHex(0x000000)
+      hovered = null
+      renderer.domElement.style.cursor = 'default'
+      tooltip.style.display = 'none'
+      rayLine.visible = false
+      hitMarker.visible = false
+      return null
+    }
+
+    // 区分“点击”与“拖拽旋转”：记录按下位置，移动超过 5px 不算点击
+    let downX = 0
+    let downY = 0
+    renderer.domElement.addEventListener('pointerdown', e => {
+      downX = e.clientX
+      downY = e.clientY
+    })
+    renderer.domElement.addEventListener('pointermove', pick)
+    renderer.domElement.addEventListener('pointerleave', () => {
+      if (hovered && !hovered.userData.clicked) hovered.material.emissive.setHex(0x000000)
+      hovered = null
+      tooltip.style.display = 'none'
+      rayLine.visible = false
+      hitMarker.visible = false
+    })
+    renderer.domElement.addEventListener('click', event => {
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) > 5) return
+      const obj = pick(event)
+      if (!obj) return
+      obj.userData.clicked = !obj.userData.clicked
+      obj.material.emissive.setHex(obj.userData.clicked ? 0xb45309 : 0x334155)
+      obj.position.y = obj.userData.clicked ? 1.0 : 0.45
+    })
+
+    renderer.setAnimationLoop(() => {
+      pickables.forEach((m, i) => { m.rotation.y += 0.004 + i * 0.0006 })
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

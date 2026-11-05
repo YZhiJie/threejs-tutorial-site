@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>model-viewer · 模型展示页</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 320px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* 动画片段切换按钮条 */
+    .clips {
+      position: fixed;
+      bottom: 52px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 92vw;
+      z-index: 5;
+    }
+
+    .clips button {
+      padding: 7px 16px;
+      border: 1px solid rgba(255, 255, 255, .14);
+      border-radius: 999px;
+      background: rgba(11, 14, 20, .72);
+      color: #9fb4d4;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all .18s;
+    }
+
+    .clips button:hover {
+      border-color: #22d3ee;
+      color: #e6edf3;
+    }
+
+    .clips button.active {
+      background: linear-gradient(90deg, rgba(34, 211, 238, .22), rgba(167, 139, 250, .22));
+      border-color: #22d3ee;
+      color: #7cc4ff;
+    }
+
+    .loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: rgba(11, 14, 20, .88);
+      z-index: 10;
+      transition: opacity .4s;
+    }
+
+    .loading.done {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading .bar {
+      width: 260px;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .1);
+      overflow: hidden;
+    }
+
+    .loading .bar i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #22d3ee, #a78bfa);
+      transition: width .2s;
+    }
+
+    .loading .label {
+      font-size: 14px;
+      color: #9fb4d4;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>模型展示页 · RobotExpressive</b><br />
+    RoomEnvironment 环境光 + 圆形地台接触阴影 + 14 个动画片段。<br />
+    底部按钮切换动画（fadeIn/fadeOut 平滑过渡）。
+  </div>
+  <div class="hint">拖拽旋转 · 滚轮缩放 · 底部按钮切换动画片段</div>
+  <div class="clips" id="clipsBar"></div>
+
+  <div class="loading" id="loading">
+    <div class="label" id="loadingLabel">正在加载模型… 0%</div>
+    <div class="bar"><i id="loadingBar"></i></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const MODEL_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r186/examples/models/gltf/RobotExpressive/RobotExpressive.glb'
+
+    // ---- 基础设施 ----
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.6, 5.2)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1, 0)
+
+    // 环境光：程序化摄影棚 → PMREM，给 PBR 材质反射内容
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+
+    // 一盏方向光专职投影（接触阴影）
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.6)
+    keyLight.position.set(2.5, 5, 2.5)
+    keyLight.castShadow = true
+    keyLight.shadow.mapSize.set(1024, 1024)
+    keyLight.shadow.camera.left = keyLight.shadow.camera.bottom = -3
+    keyLight.shadow.camera.right = keyLight.shadow.camera.top = 3
+    scene.add(keyLight)
+
+    // 圆形地台：接收阴影的暗影材质圆盘 + 外圈描边
+    const pedestal = new THREE.Group()
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(2.2, 48),
+      new THREE.ShadowMaterial({ opacity: 0.5 })
+    )
+    disc.rotation.x = -Math.PI / 2
+    disc.receiveShadow = true
+    pedestal.add(disc)
+    const rim = new THREE.Mesh(
+      new THREE.RingGeometry(2.16, 2.2, 48),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+    )
+    rim.rotation.x = -Math.PI / 2
+    rim.position.y = 0.001
+    pedestal.add(rim)
+    scene.add(pedestal)
+
+    // ---- 加载模型 + 动画片段 ----
+    const loadingEl = document.getElementById('loading')
+    const labelEl = document.getElementById('loadingLabel')
+    const barEl = document.getElementById('loadingBar')
+    const clipsBar = document.getElementById('clipsBar')
+
+    let mixer = null
+    let actions = {}      // 片段名 → AnimationAction
+    let activeAction = null
+    let model = null
+
+    new GLTFLoader().load(
+      MODEL_URL,
+      (gltf) => {
+        model = gltf.scene
+        model.traverse(o => { if (o.isMesh) { o.castShadow = true } })
+        scene.add(model)
+
+        mixer = new THREE.AnimationMixer(model)
+        // 为每个动画片段创建 action，并生成切换按钮
+        gltf.animations.forEach(clip => {
+          actions[clip.name] = mixer.clipAction(clip)
+          const btn = document.createElement('button')
+          btn.textContent = clip.name
+          btn.onclick = () => playClip(clip.name, btn)
+          clipsBar.appendChild(btn)
+        })
+        // 默认播放 Idle
+        const idleBtn = [...clipsBar.children].find(b => b.textContent === 'Idle')
+        playClip('Idle', idleBtn)
+        loadingEl.classList.add('done')
+      },
+      (xhr) => {
+        if (xhr.total > 0) {
+          const pct = Math.round(xhr.loaded / xhr.total * 100)
+          labelEl.textContent = `正在加载模型… ${pct}%`
+          barEl.style.width = pct + '%'
+        }
+      },
+      (err) => {
+        labelEl.textContent = '加载失败：请检查网络后刷新'
+        console.error(err)
+      }
+    )
+
+    // fadeIn / fadeOut 平滑切换片段
+    function playClip(name, btn) {
+      const next = actions[name]
+      if (!next || next === activeAction) return
+      next.reset().setLoop(THREE.LoopRepeat).fadeIn(0.3).play()
+      if (activeAction) activeAction.fadeOut(0.3)
+      activeAction = next
+      ;[...clipsBar.children].forEach(b => b.classList.toggle('active', b === btn))
+    }
+
+    // ---- 参数面板 ----
+    const params = { 自动旋转: true, 旋转速度: 0.8, 动画速度: 1.0, 显示地台: true }
+    const gui = new GUI({ title: '展示设置' })
+    gui.add(params, '自动旋转')
+    gui.add(params, '旋转速度', 0, 3, 0.05)
+    gui.add(params, '动画速度', 0.2, 2, 0.05).onChange(v => { if (mixer) mixer.timeScale = v })
+    gui.add(params, '显示地台').onChange(v => pedestal.visible = v)
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r183 起 Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update()
+      const delta = clock.getDelta()
+      if (mixer) mixer.update(delta)          // 骨骼动画必须每帧推进
+      if (params.自动旋转 && model) model.rotation.y += delta * params.旋转速度
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

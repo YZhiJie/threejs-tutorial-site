@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>validator-lab · 配置校验工作台</title>
+  <style>
+    * { box-sizing: border-box; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app { position: fixed; left: 374px; right: 0; top: 0; bottom: 216px; }
+    canvas { display: block; }
+
+    .panel {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      bottom: 12px;
+      width: 350px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      background: rgba(13, 19, 30, .9);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 12px;
+      z-index: 10;
+      overflow-y: auto;
+    }
+
+    .info { font-size: 12.5px; line-height: 1.6; }
+    .info b { color: #7cc4ff; font-size: 13.5px; }
+    .info .sub { display: block; color: #94a3b8; margin-top: 3px; }
+
+    .progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11.5px;
+      color: #94a3b8;
+    }
+
+    .bar {
+      flex: 1;
+      height: 5px;
+      border-radius: 3px;
+      background: rgba(148, 163, 184, .18);
+      overflow: hidden;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #22d3ee, #34d399);
+      transition: width .25s;
+    }
+
+    .mode {
+      display: flex;
+      gap: 5px;
+    }
+
+    .mode button {
+      flex: 1;
+      padding: 5px 8px;
+      border-radius: 7px;
+      border: 1px solid rgba(148, 163, 184, .28);
+      background: rgba(148, 163, 184, .1);
+      color: #cbd5e1;
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: .18s;
+    }
+
+    .mode button.active {
+      border-color: rgba(167, 139, 250, .6);
+      background: rgba(167, 139, 250, .18);
+      color: #ddd6fe;
+      font-weight: 700;
+    }
+
+    .issues {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-height: 174px;
+      overflow-y: auto;
+    }
+
+    .issue {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 6px 9px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, .2);
+      background: rgba(148, 163, 184, .07);
+      color: #cbd5e1;
+      font-size: 11.5px;
+      text-align: left;
+      cursor: pointer;
+      transition: .18s;
+    }
+
+    .issue:hover { background: rgba(148, 163, 184, .14); }
+    .issue.active { border-color: rgba(251, 113, 133, .6); background: rgba(251, 113, 133, .1); }
+    .issue.done { border-color: rgba(52, 211, 153, .5); background: rgba(52, 211, 153, .1); color: #a7f3d0; }
+
+    .issue .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #fb7185;
+      flex: 0 0 auto;
+    }
+
+    .issue.done .dot { background: #34d399; }
+    .issue .num { color: #64748b; font-family: 'SF Mono', Consolas, monospace; }
+
+    .hintline {
+      font-size: 11.5px;
+      line-height: 1.55;
+      color: #fbbf24;
+      min-height: 34px;
+      padding: 6px 9px;
+      border-radius: 8px;
+      background: rgba(251, 191, 36, .08);
+      border: 1px solid rgba(251, 191, 36, .22);
+    }
+
+    textarea {
+      flex: 1;
+      min-height: 110px;
+      width: 100%;
+      resize: none;
+      padding: 10px;
+      border-radius: 9px;
+      border: 1px solid rgba(148, 163, 184, .28);
+      background: #0a0f1c;
+      color: #cbd5e1;
+      font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.55;
+      tab-size: 2;
+      outline: none;
+    }
+
+    textarea:focus { border-color: rgba(167, 139, 250, .55); }
+    textarea.bad { border-color: rgba(251, 113, 133, .8); }
+
+    .foot {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .next {
+      flex: 0 0 auto;
+      padding: 6px 12px;
+      border-radius: 7px;
+      border: 1px solid rgba(34, 211, 238, .45);
+      background: rgba(34, 211, 238, .14);
+      color: #a5f3fc;
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: .18s;
+    }
+
+    .next:hover { background: rgba(34, 211, 238, .26); }
+
+    .report {
+      position: fixed;
+      left: 374px;
+      right: 12px;
+      bottom: 12px;
+      height: 196px;
+      padding: 10px 12px;
+      background: rgba(13, 19, 30, .9);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 12px;
+      z-index: 12;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .report.pass { border-color: rgba(52, 211, 153, .55); }
+    .report.fail { border-color: rgba(251, 113, 133, .5); }
+
+    .report-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #94a3b8;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(148, 163, 184, .14);
+    }
+
+    .report-head b { color: #e2e8f0; font-size: 12.5px; }
+    .report .badge { font-size: 10.5px; padding: 2px 8px; border-radius: 999px; }
+    .report .badge.ok { color: #34d399; background: rgba(52, 211, 153, .12); }
+    .report .badge.no { color: #fb7185; background: rgba(251, 113, 133, .12); }
+
+    .report-body {
+      flex: 1;
+      overflow-y: auto;
+      margin-top: 6px;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .row-item {
+      display: flex;
+      gap: 8px;
+      padding: 4px 0;
+      border-bottom: 1px dashed rgba(148, 163, 184, .1);
+    }
+
+    .row-item .sev {
+      flex: 0 0 42px;
+      font-weight: 700;
+      font-size: 10.5px;
+    }
+
+    .sev.error { color: #fb7185; }
+    .sev.fixed { color: #fbbf24; }
+    .sev.warn { color: #fbbf24; }
+
+    .row-item .body { flex: 1; min-width: 0; }
+    .row-item .p { color: #7dd3fc; font-family: 'SF Mono', Consolas, monospace; }
+    .row-item .msg { color: #94a3b8; }
+    .row-item .io { color: #64748b; font-family: 'SF Mono', Consolas, monospace; }
+
+    .empty {
+      color: #34d399;
+      padding: 8px 2px;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .freeze {
+      position: fixed;
+      top: 12px;
+      right: 16px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: rgba(251, 191, 36, .14);
+      border: 1px solid rgba(251, 191, 36, .45);
+      color: #fcd34d;
+      font-size: 11px;
+      z-index: 20;
+      display: none;
+    }
+
+    .freeze.show { display: block; }
+
+    .hint {
+      position: fixed;
+      right: 18px;
+      bottom: 222px;
+      padding: 5px 12px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 11.5px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 20;
+    }
+
+    @media (max-width: 900px) {
+      .panel { width: 300px; }
+      #app { left: 320px; bottom: 196px; }
+      .report { left: 320px; height: 176px; }
+      .hint { bottom: 200px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="freeze" id="freeze">预览已冻结 · 显示上一份有效配置</div>
+
+  <div class="panel">
+    <div class="info">
+      <b>配置校验工作台 · 五类坏配置</b>
+      <span class="sub">点题号载入坏配置，直接改 JSON；错误清空后自动记为已修复。</span>
+    </div>
+
+    <div class="progress">
+      <span id="progressText">0 / 5 已修复</span>
+      <span class="bar"><i id="bar"></i></span>
+    </div>
+
+    <div class="mode">
+      <button id="strict" class="active">严格模式</button>
+      <button id="lenient">宽松模式 · 补默认值</button>
+    </div>
+
+    <div class="issues" id="issues"></div>
+    <div class="hintline" id="hintline"></div>
+    <textarea id="dsl" spellcheck="false" aria-label="配置 JSON"></textarea>
+
+    <div class="foot">
+      <span class="progress" id="modeNote" style="font-size:10.5px">严格：缺字段即报错</span>
+      <button class="next" id="next">下一题</button>
+    </div>
+  </div>
+
+  <section class="report" id="report">
+    <div class="report-head">
+      <b>校验报告</b>
+      <span id="reportMeta">等待输入</span>
+    </div>
+    <div class="report-body" id="reportBody"></div>
+  </section>
+
+  <div class="hint">编辑左侧 JSON · 报告实时刷新 · 有效配置才会重建 3D 预览</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    /* ---------- 渲染基础 ---------- */
+    const container = document.getElementById('app')
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200)
+    camera.position.set(6.5, 5.2, 8.5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFShadowMap
+    container.appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.2, 0)
+    controls.update()
+
+    let root = new THREE.Group()
+    scene.add(root)
+    let anims = []
+
+    function resize() {
+      const w = container.clientWidth || 1
+      const h = container.clientHeight || 1
+      camera.aspect = w / h
+      camera.updateProjectionMatrix()
+      renderer.setSize(w, h)
+    }
+
+    /* ---------- 校验规则 ---------- */
+    const isNum = (n) => typeof n === 'number' && Number.isFinite(n)
+    const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(isNum)
+    const isColor = (v) => typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)
+    const TYPES = ['box', 'sphere', 'cone', 'cylinder', 'torus', 'plane', 'group']
+    const LIGHT_TYPES = ['hemisphere', 'directional', 'ambient', 'point']
+
+    const DEFAULT_FOV = 45
+    const MAX_INTENSITY = 6
+
+    function check(input, mode) {
+      const issues = []
+      const err = (path, expected, actual, msg) => issues.push({ path, expected, actual, msg, severity: 'error' })
+      const fix = (path, expected, actual, msg) => issues.push({ path, expected, actual, msg, severity: 'fixed' })
+
+      let data
+      try {
+        data = JSON.parse(JSON.stringify(input))
+      } catch (e) {
+        err('/', 'object', 'unparsable', '配置无法复制')
+        return { data: input, issues }
+      }
+
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        err('/', 'object', JSON.stringify(data), '根节点必须是对象')
+        return { data, issues }
+      }
+
+      if (data.version !== 1) {
+        err('/version', 'number 1', JSON.stringify(data.version), '只接受 schema v1')
+      }
+
+      const matIds = new Set()
+      if (data.materials !== undefined && !Array.isArray(data.materials)) {
+        err('/materials', 'array', JSON.stringify(data.materials), 'materials 必须是数组')
+      }
+      ;(Array.isArray(data.materials) ? data.materials : []).forEach((m, i) => {
+        if (!m || typeof m !== 'object') {
+          err(`/materials/${i}`, 'object', JSON.stringify(m), '材质节点必须是对象')
+          return
+        }
+        if (typeof m.id !== 'string' || !m.id) err(`/materials/${i}/id`, 'string', JSON.stringify(m.id), '材质缺少 id')
+        else if (matIds.has(m.id)) err(`/materials/${i}/id`, 'unique', JSON.stringify(m.id), '材质 id 重复')
+        else matIds.add(m.id)
+        if (m.color !== undefined && !isColor(m.color)) {
+          err(`/materials/${i}/color`, 'hex color', JSON.stringify(m.color), '颜色格式错误')
+        }
+      })
+
+      const cam = data.camera
+      if (!cam || typeof cam !== 'object') {
+        err('/camera', 'object', JSON.stringify(cam), '缺少 camera')
+      } else {
+        if (cam.fov === undefined) {
+          if (mode === 'lenient') {
+            cam.fov = DEFAULT_FOV
+            fix('/camera/fov', 'number 1..120', 'missing → 45', '已补默认值 45')
+          } else {
+            err('/camera/fov', 'required number 1..120', 'missing', '必填字段缺失')
+          }
+        } else if (!isNum(cam.fov)) {
+          err('/camera/fov', 'number 1..120', JSON.stringify(cam.fov), 'fov 类型错误（字符串不是数字）')
+        } else if (cam.fov < 1 || cam.fov > 120) {
+          if (mode === 'lenient') {
+            cam.fov = Math.min(120, Math.max(1, cam.fov))
+            fix('/camera/fov', 'number 1..120', JSON.stringify(cam.fov), '已夹到合法区间')
+          } else {
+            err('/camera/fov', 'number 1..120', JSON.stringify(cam.fov), '数值越界')
+          }
+        }
+        if (!isVec3(cam.position)) err('/camera/position', 'vec3', JSON.stringify(cam.position), '相机位置错误')
+        if (!isVec3(cam.target)) err('/camera/target', 'vec3', JSON.stringify(cam.target), '相机目标错误')
+      }
+
+      const ids = new Set()
+      const seenIds = new Set()
+      if (!Array.isArray(data.objects) || !data.objects.length) {
+        err('/objects', 'non-empty array', JSON.stringify(data.objects), 'objects 必须存在')
+      }
+      ;(Array.isArray(data.objects) ? data.objects : []).forEach((o) => {
+        if (o && typeof o.id === 'string' && o.id) ids.add(o.id)
+      })
+      ;(Array.isArray(data.objects) ? data.objects : []).forEach((o, i) => {
+        if (!o || typeof o !== 'object') {
+          err(`/objects/${i}`, 'object', JSON.stringify(o), '对象节点必须是对象')
+          return
+        }
+        const p = `/objects/${i}`
+        if (typeof o.id !== 'string' || !o.id) err(`${p}/id`, 'string', JSON.stringify(o.id), '对象缺少 id')
+        else if (seenIds.has(o.id)) err(`${p}/id`, 'unique', JSON.stringify(o.id), '对象 id 重复')
+        else seenIds.add(o.id)
+        if (!TYPES.includes(o.type)) err(`${p}/type`, TYPES.join(' | '), JSON.stringify(o.type), '构建器不存在')
+        ;['position', 'rotation', 'scale'].forEach((k) => {
+          if (o[k] !== undefined && !isVec3(o[k])) err(`${p}/${k}`, 'vec3', JSON.stringify(o[k]), `${k} 必须是三个数字`)
+        })
+        if (o.type !== 'group' && !o.material) err(`${p}/material`, 'material id', 'missing', '可渲染对象必须引用材质')
+        else if (o.material !== undefined && !matIds.has(o.material)) {
+          err(`${p}/material`, 'existing material id', JSON.stringify(o.material), '引用了不存在的材质')
+        }
+        if (o.parent !== undefined && !ids.has(o.parent)) {
+          err(`${p}/parent`, 'existing id', JSON.stringify(o.parent), '父节点不存在')
+        }
+        if (o.parent !== undefined && o.parent === o.id) {
+          err(`${p}/parent`, 'other id', JSON.stringify(o.parent), '不能自引用')
+        }
+      })
+
+      ;(Array.isArray(data.objects) ? data.objects : []).forEach((o, i) => {
+        if (!o || !o.parent) return
+        const seen = new Set([o.id])
+        let cur = o.parent
+        let guard = 0
+        while (typeof cur === 'string' && guard++ < data.objects.length + 1) {
+          if (seen.has(cur)) {
+            err(`/objects/${i}/parent`, 'acyclic chain', JSON.stringify(o.parent), '父子关系成环')
+            break
+          }
+          seen.add(cur)
+          const next = data.objects.find((x) => x && x.id === cur)
+          cur = next ? next.parent : undefined
+        }
+      })
+
+      if (data.lights !== undefined && !Array.isArray(data.lights)) {
+        err('/lights', 'array', JSON.stringify(data.lights), 'lights 必须是数组')
+      }
+      ;(Array.isArray(data.lights) ? data.lights : []).forEach((l, i) => {
+        if (!l || typeof l !== 'object') {
+          err(`/lights/${i}`, 'object', JSON.stringify(l), '灯光节点必须是对象')
+          return
+        }
+        if (!LIGHT_TYPES.includes(l.type)) err(`/lights/${i}/type`, LIGHT_TYPES.join(' | '), JSON.stringify(l.type), '未知灯光类型')
+        if (l.intensity === undefined) {
+          if (mode === 'lenient') {
+            l.intensity = 1
+            fix(`/lights/${i}/intensity`, `number 0..${MAX_INTENSITY}`, 'missing → 1', '已补默认值 1')
+          } else {
+            err(`/lights/${i}/intensity`, 'required number', 'missing', '必填字段缺失')
+          }
+        } else if (!isNum(l.intensity)) {
+          err(`/lights/${i}/intensity`, 'number', JSON.stringify(l.intensity), '强度类型错误')
+        } else if (l.intensity < 0 || l.intensity > MAX_INTENSITY) {
+          if (mode === 'lenient') {
+            l.intensity = Math.min(MAX_INTENSITY, Math.max(0, l.intensity))
+            fix(`/lights/${i}/intensity`, `number 0..${MAX_INTENSITY}`, JSON.stringify(l.intensity), '已夹到业务上限')
+          } else {
+            err(`/lights/${i}/intensity`, `number 0..${MAX_INTENSITY}`, JSON.stringify(l.intensity), '超出业务上限')
+          }
+        }
+        if (l.position !== undefined && !isVec3(l.position)) {
+          err(`/lights/${i}/position`, 'vec3', JSON.stringify(l.position), '灯光位置必须是三个数字')
+        }
+        if (l.color !== undefined && !isColor(l.color)) {
+          err(`/lights/${i}/color`, 'hex color', JSON.stringify(l.color), '灯光颜色格式错误')
+        }
+      })
+
+      if (data.animations !== undefined && !Array.isArray(data.animations)) {
+        err('/animations', 'array', JSON.stringify(data.animations), 'animations 必须是数组')
+      }
+      ;(Array.isArray(data.animations) ? data.animations : []).forEach((a, i) => {
+        if (!a || typeof a !== 'object') {
+          err(`/animations/${i}`, 'object', JSON.stringify(a), '动画节点必须是对象')
+          return
+        }
+        if (!ids.has(a.target)) err(`/animations/${i}/target`, 'existing id', JSON.stringify(a.target), '动画目标不存在')
+        if (!['spin', 'bob', 'orbit'].includes(a.type)) {
+          err(`/animations/${i}/type`, 'spin | bob | orbit', JSON.stringify(a.type), '未知动画类型')
+        }
+      })
+
+      return { data, issues }
+    }
+
+    /* ---------- 场景构建 ---------- */
+    function geometryFor(type) {
+      switch (type) {
+        case 'sphere': return new THREE.SphereGeometry(0.6, 32, 24)
+        case 'cone': return new THREE.ConeGeometry(0.6, 1.4, 24)
+        case 'cylinder': return new THREE.CylinderGeometry(0.6, 0.6, 1, 24)
+        case 'torus': return new THREE.TorusGeometry(0.55, 0.18, 20, 48)
+        case 'plane': return new THREE.PlaneGeometry(1, 1)
+        default: return new THREE.BoxGeometry(1, 1, 1)
+      }
+    }
+
+    function build(data) {
+      const group = new THREE.Group()
+      const animList = []
+      const mats = new Map()
+      ;(data.materials || []).forEach((m) => {
+        mats.set(m.id, new THREE.MeshStandardMaterial({
+          color: m.color || '#94a3b8',
+          metalness: isNum(m.metalness) ? m.metalness : 0.1,
+          roughness: isNum(m.roughness) ? m.roughness : 0.7
+        }))
+      })
+
+      const nodes = new Map()
+      ;(data.objects || []).forEach((o) => {
+        const mat = mats.get(o.material) || new THREE.MeshStandardMaterial({ color: 0x94a3b8 })
+        const node = o.type === 'group' ? new THREE.Group() : new THREE.Mesh(geometryFor(o.type), mat)
+        node.name = o.id
+        if (node.isMesh) {
+          node.castShadow = o.type !== 'plane'
+          node.receiveShadow = true
+        }
+        nodes.set(o.id, node)
+      })
+
+      ;(data.objects || []).forEach((o) => {
+        const node = nodes.get(o.id)
+        node.position.fromArray(o.position || [0, 0, 0])
+        node.rotation.fromArray(o.rotation || [0, 0, 0])
+        node.scale.fromArray(o.scale || [1, 1, 1])
+        const parent = o.parent ? nodes.get(o.parent) : null
+        if (parent) parent.add(node)
+        else group.add(node)
+      })
+
+      ;(data.lights || []).forEach((l) => {
+        const intensity = isNum(l.intensity) ? l.intensity : 1
+        const color = l.color || '#ffffff'
+        let light
+        if (l.type === 'hemisphere') {
+          light = new THREE.HemisphereLight(l.sky || '#93c5fd', l.ground || '#0f172a', intensity)
+        } else if (l.type === 'directional') {
+          light = new THREE.DirectionalLight(color, intensity)
+          light.position.fromArray(l.position || [5, 8, 4])
+          light.castShadow = true
+          light.shadow.mapSize.set(1024, 1024)
+          light.shadow.camera.left = -12
+          light.shadow.camera.right = 12
+          light.shadow.camera.top = 12
+          light.shadow.camera.bottom = -12
+          light.shadow.camera.far = 40
+          light.shadow.bias = -0.0005
+        } else if (l.type === 'point') {
+          light = new THREE.PointLight(color, intensity, l.distance || 20)
+          light.position.fromArray(l.position || [0, 4, 0])
+        } else {
+          light = new THREE.AmbientLight(color, intensity)
+        }
+        group.add(light)
+      })
+
+      ;(data.animations || []).forEach((a) => {
+        const obj = nodes.get(a.target)
+        if (!obj) return
+        animList.push({
+          obj,
+          type: a.type,
+          axis: a.axis || 'y',
+          speed: isNum(a.speed) ? a.speed : 0.8,
+          amp: 0.22,
+          radius: 2.4,
+          baseY: obj.position.y,
+          cx: obj.position.x,
+          cz: obj.position.z,
+          angle: 0,
+          phase: Math.random() * Math.PI * 2
+        })
+      })
+
+      return { group, animList }
+    }
+
+    function disposeGroup(g) {
+      g.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose()
+        if (obj.material) {
+          const list = Array.isArray(obj.material) ? obj.material : [obj.material]
+          list.forEach((m) => m.dispose())
+        }
+      })
+      g.clear()
+    }
+
+    let hasValid = false
+    const freezeEl = document.getElementById('freeze')
+
+    function mount(data) {
+      const plan = build(data)
+      const old = root
+      root = plan.group
+      anims = plan.animList
+      scene.add(root)
+      scene.remove(old)
+      disposeGroup(old)
+      hasValid = true
+      freezeEl.classList.remove('show')
+    }
+
+    /* ---------- 坏配置合集 ---------- */
+    function baseConfig() {
+      return {
+        version: 1,
+        scene: { background: '#0b0e14' },
+        camera: { fov: 45, position: [6.5, 5.2, 8.5], target: [0, 1.2, 0] },
+        materials: [
+          { id: 'stone', color: '#94a3b8', metalness: 0.05, roughness: 0.9 },
+          { id: 'steel', color: '#60a5fa', metalness: 0.8, roughness: 0.22 }
+        ],
+        objects: [
+          { id: 'base', type: 'box', position: [0, 0.25, 0], scale: [6, 0.5, 6], material: 'stone' },
+          { id: 'tower', type: 'box', position: [0, 1.8, 0], scale: [1.1, 2.6, 1.1], material: 'steel' },
+          { id: 'orb', type: 'sphere', position: [1.8, 1.2, 0], scale: [0.7, 0.7, 0.7], material: 'steel' }
+        ],
+        lights: [
+          { type: 'hemisphere', sky: '#93c5fd', ground: '#0f172a', intensity: 0.7 },
+          { type: 'directional', position: [5, 8, 4], intensity: 2.0, color: '#ffffff' }
+        ],
+        animations: [{ target: 'orb', type: 'spin', axis: 'y', speed: 1.2 }]
+      }
+    }
+
+    const ISSUES = [
+      {
+        id: 'type',
+        title: '类型错误：fov 写成了字符串',
+        hint: '把 "48" 去掉引号，改回数字 48。类型错误在严格/宽松模式下都是错误。',
+        make: (c) => { c.camera.fov = '48'; return c }
+      },
+      {
+        id: 'missing',
+        title: '缺失字段：camera 没有 fov',
+        hint: '补回 camera.fov；严格模式报缺失，宽松模式会自动补默认值 45。',
+        make: (c) => { delete c.camera.fov; return c }
+      },
+      {
+        id: 'ref',
+        title: '引用不存在：材质 gold',
+        hint: '把 gold 改成已存在的 stone 或 steel，或在 materials 里新增一条。',
+        make: (c) => { c.objects[1].material = 'gold'; return c }
+      },
+      {
+        id: 'range',
+        title: '数值越界：灯光强度 12',
+        hint: '业务上限是 6，改成 0~6 之间的数；宽松模式会自动夹到 6 并标记为已修正。',
+        make: (c) => { c.lights[1].intensity = 12; return c }
+      },
+      {
+        id: 'cycle',
+        title: '循环父子：tower ↔ orb',
+        hint: '删掉两处 parent，或改成单向挂接，让父子关系保持为有向无环图。',
+        make: (c) => { c.objects[1].parent = 'orb'; c.objects[2].parent = 'tower'; return c }
+      }
+    ]
+
+    /* ---------- UI 状态 ---------- */
+    const ta = document.getElementById('dsl')
+    const bodyEl = document.getElementById('reportBody')
+    const reportEl = document.getElementById('report')
+    const metaEl = document.getElementById('reportMeta')
+    const hintEl = document.getElementById('hintline')
+    const freezeBadge = document.getElementById('freeze')
+    const progressText = document.getElementById('progressText')
+    const barEl = document.getElementById('bar')
+    const modeNote = document.getElementById('modeNote')
+
+    const state = {
+      active: 'type',
+      mode: 'strict',
+      fixed: new Set(),
+      fixedText: new Map()
+    }
+
+    function issueById(id) {
+      return ISSUES.find((x) => x.id === id)
+    }
+
+    function renderIssues() {
+      const box = document.getElementById('issues')
+      box.innerHTML = ISSUES.map((it, i) => {
+        const done = state.fixed.has(it.id)
+        const active = state.active === it.id
+        return '<button class="issue' + (done ? ' done' : '') + (active ? ' active' : '')
+          + '" data-id="' + it.id + '"><span class="dot"></span><span class="num">'
+          + String(i + 1).padStart(2, '0') + '</span><span>' + it.title + '</span></button>'
+      }).join('')
+      box.querySelectorAll('.issue').forEach((b) => {
+        b.addEventListener('click', () => loadIssue(b.dataset.id))
+      })
+    }
+
+    function updateProgress() {
+      progressText.textContent = state.fixed.size + ' / ' + ISSUES.length + ' 已修复'
+      barEl.style.width = (state.fixed.size / ISSUES.length * 100) + '%'
+    }
+
+    function setMode(mode) {
+      state.mode = mode
+      document.getElementById('strict').classList.toggle('active', mode === 'strict')
+      document.getElementById('lenient').classList.toggle('active', mode === 'lenient')
+      modeNote.textContent = mode === 'strict' ? '严格：缺字段即报错' : '宽松：缺失补默认、越界夹取'
+      validateNow()
+    }
+
+    function renderReport(result, parseError) {
+      const { issues } = result
+      const errors = issues.filter((x) => x.severity === 'error')
+      const fixes = issues.filter((x) => x.severity !== 'error')
+
+      if (parseError) {
+        reportEl.className = 'report fail'
+        metaEl.innerHTML = '<span class="badge no">解析失败</span>'
+        bodyEl.innerHTML = '<div class="empty" style="color:#fb7185">' + parseError + '</div>'
+        return
+      }
+
+      if (errors.length) {
+        reportEl.className = 'report fail'
+        metaEl.innerHTML = '<span class="badge no">' + errors.length + ' 个错误</span>'
+      } else {
+        reportEl.className = 'report pass'
+        metaEl.innerHTML = '<span class="badge ok">通过</span>'
+      }
+
+      let html = ''
+      if (!issues.length) {
+        html = '<div class="empty">✓ 0 个错误，配置可以构建。' + (state.mode === 'lenient' ? ' 宽松模式未发现可补的缺失项。' : '') + '</div>'
+      } else {
+        html = issues.map((x) =>
+          '<div class="row-item"><span class="sev ' + x.severity + '">'
+          + (x.severity === 'error' ? 'ERROR' : 'FIX') + '</span><div class="body">'
+          + '<span class="p">' + x.path + '</span> <span class="msg">' + x.msg + '</span>'
+          + '<div class="io">期望 ' + x.expected + ' ｜ 实际 ' + x.actual + '</div></div></div>'
+        ).join('')
+      }
+      bodyEl.innerHTML = html
+
+      if (!errors.length && state.active) {
+        state.fixed.add(state.active)
+        state.fixedText.set(state.active, JSON.stringify(result.data, null, 2))
+        updateProgress()
+        renderIssues()
+      }
+    }
+
+    function selectPath(path) {
+      const seg = path.split('/').filter(Boolean).pop()
+      if (!seg) return
+      const re = new RegExp('"' + seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"\\s*:')
+      const m = re.exec(ta.value)
+      if (!m) return
+      const start = ta.value.lastIndexOf('\n', m.index) + 1
+      const end = ta.value.indexOf('\n', m.index)
+      ta.focus()
+      ta.setSelectionRange(start, end === -1 ? ta.value.length : end)
+    }
+
+    function validateNow(selectFirst) {
+      const raw = ta.value
+      let input
+      try {
+        input = JSON.parse(raw)
+      } catch (e) {
+        ta.classList.add('bad')
+        renderReport({ issues: [] }, 'JSON 解析失败：' + e.message)
+        if (hasValid) freezeBadge.classList.add('show')
+        return
+      }
+
+      const result = check(input, state.mode)
+      const errors = result.issues.filter((x) => x.severity === 'error')
+      renderReport(result, null)
+
+      if (errors.length) {
+        ta.classList.add('bad')
+        if (hasValid) freezeBadge.classList.add('show')
+        if (selectFirst) selectPath(errors[0].path)
+        return
+      }
+
+      ta.classList.remove('bad')
+      mount(result.data)
+    }
+
+    function loadIssue(id) {
+      const issue = issueById(id)
+      state.active = id
+      hintEl.textContent = issue.hint
+      const fixed = state.fixedText.get(id)
+      ta.value = fixed || JSON.stringify(issue.make(baseConfig()), null, 2)
+      renderIssues()
+      validateNow(true)
+    }
+
+    let debounce = 0
+    ta.addEventListener('input', () => {
+      clearTimeout(debounce)
+      debounce = setTimeout(validateNow, 380)
+    })
+
+    document.getElementById('strict').addEventListener('click', () => setMode('strict'))
+    document.getElementById('lenient').addEventListener('click', () => setMode('lenient'))
+    document.getElementById('next').addEventListener('click', () => {
+      const idx = ISSUES.findIndex((x) => x.id === state.active)
+      let next = null
+      for (let i = 1; i <= ISSUES.length; i++) {
+        const cand = ISSUES[(idx + i) % ISSUES.length]
+        if (!state.fixed.has(cand.id)) { next = cand; break }
+      }
+      loadIssue((next || ISSUES[0]).id)
+    })
+
+    /* ---------- 启动 ---------- */
+    renderIssues()
+    updateProgress()
+    mount(baseConfig())
+    loadIssue('type')
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+      const t = timer.getElapsed()
+      anims.forEach((a) => {
+        if (a.type === 'spin') a.obj.rotation[a.axis] += a.speed * dt
+        else if (a.type === 'bob') a.obj.position.y = a.baseY + Math.sin(t * a.speed + a.phase) * a.amp
+        else if (a.type === 'orbit') {
+          a.angle += a.speed * dt
+          a.obj.position.x = a.cx + Math.cos(a.angle) * a.radius
+          a.obj.position.z = a.cz + Math.sin(a.angle) * a.radius
+        }
+      })
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    resize()
+    addEventListener('resize', resize)
+  </script>
+</body>
+
+</html>

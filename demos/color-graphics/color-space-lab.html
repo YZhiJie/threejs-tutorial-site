@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>color-space-lab · 色彩空间对比台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 372px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .chain {
+      display: block;
+      margin: 5px 0 4px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .verdict {
+      display: block;
+      margin-top: 4px;
+      font-weight: 600;
+    }
+
+    .verdict.ok {
+      color: #34d399;
+    }
+
+    .verdict.bad {
+      color: #fb7185;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 258px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 205px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 196px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>色彩空间对比台 · 线性 vs sRGB</b><br />
+    同一张红绿渐变贴图，只改三个开关，颜色就会「发灰 / 过饱和 / 偏暗」。<br />
+    <span class="chain" id="chain"></span>
+    <span class="verdict" id="verdict"></span>
+  </div>
+  <div class="hint">右上角切换色彩空间与色调映射 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 基础渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.1, 7.2)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace // 输出到屏幕前做 sRGB 编码
+    renderer.toneMapping = THREE.NoToneMapping
+    renderer.toneMappingExposure = 1
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0, 0)
+
+    /* ---------- 程序化贴图：红 → 黄 → 绿 ---------- */
+    function makeGradientTexture() {
+      const canvas = document.createElement('canvas')
+      canvas.width = 512
+      canvas.height = 256
+      const ctx = canvas.getContext('2d')
+      const g = ctx.createLinearGradient(0, 0, canvas.width, 0)
+      g.addColorStop(0.0, '#ff2020')
+      g.addColorStop(0.25, '#ffe14d')
+      g.addColorStop(0.5, '#16d96b')
+      g.addColorStop(0.75, '#ffe14d')
+      g.addColorStop(1.0, '#ff2020')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.SRGBColorSpace // 关键：告诉 Three.js 这是 sRGB 颜色数据
+      tex.wrapS = THREE.RepeatWrapping
+      tex.wrapT = THREE.ClampToEdgeWrapping
+      tex.offset.x = 0.25 // 让正面看到 红 → 黄 → 绿 的完整过渡
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      return tex
+    }
+
+    /* ---------- 程序化贴图：6 个参考色块 ---------- */
+    function makeSwatchTexture() {
+      const canvas = document.createElement('canvas')
+      canvas.width = 768
+      canvas.height = 128
+      const ctx = canvas.getContext('2d')
+      const colors = ['#ff0000', '#00ff00', '#0000ff', '#808080', '#1a1a1a', '#ffffff']
+      colors.forEach((hex, i) => {
+        ctx.fillStyle = hex
+        ctx.fillRect(i * 128, 0, 128, 128)
+      })
+      ctx.strokeStyle = '#0b0e14'
+      ctx.lineWidth = 4
+      for (let i = 0; i <= 6; i++) ctx.strokeRect(i * 128 - 2, -2, 4, 132)
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      return tex
+    }
+
+    const gradientTex = makeGradientTexture()
+    const swatchTex = makeSwatchTexture()
+
+    /* ---------- 场景对象 ---------- */
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(1.25, 64, 48),
+      new THREE.MeshBasicMaterial({ map: gradientTex, toneMapped: true })
+    )
+    sphere.position.set(0, 0.55, 0)
+    scene.add(sphere)
+
+    // 参考色条：红 / 绿 / 蓝 / 中灰 / 暗灰 / 白，用来判断是否偏色
+    const swatch = new THREE.Mesh(
+      new THREE.PlaneGeometry(4.2, 0.7),
+      new THREE.MeshBasicMaterial({ map: swatchTex, toneMapped: true })
+    )
+    swatch.position.set(0, -1.42, 1.4)
+    scene.add(swatch)
+
+    // 球体下方一点点辉光装饰，纯几何，不依赖外部图片
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(1.55, 1.62, 96),
+      new THREE.MeshBasicMaterial({ color: 0x1e293b, side: THREE.DoubleSide })
+    )
+    ring.position.set(0, 0.55, -0.9)
+    scene.add(ring)
+
+    /* ---------- 开关 ---------- */
+    const TONE = {
+      'No（不做压缩）': THREE.NoToneMapping,
+      'ACESFilmic': THREE.ACESFilmicToneMapping,
+      'AgX': THREE.AgXToneMapping
+    }
+    const COLOR = {
+      'sRGB': THREE.SRGBColorSpace,
+      'Linear-sRGB': THREE.LinearSRGBColorSpace
+    }
+
+    const params = {
+      outputColorSpace: 'sRGB',
+      textureColorSpace: 'sRGB',
+      toneMapping: 'No（不做压缩）',
+      exposure: 1.0
+    }
+
+    function markMaterialsDirty() {
+      scene.traverse((obj) => {
+        if (!obj.material) return
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+        mats.forEach((m) => { m.needsUpdate = true })
+      })
+    }
+
+    function updateStatus() {
+      const chain = document.getElementById('chain')
+      const verdict = document.getElementById('verdict')
+      const tex = params.textureColorSpace === 'sRGB' ? 'sRGB' : 'Linear'
+      const out = params.outputColorSpace === 'sRGB' ? 'sRGB' : 'Linear'
+      chain.textContent = `贴图(${tex}) → 着色器(线性) → 输出(${out})`
+
+      const texSRGB = params.textureColorSpace === 'sRGB'
+      const outSRGB = params.outputColorSpace === 'sRGB'
+      let text = ''
+      let ok = false
+      if (texSRGB && outSRGB) {
+        ok = true
+        text = '✓ 正确链路：颜色被正确解码，也正确编码回屏幕'
+      } else if (!texSRGB && outSRGB) {
+        text = '✗ 贴图被当成线性数据：整体偏亮、发灰，对比度被拉平'
+      } else if (texSRGB && !outSRGB) {
+        text = '✗ 输出漏了 sRGB 编码：整体偏暗，饱和色显得发闷'
+      } else {
+        text = '✗ 两头都错：既偏亮又偏暗，颜色几乎不可信'
+      }
+      verdict.textContent = text
+      verdict.className = 'verdict ' + (ok ? 'ok' : 'bad')
+    }
+
+    const gui = new GUI({ title: '色彩空间开关' })
+    gui.add(params, 'outputColorSpace', Object.keys(COLOR)).name('outputColorSpace')
+      .onChange((v) => {
+        renderer.outputColorSpace = COLOR[v]
+        markMaterialsDirty()
+        updateStatus()
+      })
+    gui.add(params, 'textureColorSpace', Object.keys(COLOR)).name('texture.colorSpace')
+      .onChange((v) => {
+        gradientTex.colorSpace = COLOR[v]
+        swatchTex.colorSpace = COLOR[v]
+        gradientTex.needsUpdate = true
+        swatchTex.needsUpdate = true
+        updateStatus()
+      })
+    gui.add(params, 'toneMapping', Object.keys(TONE)).name('toneMapping')
+      .onChange((v) => {
+        renderer.toneMapping = TONE[v]
+        markMaterialsDirty()
+        updateStatus()
+      })
+    gui.add(params, 'exposure', 0.3, 2, 0.01).name('toneMappingExposure')
+      .onChange((v) => { renderer.toneMappingExposure = v })
+
+    updateStatus()
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const t = timer.getElapsed()
+      sphere.rotation.y = t * 0.25
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>camera-tour · 相机漫游与视角书签</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 70px; left: 14px; max-width: 300px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    /* ---------- 大屏 UI 层：HTML 盖在 canvas 上 ---------- */
+    .screen-ui { position: fixed; inset: 0; pointer-events: none; }
+    .title-bar {
+      position: absolute; top: 0; left: 0; right: 0; height: 54px;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(180deg, rgba(11, 14, 20, .85), rgba(11, 14, 20, 0));
+      font-size: 20px; font-weight: bold; letter-spacing: 8px; color: #7cc4ff;
+      text-shadow: 0 0 18px rgba(124, 196, 255, .55);
+    }
+    .side-panel {
+      position: absolute; top: 200px; width: 216px; padding: 12px 14px;
+      background: rgba(11, 14, 20, .72); backdrop-filter: blur(6px);
+      border: 1px solid rgba(124, 196, 255, .25); border-radius: 10px;
+      font-size: 13px; line-height: 1.9;
+    }
+    .side-panel.left { left: 14px; }
+    .side-panel.right { right: 14px; pointer-events: auto; }
+    .side-panel h3 {
+      margin: 0 0 8px; font-size: 14px; color: #7cc4ff;
+      border-bottom: 1px solid rgba(124, 196, 255, .2); padding-bottom: 6px;
+    }
+    .side-panel b { color: #34d399; font-variant-numeric: tabular-nums; }
+    .bookmark-btn {
+      display: block; width: 100%; margin: 6px 0; padding: 8px 10px;
+      background: rgba(34, 211, 238, .12); color: #a5f3fc;
+      border: 1px solid rgba(34, 211, 238, .45); border-radius: 8px;
+      font-size: 13px; cursor: pointer; text-align: left;
+      transition: background .2s;
+    }
+    .bookmark-btn:hover { background: rgba(34, 211, 238, .28); }
+    .lil-gui.root { --width: 240px; }
+    @media (max-width: 600px) {
+      .info { max-width: 190px; font-size: 12px; top: 60px; }
+      .side-panel { width: 150px; font-size: 12px; top: 190px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <!-- UI 层：纯 HTML，absolute 定位盖在 3D 画布上 -->
+  <div class="screen-ui">
+    <div class="title-bar">智慧城市运营中心</div>
+    <div class="side-panel left">
+      <h3>运行概览</h3>
+      在线设备：<b>2,048</b><br />
+      今日告警：<b>3</b><br />
+      能耗指数：<b>86.2</b>
+    </div>
+    <div class="side-panel right">
+      <h3>视角书签</h3>
+      <button class="bookmark-btn" data-bm="0">① 全景俯瞰</button>
+      <button class="bookmark-btn" data-bm="1">② 中央广场</button>
+      <button class="bookmark-btn" data-bm="2">③ 滨水东区</button>
+    </div>
+  </div>
+
+  <div class="info">
+    <b>camera-tour · 大屏分层与相机漫游</b><br />
+    底图层：实例化城市（⑯ 的成品件）；<br />
+    UI 层：标题栏 + 两侧面板，纯 HTML 实现；<br />
+    视角书签：存 position + target，点击一键飞行。
+  </div>
+  <div class="hint">点击右侧"视角书签"开始飞行 · 飞行中拖拽鼠标可随时接管</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 90, 320)
+    const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 500)
+    camera.position.set(0, 95, 135)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 4, 0)
+    controls.maxPolarAngle = Math.PI / 2.05 // 不许钻到地面以下
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x1a1a26, 1.1))
+    const dir = new THREE.DirectionalLight(0xffffff, 1.6)
+    dir.position.set(60, 90, 40)
+    scene.add(dir)
+
+    /* ---------- 底图层：合并地面 + 实例化楼群（16.3 成品件复用） ---------- */
+    const groundGeoms = []
+    for (let i = 0; i < 25; i++) {
+      const g = new THREE.BoxGeometry(24, 0.2, 24)
+      g.translate((i % 5 - 2) * 25, -0.1, (Math.floor(i / 5) - 2) * 25)
+      groundGeoms.push(g)
+    }
+    scene.add(new THREE.Mesh(
+      mergeGeometries(groundGeoms),
+      new THREE.MeshStandardMaterial({ color: 0x1a2333, roughness: 0.95 })
+    ))
+
+    const COUNT = 4000
+    const city = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.2 }),
+      COUNT
+    )
+    const dummy = new THREE.Object3D()
+    const color = new THREE.Color()
+    const side = Math.ceil(Math.sqrt(COUNT))
+    for (let i = 0; i < COUNT; i++) {
+      const x = (i % side - side / 2) * 3.4
+      const z = (Math.floor(i / side) - side / 2) * 3.4
+      const inPlaza = Math.abs(x) < 10 && Math.abs(z) < 10 // 中央留广场
+      const h = inPlaza ? 0.01 : 1.5 + Math.random() * 12
+      dummy.position.set(x, h / 2, z)
+      dummy.scale.set(1.8, h, 1.8)
+      dummy.updateMatrix()
+      city.setMatrixAt(i, dummy.matrix)
+      city.setColorAt(i, color.setHSL(0.58, 0.25, 0.3 + Math.random() * 0.35))
+    }
+    scene.add(city)
+
+    // 中央广场地标：发光圆环，给书签 ② 一个注视目标
+    const plaza = new THREE.Mesh(
+      new THREE.RingGeometry(4, 5, 48),
+      new THREE.MeshBasicMaterial({
+        color: 0x22d3ee, transparent: true, opacity: 0.6,
+        side: THREE.DoubleSide
+      })
+    )
+    plaza.rotation.x = -Math.PI / 2
+    plaza.position.y = 0.05
+    scene.add(plaza)
+
+    /* ---------- 视角书签：就是"相机位置 + 注视点"两组向量 ---------- */
+    const bookmarks = [
+      { name: '全景俯瞰', pos: new THREE.Vector3(0, 95, 135), target: new THREE.Vector3(0, 0, 0) },
+      { name: '中央广场', pos: new THREE.Vector3(16, 9, 26), target: new THREE.Vector3(0, 3, 0) },
+      { name: '滨水东区', pos: new THREE.Vector3(66, 14, -30), target: new THREE.Vector3(38, 5, -18) }
+    ]
+
+    /* ---------- 相机漫游：手写 lerp 关键帧插值，零依赖 ---------- */
+    const flight = {
+      active: false, t: 0, duration: 2.2,
+      fromPos: new THREE.Vector3(), toPos: new THREE.Vector3(),
+      fromTarget: new THREE.Vector3(), toTarget: new THREE.Vector3()
+    }
+    function flyTo(bm) {
+      flight.fromPos.copy(camera.position)     // 起点 = 当前相机
+      flight.fromTarget.copy(controls.target)
+      flight.toPos.copy(bm.pos)                // 终点 = 书签
+      flight.toTarget.copy(bm.target)
+      flight.t = 0
+      flight.active = true
+    }
+    // smoothstep 缓动：起飞与到站都柔和
+    const ease = t => t * t * (3 - 2 * t)
+
+    // 飞行途中用户拖拽 → 立即打断，把控制权还给用户
+    controls.addEventListener('start', () => { flight.active = false })
+
+    document.querySelectorAll('.bookmark-btn').forEach(btn =>
+      btn.addEventListener('click', () => flyTo(bookmarks[+btn.dataset.bm]))
+    )
+
+    const params = { 飞行时长: 2.2 }
+    const gui = new GUI({ title: '相机漫游' })
+    gui.add(params, '飞行时长', 0.5, 5, 0.1).onChange(v => flight.duration = v)
+
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+      if (flight.active) {
+        flight.t += dt / flight.duration       // 进度 0 → 1
+        const k = ease(Math.min(flight.t, 1))
+        camera.position.lerpVectors(flight.fromPos, flight.toPos, k)
+        controls.target.lerpVectors(flight.fromTarget, flight.toTarget, k)
+        if (flight.t >= 1) flight.active = false // 到站
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

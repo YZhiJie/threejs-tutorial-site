@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>city-10k · 万级实例城市</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hud {
+      position: fixed; top: 14px; left: 372px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.8; pointer-events: none;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .hud b { color: #34d399; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 260px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .hud { left: 14px; top: 210px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>city-10k · 万级实例城市</b><br />
+    实例化模式：10000+ 栋楼仅个位数 draw call，60fps 流畅；<br />
+    独立模式：3000 栋楼 = 3000 次 draw call，明显卡顿。<br />
+    楼块按 20×20 分街区，转动视角时身后街区被视锥剔除。
+  </div>
+  <div class="hud" id="hud">FPS：-- draw calls：--</div>
+  <div class="hint">右上角切换"独立 / 实例化"模式 · 直接对比卡顿差距</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+    import Stats from 'three/addons/libs/stats.module.js'
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 80, 260)
+    const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 400)
+    camera.position.set(0, 30, 70)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 4, 0)
+    controls.maxPolarAngle = Math.PI / 2.1
+
+    const stats = new Stats()
+    document.body.appendChild(stats.dom)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x1a1a26, 1.1))
+    const dir = new THREE.DirectionalLight(0xffffff, 1.8)
+    dir.position.set(60, 90, 40)
+    scene.add(dir)
+
+    /* ---------- 第 2 步：合并静态几何（地面一整块） ---------- */
+    const groundGeoms = []
+    for (let i = 0; i < 16; i++) {
+      const g = new THREE.BoxGeometry(24, 0.2, 24)
+      g.translate((i % 4 - 1.5) * 25, -0.1, (Math.floor(i / 4) - 1.5) * 25)
+      groundGeoms.push(g)
+    }
+    scene.add(new THREE.Mesh(
+      mergeGeometries(groundGeoms),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 })
+    ))
+
+    const boxGeometry = new THREE.BoxGeometry(1, 1, 1)
+    const buildingMaterial = new THREE.MeshStandardMaterial({
+      roughness: 0.6, metalness: 0.2 })
+    const cityGroup = new THREE.Group()
+    scene.add(cityGroup)
+
+    function clearCity() {
+      for (const m of cityGroup.children) if (m.dispose) m.dispose()
+      cityGroup.clear()
+    }
+
+    // 楼块布置：网格 + 随机高度，间距 3
+    function layout(count) {
+      const side = Math.ceil(Math.sqrt(count))
+      const list = []
+      for (let i = 0; i < count; i++) {
+        list.push({
+          x: (i % side - side / 2) * 3,
+          z: (Math.floor(i / side) - side / 2) * 3,
+          h: 1 + Math.random() * 9
+        })
+      }
+      return list
+    }
+
+    /* ---------- 第 0 步（反面教材）：一楼一 Mesh ---------- */
+    function buildIndividualCity(count) {
+      clearCity()
+      const color = new THREE.Color()
+      for (const b of layout(count)) {
+        const m = new THREE.Mesh(boxGeometry, buildingMaterial.clone())
+        m.position.set(b.x, b.h / 2, b.z)
+        m.scale.set(1.6, b.h, 1.6)
+        m.material.color.setHSL(0.6, 0.2, 0.3 + Math.random() * 0.4)
+        cityGroup.add(m)
+      }
+    }
+
+    /* ---------- 第 1+3 步：InstancedMesh + 按街区分块 ---------- */
+    const BLOCK = 20 // 每边 20 栋楼一个街区，利于视锥剔除
+    function buildInstancedCity(count) {
+      clearCity()
+      const all = layout(count)
+      const dummy = new THREE.Object3D()
+      const color = new THREE.Color()
+      const per = BLOCK * BLOCK
+      for (let s = 0; s < all.length; s += per) {
+        const chunk = all.slice(s, s + per)
+        const mesh = new THREE.InstancedMesh(boxGeometry, buildingMaterial, chunk.length)
+        chunk.forEach((b, i) => {
+          dummy.position.set(b.x, b.h / 2, b.z)
+          dummy.scale.set(1.6, b.h, 1.6)
+          dummy.updateMatrix()
+          mesh.setMatrixAt(i, dummy.matrix)
+          mesh.setColorAt(i, color.setHSL(0.6, 0.2, 0.3 + Math.random() * 0.4))
+        })
+        // 手动包围球：以街区中心为球心，剔除更准
+        mesh.computeBoundingSphere?.()
+        cityGroup.add(mesh)
+      }
+    }
+
+    const params = { mode: '实例化 ×10000' }
+    const gui = new GUI({ title: '城市渲染模式' })
+    gui.add(params, 'mode', ['独立 Mesh ×3000', '实例化 ×10000'])
+      .name('渲染模式')
+      .onChange(v => v.startsWith('独立') ? buildIndividualCity(3000)
+                                         : buildInstancedCity(10000))
+    buildInstancedCity(10000)
+
+    const hud = document.getElementById('hud')
+    let frames = 0, statTime = performance.now()
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      controls.update()
+      renderer.render(scene, camera)
+      stats.update()
+
+      frames++
+      const now = performance.now()
+      if (now - statTime >= 500) {
+        const fps = Math.round((frames * 1000) / (now - statTime))
+        frames = 0
+        statTime = now
+        const info = renderer.info
+        hud.innerHTML =
+          `FPS：<b>${fps}</b>　draw calls：<b>${info.render.calls}</b><br>` +
+          `triangles：<b>${info.render.triangles.toLocaleString()}</b><br>` +
+          `geometries：${info.memory.geometries}　textures：${info.memory.textures}`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>keyframe-mixer · 关键帧轨道与动画混合器</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 350px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .toolbar {
+      position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    }
+    .toolbar button {
+      padding: 8px 16px; font-size: 13px; color: #e6edf3;
+      background: #1f2937; border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px; cursor: pointer;
+    }
+    .toolbar button.active { background: #2563eb; border-color: #2563eb; }
+    .hud {
+      position: fixed; top: 14px; right: 14px; padding: 8px 12px;
+      background: rgba(11,14,20,.78); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px; font: 12px/1.7 ui-monospace, Menlo, Consolas, monospace;
+      pointer-events: none;
+    }
+    @media (max-width: 600px) { .info { max-width: 200px; font-size: 12px; } .hud { display: none; } }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>AnimationMixer 动画混合器</b><br />
+    动画 = 若干 KeyframeTrack（关键帧轨道）打包成 AnimationClip；
+    Mixer 负责按时间插值播放，多个 Action 还能<b>加权混合 / 淡入淡出</b>。<br />
+    下方两个片段是纯代码生成的，不依赖外部模型文件。
+  </div>
+  <div class="hud" id="hud"></div>
+  <div class="toolbar">
+    <button id="idle" class="active">待机（呼吸）</button>
+    <button id="dance">跳舞（跳跃旋转）</button>
+    <button id="cross">混合（50%/50%）</button>
+    <button id="pause">⏸ 暂停</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 2, 5)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1, 0)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 0.7))
+    const sun = new THREE.DirectionalLight(0xffffff, 2)
+    sun.position.set(3, 6, 3)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(1024, 1024)
+    scene.add(sun)
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(6, 48),
+      new THREE.MeshStandardMaterial({ color: 0x232b38, roughness: 0.9 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    // 简单“角色”：身体 + 头，动画挂在 robot 根节点上
+    const robot = new THREE.Group()
+    const body = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.35, 0.5, 6, 20),
+      new THREE.MeshStandardMaterial({ color: 0x60a5fa, roughness: 0.4 })
+    )
+    body.position.y = 0.85
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.5, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0xf4f4f5, roughness: 0.35 })
+    )
+    head.position.y = 1.5
+    body.castShadow = head.castShadow = true
+    robot.add(body, head)
+    scene.add(robot)
+
+    /* ============ 片段 1：待机呼吸（1.6s 循环）============ */
+    // 轨道名格式：节点名.属性（position / quaternion / scale / 颜色等）
+    const idleClip = new THREE.AnimationClip('idle', 1.6, [
+      new THREE.VectorKeyframeTrack(
+        '.position',
+        [0, 0.8, 1.6],
+        [0, 0, 0,  0, 0.06, 0,  0, 0, 0]
+      ),
+      new THREE.VectorKeyframeTrack(
+        '.scale',
+        [0, 0.8, 1.6],
+        [1, 1, 1,  1.03, 1.06, 1.03,  1, 1, 1]
+      )
+    ])
+
+    /* ============ 片段 2：跳舞（1.2s 循环，跳跃+转身）============ */
+    // 旋转轨道推荐用四元数，避免欧拉角插值的万向节问题
+    const q = new THREE.Quaternion()
+    const times = [0, 0.3, 0.6, 0.9, 1.2]
+    const quats = []
+    times.forEach((_, i) => {
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), (i / 4) * Math.PI * 2)
+      quats.push(q.x, q.y, q.z, q.w)
+    })
+    const danceClip = new THREE.AnimationClip('dance', 1.2, [
+      new THREE.VectorKeyframeTrack(
+        '.position',
+        [0, 0.3, 0.6, 0.9, 1.2],
+        [0, 0, 0,  0, 0.9, 0,  0, 0.1, 0,  0, 0.9, 0,  0, 0, 0]
+      ),
+      new THREE.QuaternionKeyframeTrack('.quaternion', times, quats),
+      new THREE.VectorKeyframeTrack(
+        '.scale',
+        [0, 0.3, 0.6, 1.2],
+        [1, 1, 1,  1.1, 0.85, 1.1,  0.9, 1.1, 0.9,  1, 1, 1]
+      )
+    ])
+
+    // 一个 Mixer 管理 robot 的所有动画
+    const mixer = new THREE.AnimationMixer(robot)
+    const idleAction = mixer.clipAction(idleClip)
+    const danceAction = mixer.clipAction(danceClip)
+    idleAction.play()
+    danceAction.play()
+    danceAction.weight = 0           // 初始完全由 idle 驱动
+    let currentMode = 'idle'
+
+    const hud = document.getElementById('hud')
+    const btns = {
+      idle: document.getElementById('idle'),
+      dance: document.getElementById('dance'),
+      cross: document.getElementById('cross'),
+      pause: document.getElementById('pause')
+    }
+
+    function setMode(mode) {
+      currentMode = mode
+      // 用权重 + 淡入淡出在两个动作间过渡
+      if (mode === 'idle') {
+        idleAction.weight = 1
+        danceAction.fadeOut(0.35)
+        idleAction.reset().fadeIn(0.35).play()
+      } else if (mode === 'dance') {
+        danceAction.weight = 1
+        idleAction.fadeOut(0.35)
+        danceAction.reset().fadeIn(0.35).play()
+      } else {
+        // 混合模式：两个动作各 50% 权重
+        idleAction.reset().setEffectiveWeight(0.5).fadeIn(0.3).play()
+        danceAction.reset().setEffectiveWeight(0.5).fadeIn(0.3).play()
+      }
+      Object.entries(btns).forEach(([k, el]) => {
+        if (el) el.classList.toggle('active', k === mode)
+      })
+    }
+    btns.idle.addEventListener('click', () => setMode('idle'))
+    btns.dance.addEventListener('click', () => setMode('dance'))
+    btns.cross.addEventListener('click', () => setMode('cross'))
+    btns.pause.addEventListener('click', () => {
+      mixer.timeScale = mixer.timeScale === 0 ? 1 : 0
+      btns.pause.textContent = mixer.timeScale === 0 ? '▶ 继续' : '⏸ 暂停'
+    })
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const dt = clock.getDelta()
+      mixer.update(dt)                        // 关键：每帧把经过时间喂给混合器
+      controls.update()
+      renderer.render(scene, camera)
+      hud.textContent =
+        `mode: ${currentMode}\n` +
+        `idle.weight: ${idleAction.getEffectiveWeight().toFixed(2)}\n` +
+        `dance.weight: ${danceAction.getEffectiveWeight().toFixed(2)}\n` +
+        `timeScale: ${mixer.timeScale}`
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

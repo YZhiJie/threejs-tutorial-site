@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>avatar-dialogue-lab · 可对话的数字人</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 276px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .8);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: #0b0e14;
+      background: #64748b;
+    }
+
+    .badge.listening {
+      background: #22d3ee;
+    }
+
+    .badge.thinking {
+      background: #fbbf24;
+    }
+
+    .badge.speaking {
+      background: #34d399;
+    }
+
+    .badge.idle {
+      background: #64748b;
+      color: #e2e8f0;
+    }
+
+    .trace {
+      margin-top: 5px;
+      font-size: 11px;
+      color: #64748b;
+      font-family: 'SF Mono', Consolas, monospace;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .bar span:first-child {
+      width: 28px;
+    }
+
+    .bar .track {
+      flex: 1;
+      height: 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, .08);
+      overflow: hidden;
+    }
+
+    .bar .fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #22d3ee, #a78bfa);
+      transition: width .06s linear;
+    }
+
+    .note {
+      display: block;
+      margin-top: 6px;
+      font-size: 11px;
+      line-height: 1.5;
+      color: #fbbf24;
+    }
+
+    .bubble {
+      position: fixed;
+      left: 50%;
+      bottom: 72px;
+      transform: translate(-50%, 10px);
+      max-width: min(560px, 78vw);
+      padding: 12px 18px;
+      border-radius: 14px;
+      background: #f8fafc;
+      color: #0b1220;
+      font-size: 15px;
+      line-height: 1.6;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, .45);
+      opacity: 0;
+      transition: opacity .18s ease, transform .18s ease;
+      pointer-events: none;
+    }
+
+    .bubble.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    .bubble::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      bottom: -8px;
+      width: 16px;
+      height: 16px;
+      background: #f8fafc;
+      transform: translateX(-50%) rotate(45deg);
+      border-radius: 2px;
+    }
+
+    .start {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      transition: opacity .2s ease;
+    }
+
+    .start.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .start button {
+      padding: 12px 26px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #22d3ee, #a78bfa);
+      color: #0b0e14;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 10px 30px rgba(34, 211, 238, .3);
+    }
+
+    .start button:hover {
+      filter: brightness(1.08);
+    }
+
+    .start span {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 258px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        width: 190px;
+        font-size: 12px;
+      }
+
+      .hint {
+        white-space: normal;
+        max-width: 88vw;
+        text-align: center;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>可对话的数字人 · 小七</b>
+    <div class="row"><span class="badge idle" id="state">idle</span><span style="font-size:12px;color:#94a3b8">状态机</span></div>
+    <div class="trace" id="trace">idle</div>
+    <div id="bars"></div>
+    <span class="note" id="note">骨骼驱动身体，morph target 驱动嘴型。</span>
+  </div>
+  <div class="bubble" id="bubble"></div>
+  <div class="start" id="start">
+    <button id="startBtn" type="button">开始对话</button>
+    <span>聆听 → 思考 → 说话 → 回到 idle</span>
+  </div>
+  <div class="hint">点击「开始对话」或右侧面板按钮 · 可打断 · 拖拽旋转视角</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+    import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
+
+    /* ---------- 场景 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 7, 14)
+
+    const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.95, 3.95)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.1
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.18, 0)
+    controls.minDistance = 1.8
+    controls.maxDistance = 8
+
+    scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x0b0e14, 1.0))
+    const key = new THREE.DirectionalLight(0xffffff, 2.2)
+    key.position.set(2.6, 4.5, 3.6)
+    scene.add(key)
+    const cyan = new THREE.PointLight(0x22d3ee, 16, 8, 2)
+    cyan.position.set(-2.4, 2.2, 2.0)
+    scene.add(cyan)
+    const pink = new THREE.PointLight(0xf472b6, 12, 8, 2)
+    pink.position.set(2.3, 1.2, -2.2)
+    scene.add(pink)
+
+    const grid = new THREE.GridHelper(12, 24, 0x223055, 0x162033)
+    grid.position.y = 0.001
+    scene.add(grid)
+
+    const pedestal = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 1.05, 0.1, 48),
+      new THREE.MeshStandardMaterial({ color: 0x111a30, roughness: 0.9, metalness: 0.1 })
+    )
+    pedestal.position.y = -0.06
+    scene.add(pedestal)
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(1.1, 1.16, 72),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
+    )
+    ring.rotation.x = -Math.PI / 2
+    ring.position.y = 0.002
+    scene.add(ring)
+
+    /* ---------- 骨架（手臂自然下垂） ---------- */
+    const bones = []
+    const boneIndex = {}
+    function makeBone(name, x, y, z, parent) {
+      const bone = new THREE.Bone()
+      bone.name = name
+      bone.position.set(x, y, z)
+      if (parent) parent.add(bone)
+      bones.push(bone)
+      boneIndex[name] = bones.length - 1
+      return bone
+    }
+
+    const hips = makeBone('hips', 0, 0.95, 0, null)
+    const spine = makeBone('spine', 0, 0.28, 0, hips)
+    const chest = makeBone('chest', 0, 0.28, 0, spine)
+    const neck = makeBone('neck', 0, 0.16, 0, chest)
+    const headBone = makeBone('head', 0, 0.13, 0, neck)
+
+    const shoulderL = makeBone('shoulderL', 0.30, 0.04, 0, chest)
+    const elbowL = makeBone('elbowL', 0, -0.30, 0, shoulderL)
+    const wristL = makeBone('wristL', 0, -0.28, 0, elbowL)
+
+    const shoulderR = makeBone('shoulderR', -0.30, 0.04, 0, chest)
+    const elbowR = makeBone('elbowR', 0, -0.30, 0, shoulderR)
+    const wristR = makeBone('wristR', 0, -0.28, 0, elbowR)
+
+    const hipL = makeBone('hipL', 0.13, -0.06, 0, hips)
+    const kneeL = makeBone('kneeL', 0, -0.42, 0, hipL)
+    const ankleL = makeBone('ankleL', 0, -0.42, 0, kneeL)
+
+    const hipR = makeBone('hipR', -0.13, -0.06, 0, hips)
+    const kneeR = makeBone('kneeR', 0, -0.42, 0, hipR)
+    const ankleR = makeBone('ankleR', 0, -0.42, 0, kneeR)
+
+    /* ---------- 蒙皮网格 ---------- */
+    const BI = boneIndex
+    const clamp01 = (v) => THREE.MathUtils.clamp(v, 0, 1)
+
+    function torsoWeights(p) {
+      const out = []
+      const tent = (name, centerY, range) => {
+        const w = Math.max(0, 1 - Math.abs(p.y - centerY) / range)
+        if (w > 0.001) out.push([BI[name], w])
+      }
+      tent('hips', 0.95, 0.32)
+      tent('spine', 1.23, 0.32)
+      tent('chest', 1.51, 0.32)
+      return out
+    }
+
+    function armWeights(side) {
+      const sh = BI['shoulder' + side]
+      const el = BI['elbow' + side]
+      const wr = BI['wrist' + side]
+      return {
+        upper(p) {
+          const t = clamp01((1.55 - p.y) / 0.30)
+          const e = THREE.MathUtils.smoothstep(t, 0.55, 1.0)
+          return [[sh, 1 - e], [el, e]]
+        },
+        fore(p) {
+          const t = clamp01((1.25 - p.y) / 0.28)
+          const w = THREE.MathUtils.smoothstep(t, 0.6, 1.0)
+          return [[el, 1 - w], [wr, w]]
+        },
+        hand() {
+          return [[wr, 1]]
+        }
+      }
+    }
+
+    function legWeights(side) {
+      const hip = BI['hip' + side]
+      const knee = BI['knee' + side]
+      const ankle = BI['ankle' + side]
+      return {
+        thigh(p) {
+          const t = clamp01((0.91 - p.y) / 0.44)
+          const k = THREE.MathUtils.smoothstep(t, 0.5, 1.0)
+          return [[hip, 1 - k], [knee, k]]
+        },
+        shin(p) {
+          const t = clamp01((0.47 - p.y) / 0.42)
+          const a = THREE.MathUtils.smoothstep(t, 0.55, 1.0)
+          return [[knee, 1 - a], [ankle, a]]
+        },
+        foot() {
+          return [[ankle, 1]]
+        }
+      }
+    }
+
+    const M = (x, y, z, rx = 0, ry = 0, rz = 0) => new THREE.Matrix4().compose(
+      new THREE.Vector3(x, y, z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+      new THREE.Vector3(1, 1, 1)
+    )
+
+    const parts = []
+    const tmpColor = new THREE.Color()
+
+    function addPart(geometry, matrix, hex, weightFn) {
+      geometry.applyMatrix4(matrix)
+      geometry.clearGroups()
+      const pos = geometry.attributes.position
+      const count = pos.count
+      const colors = new Float32Array(count * 3)
+      tmpColor.setHex(hex)
+      for (let i = 0; i < count; i++) {
+        colors[i * 3] = tmpColor.r
+        colors[i * 3 + 1] = tmpColor.g
+        colors[i * 3 + 2] = tmpColor.b
+      }
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+
+      const index = new Uint16Array(count * 4)
+      const weight = new Float32Array(count * 4)
+      const v = new THREE.Vector3()
+      for (let i = 0; i < count; i++) {
+        v.fromBufferAttribute(pos, i)
+        const infs = weightFn(v)
+        let sum = 0
+        for (let k = 0; k < 4; k++) {
+          const inf = infs[k]
+          if (!inf) continue
+          index[i * 4 + k] = inf[0]
+          weight[i * 4 + k] = inf[1]
+          sum += inf[1]
+        }
+        if (sum > 0) {
+          for (let k = 0; k < 4; k++) weight[i * 4 + k] /= sum
+        } else {
+          index[i * 4] = 0
+          weight[i * 4] = 1
+        }
+      }
+      geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(index, 4))
+      geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weight, 4))
+      parts.push(geometry)
+    }
+
+    addPart(new THREE.CapsuleGeometry(0.20, 0.40, 6, 20), M(0, 1.29, 0), 0x2a3a52, torsoWeights)
+    addPart(new THREE.CapsuleGeometry(0.17, 0.10, 5, 16), M(0, 0.98, 0), 0x1e2b40, () => [[BI.hips, 1]])
+    addPart(new THREE.CylinderGeometry(0.085, 0.10, 0.16, 12), M(0, 1.66, 0), 0x2a3a52, () => [[BI.neck, 1]])
+    addPart(new THREE.BoxGeometry(0.06, 0.28, 0.02), M(0, 1.34, 0.203), 0x22d3ee, () => [[BI.chest, 1]])
+
+    const armL = armWeights('L')
+    const armR = armWeights('R')
+    addPart(new THREE.CapsuleGeometry(0.056, 0.19, 5, 14), M(0.32, 1.40, 0), 0x2a3a52, armL.upper)
+    addPart(new THREE.CapsuleGeometry(0.048, 0.18, 5, 14), M(0.32, 1.11, 0), 0x2a3a52, armL.fore)
+    addPart(new THREE.SphereGeometry(0.060, 14, 10), M(0.32, 0.945, 0), 0xe8b99e, armL.hand)
+    addPart(new THREE.CapsuleGeometry(0.056, 0.19, 5, 14), M(-0.32, 1.40, 0), 0x2a3a52, armR.upper)
+    addPart(new THREE.CapsuleGeometry(0.048, 0.18, 5, 14), M(-0.32, 1.11, 0), 0x2a3a52, armR.fore)
+    addPart(new THREE.SphereGeometry(0.060, 14, 10), M(-0.32, 0.945, 0), 0xe8b99e, armR.hand)
+
+    const legL = legWeights('L')
+    const legR = legWeights('R')
+    addPart(new THREE.CapsuleGeometry(0.085, 0.24, 6, 16), M(0.13, 0.71, 0), 0x1f2a3d, legL.thigh)
+    addPart(new THREE.CapsuleGeometry(0.068, 0.26, 6, 16), M(0.13, 0.26, 0), 0x1f2a3d, legL.shin)
+    addPart(new THREE.BoxGeometry(0.13, 0.08, 0.28), M(0.13, 0.04, 0.055), 0x141d2b, legL.foot)
+    addPart(new THREE.CapsuleGeometry(0.085, 0.24, 6, 16), M(-0.13, 0.71, 0), 0x1f2a3d, legR.thigh)
+    addPart(new THREE.CapsuleGeometry(0.068, 0.26, 6, 16), M(-0.13, 0.26, 0), 0x1f2a3d, legR.shin)
+    addPart(new THREE.BoxGeometry(0.13, 0.08, 0.28), M(-0.13, 0.04, 0.055), 0x141d2b, legR.foot)
+
+    const merged = BufferGeometryUtils.mergeGeometries(parts, false)
+    const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.66, metalness: 0.1 })
+    const skinned = new THREE.SkinnedMesh(merged, bodyMat)
+    skinned.frustumCulled = false
+    skinned.add(hips)
+    scene.add(skinned)
+    scene.updateMatrixWorld(true)
+    const skeleton = new THREE.Skeleton(bones)
+    skinned.bind(skeleton)
+
+    /* ---------- 头：morph target 嘴型 ---------- */
+    const headGeo = new THREE.SphereGeometry(0.85, 96, 64)
+
+    function buildMouthMorphs(geometry) {
+      const base = geometry.attributes.position.array
+      const count = geometry.attributes.position.count
+      const falloff = new Float32Array(count)
+
+      for (let i = 0; i < count; i++) {
+        const x = base[i * 3]
+        const y = base[i * 3 + 1]
+        const z = base[i * 3 + 2]
+        if (z <= 0.35) continue
+        const dx = x / 0.34
+        const dy = (y + 0.32) / 0.21
+        const d2 = dx * dx + dy * dy
+        if (d2 < 1) falloff[i] = Math.pow(1 - d2, 1.2)
+      }
+
+      const builders = {
+        closed(arr, i, f) {
+          const y = base[i * 3 + 1]
+          arr[i * 3 + 1] = (y < -0.32 ? 0.035 : -0.022) * f
+          arr[i * 3 + 2] = -0.012 * f
+        },
+        slight(arr, i, f) {
+          const y = base[i * 3 + 1]
+          arr[i * 3 + 1] = (y < -0.32 ? -0.10 : 0.018) * f
+          arr[i * 3 + 2] = 0.012 * f
+        },
+        round(arr, i, f) {
+          const x = base[i * 3]
+          const y = base[i * 3 + 1]
+          arr[i * 3] = -x * 0.55 * f
+          arr[i * 3 + 1] = (-0.32 - y) * 0.45 * f
+          arr[i * 3 + 2] = 0.07 * f
+        },
+        flat(arr, i, f) {
+          const x = base[i * 3]
+          const y = base[i * 3 + 1]
+          arr[i * 3] = x * 0.5 * f
+          arr[i * 3 + 1] = (y < -0.32 ? -0.02 : 0.015) * f
+        },
+        grin(arr, i, f) {
+          const x = base[i * 3]
+          arr[i * 3] = x * 0.28 * f
+          arr[i * 3 + 1] = (Math.abs(x) > 0.06 ? 0.075 : 0.015) * f
+          arr[i * 3 + 2] = 0.018 * f
+        }
+      }
+
+      const names = ['closed', 'slight', 'round', 'flat', 'grin']
+      const attrs = names.map((name) => {
+        const arr = new Float32Array(base.length)
+        for (let i = 0; i < count; i++) {
+          const f = falloff[i]
+          if (f > 0) builders[name](arr, i, f)
+        }
+        const attr = new THREE.BufferAttribute(arr, 3)
+        attr.name = name
+        return attr
+      })
+
+      geometry.morphAttributes.position = attrs
+      geometry.morphTargetsRelative = true
+      return names
+    }
+
+    const MORPH_NAMES = buildMouthMorphs(headGeo)
+    const MORPH_LABELS = ['闭', '微开', '圆', '扁', '咧嘴']
+
+    const headMesh = new THREE.Mesh(headGeo, new THREE.MeshStandardMaterial({
+      color: 0xf2cdb4,
+      roughness: 0.62,
+      metalness: 0.04
+    }))
+    headMesh.updateMorphTargets()
+
+    const headGroup = new THREE.Group()
+    headGroup.position.set(0, 0.16, 0)
+    headGroup.scale.setScalar(0.27)
+    headGroup.add(headMesh)
+    headBone.add(headGroup)
+
+    // 头发（程序化半球）
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.875, 40, 20, 0, Math.PI * 2, 0, Math.PI / 4),
+      new THREE.MeshStandardMaterial({ color: 0x1a2333, roughness: 0.72, metalness: 0.08 })
+    )
+    hair.position.y = 0.015
+    headGroup.add(hair)
+
+    const outerMouth = new THREE.Mesh(
+      new THREE.CircleGeometry(0.155, 40),
+      new THREE.MeshBasicMaterial({ color: 0xb3727c })
+    )
+    outerMouth.position.set(0, -0.31, 0.795)
+    headGroup.add(outerMouth)
+
+    const innerMouth = new THREE.Mesh(
+      new THREE.CircleGeometry(0.128, 40),
+      new THREE.MeshBasicMaterial({ color: 0x1a0a0e })
+    )
+    innerMouth.position.set(0, -0.31, 0.801)
+    headGroup.add(innerMouth)
+
+    const eyeMats = {
+      white: new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.28 }),
+      iris: new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.35 }),
+      pupil: new THREE.MeshStandardMaterial({ color: 0x0b0e14, roughness: 0.2 })
+    }
+    const eyes = []
+    for (const sx of [-1, 1]) {
+      const eye = new THREE.Group()
+      eye.position.set(sx * 0.28, 0.17, 0.77)
+      const white = new THREE.Mesh(new THREE.SphereGeometry(0.095, 24, 18), eyeMats.white)
+      white.scale.z = 0.55
+      eye.add(white)
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.05, 18, 14), eyeMats.iris)
+      iris.position.z = 0.055
+      eye.add(iris)
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.026, 14, 10), eyeMats.pupil)
+      pupil.position.z = 0.095
+      eye.add(pupil)
+      headGroup.add(eye)
+      eyes.push(eye)
+    }
+
+    const brows = []
+    for (const sx of [-1, 1]) {
+      const brow = new THREE.Mesh(
+        new THREE.BoxGeometry(0.21, 0.032, 0.035),
+        new THREE.MeshStandardMaterial({ color: 0x2a1d18, roughness: 0.7 })
+      )
+      brow.position.set(sx * 0.29, 0.37, 0.76)
+      brow.rotation.z = sx * 0.10
+      headGroup.add(brow)
+      brows.push(brow)
+    }
+
+    const nose = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 18, 14),
+      new THREE.MeshStandardMaterial({ color: 0xe0a68a, roughness: 0.65 })
+    )
+    nose.position.set(0, -0.06, 0.84)
+    nose.scale.set(1, 0.8, 0.55)
+    headGroup.add(nose)
+
+    /* ---------- 音素与口型 ---------- */
+    const VOWEL_VISEME = { a: 'A', o: 'O', e: 'E', i: 'I', u: 'U', v: 'U' }
+    const CONSONANT_VISEME = { m: 'M', b: 'M', p: 'M', f: 'F', w: 'U' }
+    const PINYIN = {
+      你: 'ni', 好: 'hao', 我: 'wo', 是: 'shi', 小: 'xiao', 七: 'qi', 一: 'yi',
+      名: 'ming', 程: 'cheng', 序: 'xu', 化: 'hua', 数: 'shu', 字: 'zi', 人: 'ren',
+      的: 'de', 骨: 'gu', 骼: 'ge', 表: 'biao', 情: 'qing', 和: 'he', 口: 'kou',
+      型: 'xing', 都: 'dou', 由: 'you', 代: 'dai', 码: 'ma', 实: 'shi', 时: 'shi',
+      驱: 'qu', 动: 'dong', 介: 'jie', 绍: 'shao', 自: 'zi', 己: 'ji',
+      今: 'jin', 天: 'tian', 气: 'qi', 不: 'bu', 错: 'cuo'
+    }
+
+    function visemesForSyllable(syl) {
+      const out = []
+      const first = syl[0]
+      if (CONSONANT_VISEME[first]) out.push(CONSONANT_VISEME[first])
+      let last = null
+      for (const ch of syl) {
+        const v = VOWEL_VISEME[ch]
+        if (v && v !== last) {
+          out.push(v)
+          last = v
+        }
+      }
+      if (out.length === 0) out.push('E')
+      return out.slice(0, 3)
+    }
+
+    function hash01(str, salt) {
+      let h = 2166136261 + salt
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i)
+        h = Math.imul(h, 16777619)
+      }
+      return ((h >>> 0) % 1000) / 1000
+    }
+
+    function visemesForChar(ch) {
+      if (PINYIN[ch]) return visemesForSyllable(PINYIN[ch])
+      const lower = ch.toLowerCase()
+      if (/[a-z]/.test(lower)) return visemesForSyllable(lower)
+      const vowels = 'AEIOU'
+      return [vowels[Math.floor(hash01(ch, 7) * vowels.length)]]
+    }
+
+    function buildTimeline(text) {
+      const segs = []
+      const punctuation = '，。！？、,.!?'
+      for (const ch of text) {
+        if (ch === ' ') {
+          segs.push({ v: 'M', dur: 0.14 })
+          continue
+        }
+        if (punctuation.includes(ch)) {
+          segs.push({ v: 'M', dur: 0.3 })
+          continue
+        }
+        const vs = visemesForChar(ch)
+        vs.forEach((v, k) => {
+          const jitter = 0.85 + hash01(ch + k, 3) * 0.35
+          segs.push({ v, dur: 0.105 * jitter })
+        })
+      }
+      let t = 0
+      segs.forEach((s) => {
+        s.start = t
+        t += s.dur
+        s.end = t
+      })
+      return { segs, total: t }
+    }
+
+    const VISEME_WEIGHTS = {
+      A: { closed: 0.0, slight: 1.55, round: 0.10, flat: 0.55, grin: 0.10 },
+      E: { closed: 0.0, slight: 0.32, round: 0.0, flat: 1.0, grin: 0.35 },
+      I: { closed: 0.0, slight: 0.12, round: 0.0, flat: 0.82, grin: 0.5 },
+      O: { closed: 0.0, slight: 0.55, round: 1.0, flat: 0.0, grin: 0.0 },
+      U: { closed: 0.10, slight: 0.22, round: 0.85, flat: 0.0, grin: 0.0 },
+      M: { closed: 1.0, slight: 0.0, round: 0.0, flat: 0.0, grin: 0.0 },
+      F: { closed: 0.18, slight: 0.28, round: 0.0, flat: 0.58, grin: 0.0 }
+    }
+
+    /* ---------- 状态机 ---------- */
+    const REPLY_TEXT = '你好，我是小七，一名程序化数字人。我的骨骼、表情和口型都由代码实时驱动。'
+    const USER_TEXT = '你好，介绍一下你自己。'
+    const timeline = buildTimeline(REPLY_TEXT)
+
+    const machine = {
+      state: 'idle',
+      phase: 0,
+      replyTime: 0,
+      segIndex: 0,
+      fallback: false,
+      fallbackTotal: 3.2,
+      bubbleHold: 0,
+      trace: []
+    }
+
+    const stateEl = document.getElementById('state')
+    const traceEl = document.getElementById('trace')
+    const noteEl = document.getElementById('note')
+    const bubbleEl = document.getElementById('bubble')
+    const startEl = document.getElementById('start')
+    const barFills = MORPH_NAMES.map((name, i) => {
+      const bars = document.getElementById('bars')
+      const row = document.createElement('div')
+      row.className = 'bar'
+      const label = document.createElement('span')
+      label.textContent = MORPH_LABELS[i]
+      const track = document.createElement('div')
+      track.className = 'track'
+      const fill = document.createElement('div')
+      fill.className = 'fill'
+      track.appendChild(fill)
+      row.appendChild(label)
+      row.appendChild(track)
+      bars.appendChild(row)
+      return fill
+    })
+
+    function setState(next) {
+      machine.state = next
+      machine.phase = 0
+      machine.segIndex = 0
+      stateEl.textContent = next
+      stateEl.className = 'badge ' + next
+      machine.trace.push(next)
+      if (machine.trace.length > 6) machine.trace.shift()
+      traceEl.textContent = machine.trace.join(' → ')
+      startEl.classList.toggle('hidden', next !== 'idle')
+    }
+
+    function setNote(text) {
+      noteEl.textContent = text
+    }
+
+    function startDialogue() {
+      if (machine.state !== 'idle') return
+      machine.fallback = params.模拟TTS失败
+      machine.fallbackTotal = 3.2
+      machine.replyTime = 0
+      machine.bubbleHold = 0
+      setState('listening')
+      bubbleEl.textContent = '你：' + USER_TEXT
+      bubbleEl.classList.add('show')
+      setNote(machine.fallback ? '本次模拟 TTS 失败：将走字幕 + 默认口型兜底。' : '聆听中：头部微侧，等待用户说完。')
+    }
+
+    function interrupt() {
+      if (machine.state === 'idle') return
+      machine.replyTime = 0
+      machine.bubbleHold = 0
+      setState('idle')
+      bubbleEl.textContent = '（已打断，回到 idle）'
+      bubbleEl.classList.add('show')
+      machine.bubbleHold = 1.0
+      setNote('打断：立刻清零口型与手势，不等 TTS 播完。')
+    }
+
+    function startSpeaking() {
+      setState('speaking')
+      machine.replyTime = 0
+      if (machine.fallback) {
+        bubbleEl.textContent = REPLY_TEXT
+        setNote('TTS 失败：字幕后到，口型退化为默认微开。')
+      } else {
+        bubbleEl.textContent = ''
+        setNote('TTS 正常：音素时长序列同时驱动字幕与口型。')
+      }
+    }
+
+    /* ---------- 参数与 GUI ---------- */
+    const params = {
+      语速: 1.0,
+      表情强度: 1.0,
+      手势: true,
+      模拟TTS失败: false
+    }
+
+    const gui = new GUI({ title: '对话控制' })
+    gui.add(params, '语速', 0.5, 2.0, 0.01).name('语速')
+    gui.add(params, '表情强度', 0.4, 1.8, 0.01).name('表情强度')
+    gui.add(params, '手势').name('说话手势')
+    gui.add(params, '模拟TTS失败').name('模拟 TTS 失败')
+    gui.add({ start: startDialogue }, 'start').name('开始对话')
+    gui.add({ stop: interrupt }, 'stop').name('打断')
+
+    document.getElementById('startBtn').addEventListener('click', startDialogue)
+
+    /* ---------- 表情 / 眨眼 / 姿态 ---------- */
+    const weights = [0.2, 0.32, 0, 0, 0]
+    let blinkWait = 1.8
+    let blinkPhase = 0
+
+    function updateBlink(dt) {
+      if (blinkPhase > 0) {
+        blinkPhase -= dt
+        if (blinkPhase <= 0) blinkPhase = 0
+      } else {
+        blinkWait -= dt
+        if (blinkWait <= 0) {
+          blinkPhase = 0.18
+          blinkWait = 2.6 + Math.random() * 3.4
+        }
+      }
+      const p = blinkPhase > 0 ? 1 - blinkPhase / 0.18 : 0
+      const squash = 1 - Math.sin(p * Math.PI) * 0.93
+      eyes.forEach((e) => { e.scale.y = squash })
+    }
+
+    const poseTarget = {
+      shLz: 0, shRz: 0, shLx: 0, shRx: 0, elLx: 0, elRx: 0,
+      headX: 0, headY: 0, headZ: 0, spineX: 0, chestY: 0
+    }
+    const poseCur = Object.assign({}, poseTarget)
+
+    function setPoseTargets(elapsed) {
+      const P = poseTarget
+      P.shLz = 0.03; P.shRz = 0.03
+      P.shLx = 0; P.shRx = 0
+      P.elLx = -0.12; P.elRx = -0.12
+      P.headX = Math.sin(elapsed * 0.7) * 0.02
+      P.headY = Math.sin(elapsed * 0.45) * 0.06
+      P.headZ = 0
+      P.spineX = Math.sin(elapsed * 1.1) * 0.018
+      P.chestY = 0
+
+      if (machine.state === 'listening') {
+        P.headX = 0.07
+        P.headY = Math.sin(elapsed * 1.4) * 0.03
+        P.headZ = 0.06
+        P.shLz = 0.16
+        P.elLx = -0.55
+        P.spineX = 0.02
+      } else if (machine.state === 'thinking') {
+        P.headX = -0.10
+        P.headY = -0.16
+        P.headZ = -0.05
+        P.shRz = 0.62
+        P.shRx = -0.85
+        P.elRx = -1.75
+        P.shLz = 0.05
+        P.elLx = -0.2
+      } else if (machine.state === 'speaking') {
+        if (params.手势) {
+          const g = Math.sin(elapsed * 1.8)
+          const up = Math.max(0, g)
+          const down = Math.max(0, -g)
+          P.shRz = 0.22 + up * 0.35
+          P.shRx = -0.12 - up * 0.25
+          P.elRx = -0.5 - up * 0.55
+          P.shLz = 0.06 + down * 0.12
+          P.elLx = -0.25 - down * 0.2
+        }
+        P.headX = 0.02 + Math.sin(elapsed * 1.2) * 0.02
+      }
+    }
+
+    function applyPose(dt) {
+      const k = 1 - Math.exp(-dt * 4.5)
+      for (const key in poseTarget) {
+        poseCur[key] += (poseTarget[key] - poseCur[key]) * k
+      }
+      shoulderL.rotation.z = poseCur.shLz
+      shoulderL.rotation.x = poseCur.shLx
+      elbowL.rotation.x = poseCur.elLx
+      shoulderR.rotation.z = poseCur.shRz
+      shoulderR.rotation.x = poseCur.shRx
+      elbowR.rotation.x = poseCur.elRx
+      headBone.rotation.x = poseCur.headX
+      headBone.rotation.y = poseCur.headY
+      headBone.rotation.z = poseCur.headZ
+      spine.rotation.x = poseCur.spineX
+      chest.rotation.y = poseCur.chestY
+    }
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    const _target = { closed: 0, slight: 0, round: 0, flat: 0, grin: 0 }
+
+    function currentViseme() {
+      const segs = timeline.segs
+      if (!segs.length) return 'M'
+      while (machine.segIndex < segs.length - 1 && machine.replyTime > segs[machine.segIndex].end) {
+        machine.segIndex++
+      }
+      return segs[machine.segIndex].v
+    }
+
+    function updateDialogue(dt) {
+      if (machine.state === 'idle') {
+        if (machine.bubbleHold > 0) {
+          machine.bubbleHold -= dt
+          if (machine.bubbleHold <= 0) bubbleEl.classList.remove('show')
+        }
+        return
+      }
+
+      machine.phase += dt
+
+      if (machine.state === 'listening') {
+        if (machine.phase > 1.5) {
+          setState('thinking')
+          bubbleEl.textContent = '小七：' + '（思考中…）'
+          setNote('思考：右手抬向面部，头部上仰，等待 TTS 返回。')
+        }
+        return
+      }
+
+      if (machine.state === 'thinking') {
+        if (machine.phase > 1.25) startSpeaking()
+        return
+      }
+
+      if (machine.state === 'speaking') {
+        machine.replyTime += dt * params.语速
+        if (machine.fallback) {
+          if (machine.replyTime > machine.fallbackTotal) finishSpeaking()
+          return
+        }
+        const progress = Math.min(1, machine.replyTime / timeline.total)
+        const visible = Math.max(1, Math.floor(progress * REPLY_TEXT.length))
+        bubbleEl.textContent = REPLY_TEXT.slice(0, visible)
+        if (machine.replyTime >= timeline.total) finishSpeaking()
+      }
+    }
+
+    function finishSpeaking() {
+      setState('idle')
+      bubbleEl.textContent = REPLY_TEXT
+      machine.bubbleHold = 1.2
+      setNote('对话结束：字幕停留 1.2 秒后淡出，重新开放「开始对话」。')
+    }
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.06)
+      const elapsed = timer.getElapsed()
+
+      updateDialogue(dt)
+      setPoseTargets(elapsed)
+      applyPose(dt)
+      updateBlink(dt)
+
+      const amp = params.表情强度
+      let target
+
+      if (machine.state === 'speaking') {
+        if (machine.fallback) {
+          target = {
+            closed: 0.15,
+            slight: 0.42 + Math.sin(elapsed * 7) * 0.16,
+            round: 0,
+            flat: 0.05,
+            grin: 0
+          }
+        } else {
+          target = VISEME_WEIGHTS[currentViseme()]
+        }
+      } else {
+        target = { closed: 0.18, slight: 0.30, round: 0, flat: 0, grin: 0.05 }
+      }
+
+      const k = 1 - Math.exp(-dt * 15)
+      MORPH_NAMES.forEach((name, i) => {
+        _target[name] = target[name] * amp
+        weights[i] += (_target[name] - weights[i]) * k
+        headMesh.morphTargetInfluences[i] = weights[i]
+        barFills[i].style.width = Math.min(100, Math.abs(weights[i]) * 62) + '%'
+      })
+
+      const open = weights[1] + weights[2]
+      const wide = Math.max(0.5, 1 + weights[3] * 0.7 + weights[4] * 0.35 - weights[2] * 0.18)
+      const tall = 0.32 + open * 0.55 + weights[4] * 0.06
+      innerMouth.scale.set(wide, tall, 1)
+      outerMouth.scale.set(wide * 1.16, tall * 1.16, 1)
+
+      const expr = (params.表情强度 - 1) * 0.05
+      brows.forEach((b, i) => {
+        b.position.y = 0.37 + expr + weights[4] * 0.04
+        b.rotation.z = (i === 0 ? 1 : -1) * (0.10 + weights[4] * 0.05)
+      })
+
+      ring.material.opacity = 0.22 + Math.sin(elapsed * 2.2) * 0.1 + (machine.state === 'speaking' ? 0.12 : 0)
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    setState('idle')
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

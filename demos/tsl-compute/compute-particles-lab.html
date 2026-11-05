@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>compute-particles-lab · Compute 粒子实验室</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 352px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .row {
+      display: block;
+      margin-top: 4px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+      color: #9fb4d4;
+    }
+
+    .info .row em {
+      color: #fbbf24;
+      font-style: normal;
+    }
+
+    .info .warn {
+      display: block;
+      margin-top: 6px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(249, 115, 22, .14);
+      color: #fdba74;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 264px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 208px;
+        font-size: 12px;
+      }
+
+      .hint {
+        white-space: normal;
+        text-align: center;
+        max-width: 88vw;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+      "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
+      "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.tsl.js"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>Compute 粒子实验室 · GPU 算，还是 CPU 算</b><br />
+    同一套引力 + 涡旋公式，切换两种更新方式：<br />
+    compute 把位置与速度留在显存；CPU 版每帧循环并重传 attribute。<br />
+    <span class="row" id="stats">准备中…</span>
+    <span class="warn" id="warn" hidden></span>
+  </div>
+  <div class="hint">拖拽旋转 · 滚轮缩放 · 右侧切换更新方式与粒子数</div>
+
+  <script type="module">
+    import * as THREE from 'three/webgpu'
+    import {
+      Fn, uniform, vec3, color, mix, sin, cos, uv, float, smoothstep,
+      instancedArray, instancedDynamicBufferAttribute, instanceIndex
+    } from 'three/tsl'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const statsEl = document.getElementById('stats')
+    const warnEl = document.getElementById('warn')
+
+    function fatal(message) {
+      statsEl.textContent = '初始化失败'
+      warnEl.hidden = false
+      warnEl.textContent = message
+    }
+
+    async function main() {
+      const hasNavigatorGPU = typeof navigator !== 'undefined' && !!navigator.gpu
+
+      /* ---------- 渲染器：优先 WebGPU，失败自动回退 WebGL2 ---------- */
+      const renderer = new THREE.WebGPURenderer({ antialias: true })
+      try {
+        await renderer.init()
+      } catch (err) {
+        fatal('无法初始化 WebGPURenderer：' + err.message)
+        return
+      }
+
+      const backendIsWebGL = renderer.backend && renderer.backend.isWebGLBackend === true
+      const computeAvailable = hasNavigatorGPU && !backendIsWebGL
+
+      renderer.setSize(innerWidth, innerHeight)
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+      renderer.toneMapping = THREE.NoToneMapping
+      renderer.outputColorSpace = THREE.SRGBColorSpace
+      document.getElementById('app').appendChild(renderer.domElement)
+
+      if (!computeAvailable) {
+        warnEl.hidden = false
+        warnEl.textContent = '未检测到可用 WebGPU：compute 已降级为 CPU 逐帧更新（画面与参数保持一致）'
+      }
+
+      /* ---------- 场景 ---------- */
+      const scene = new THREE.Scene()
+      scene.background = new THREE.Color(0x0b0e14)
+
+      const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+      camera.position.set(0, 0.6, 15)
+
+      const controls = new OrbitControls(camera, renderer.domElement)
+      controls.enableDamping = true
+      controls.target.set(0, 0, 0)
+      controls.minDistance = 6
+      controls.maxDistance = 34
+
+      /* ---------- 共享 uniform ---------- */
+      const uTime = uniform(0)
+      const uDt = uniform(0)
+      const uSwirl = uniform(1.15)
+      const uGravity = uniform(0.55)
+      const uDamping = uniform(0.965)
+      const uSize = uniform(0.022)
+
+      /* ---------- 参数 ---------- */
+      const params = {
+        mode: computeAvailable ? 'GPU compute' : 'CPU 逐帧更新',
+        count: 200000,
+        swirl: 1.15,
+        gravity: 0.55,
+        damping: 0.965,
+        paused: false,
+        reset: () => rebuild()
+      }
+
+      let sprite = null
+      let particleCount = 0
+      let activeMode = ''
+
+      // GPU 路径状态
+      let positions = null
+      let velocities = null
+      let updateCompute = null
+      let gpuMaterial = null
+
+      // CPU 路径状态
+      let cpuPosAttr = null
+      let cpuSpeedAttr = null
+      let cpuPositions = null
+      let cpuVelocity = null
+      let cpuMaterial = null
+
+      function disposeActive() {
+        if (!sprite) return
+        scene.remove(sprite)
+        sprite.material.dispose()
+        sprite = null
+      }
+
+      function makeGpuMaterial() {
+        const mat = new THREE.SpriteNodeMaterial()
+        mat.positionNode = positions.toAttribute()
+        mat.scaleNode = uSize
+        mat.colorNode = mix(color(0x2563eb), color(0x67e8f9), uv().y)
+        mat.opacityNode = float(1).sub(smoothstep(0.08, 0.5, uv().sub(0.5).length()))
+        mat.transparent = true
+        mat.blending = THREE.AdditiveBlending
+        mat.depthWrite = false
+        return mat
+      }
+
+      function makeCpuMaterial() {
+        const mat = new THREE.SpriteNodeMaterial()
+        mat.positionNode = instancedDynamicBufferAttribute(cpuPosAttr)
+        mat.scaleNode = uSize
+        mat.colorNode = mix(color(0x2563eb), color(0x67e8f9), uv().y)
+        mat.opacityNode = float(1).sub(smoothstep(0.08, 0.5, uv().sub(0.5).length()))
+        mat.transparent = true
+        mat.blending = THREE.AdditiveBlending
+        mat.depthWrite = false
+        return mat
+      }
+
+      function fillSphere(array, count, radius) {
+        for (let i = 0; i < count; i++) {
+          const r = Math.cbrt(Math.random()) * radius
+          const t = Math.random() * Math.PI * 2
+          const p = Math.acos(2 * Math.random() - 1)
+          array[i * 3] = r * Math.sin(p) * Math.cos(t)
+          array[i * 3 + 1] = r * Math.sin(p) * Math.sin(t)
+          array[i * 3 + 2] = r * Math.cos(p)
+        }
+      }
+
+      function buildGPU(count) {
+        positions = instancedArray(count, 'vec3')
+        velocities = instancedArray(count, 'vec3')
+
+        fillSphere(positions.value.array, count, 6.5)
+        positions.value.needsUpdate = true
+
+        updateCompute = Fn(() => {
+          const p = positions.element(instanceIndex).toVar()
+          const v = velocities.element(instanceIndex).toVar()
+
+          const force = vec3(
+            sin(p.y.mul(0.55).add(uTime)),
+            cos(p.z.mul(0.55).add(uTime.mul(0.8))),
+            sin(p.x.mul(0.55).add(uTime.mul(0.6)))
+          ).mul(uSwirl).toVar()
+
+          force.subAssign(p.mul(uGravity))
+
+          v.addAssign(force.mul(uDt))
+          v.mulAssign(uDamping)
+          p.addAssign(v.mul(uDt))
+
+          positions.element(instanceIndex).assign(p)
+          velocities.element(instanceIndex).assign(v)
+        })().compute(count)
+
+        gpuMaterial = makeGpuMaterial()
+        sprite = new THREE.Sprite(gpuMaterial)
+        sprite.count = count
+        sprite.frustumCulled = false
+        scene.add(sprite)
+
+        activeMode = 'GPU compute'
+        particleCount = count
+      }
+
+      function buildCPU(count) {
+        cpuPosAttr = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3)
+        cpuPosAttr.setUsage(THREE.DynamicDrawUsage)
+
+        cpuSpeedAttr = new THREE.InstancedBufferAttribute(new Float32Array(count), 1)
+        cpuSpeedAttr.setUsage(THREE.DynamicDrawUsage)
+
+        cpuPositions = cpuPosAttr.array
+        cpuVelocity = new Float32Array(count * 3)
+        fillSphere(cpuPositions, count, 6.5)
+
+        cpuMaterial = makeCpuMaterial()
+        sprite = new THREE.Sprite(cpuMaterial)
+        sprite.count = count
+        sprite.frustumCulled = false
+        scene.add(sprite)
+
+        activeMode = 'CPU 逐帧更新'
+        particleCount = count
+        positions = null
+        velocities = null
+        updateCompute = null
+      }
+
+      function rebuild() {
+        disposeActive()
+        const mode = computeAvailable ? params.mode : 'CPU 逐帧更新'
+        if (mode === 'GPU compute') buildGPU(params.count)
+        else buildCPU(params.count)
+      }
+
+      function updateCPU(dt) {
+        const t = uTime.value
+        const swirl = params.swirl
+        const gravity = params.gravity
+        const damping = params.damping
+        const count = particleCount
+
+        for (let i = 0; i < count; i++) {
+          const i3 = i * 3
+          const px = cpuPositions[i3]
+          const py = cpuPositions[i3 + 1]
+          const pz = cpuPositions[i3 + 2]
+
+          let fx = Math.sin(py * 0.55 + t) * swirl - px * gravity
+          let fy = Math.cos(pz * 0.55 + t * 0.8) * swirl - py * gravity
+          let fz = Math.sin(px * 0.55 + t * 0.6) * swirl - pz * gravity
+
+          let vx = cpuVelocity[i3] + fx * dt
+          let vy = cpuVelocity[i3 + 1] + fy * dt
+          let vz = cpuVelocity[i3 + 2] + fz * dt
+
+          vx *= damping
+          vy *= damping
+          vz *= damping
+
+          cpuVelocity[i3] = vx
+          cpuVelocity[i3 + 1] = vy
+          cpuVelocity[i3 + 2] = vz
+
+          cpuPositions[i3] = px + vx * dt
+          cpuPositions[i3 + 1] = py + vy * dt
+          cpuPositions[i3 + 2] = pz + vz * dt
+
+          cpuSpeedAttr.array[i] = Math.sqrt(vx * vx + vy * vy + vz * vz)
+        }
+
+        cpuPosAttr.needsUpdate = true
+        cpuSpeedAttr.needsUpdate = true
+      }
+
+      /* ---------- GUI ---------- */
+      function applyPhysics() {
+        uSwirl.value = params.swirl
+        uGravity.value = params.gravity
+        uDamping.value = params.damping
+      }
+
+      const gui = new GUI({ title: 'Compute 粒子实验室' })
+      if (computeAvailable) {
+        gui.add(params, 'mode', ['GPU compute', 'CPU 逐帧更新'])
+          .name('更新方式')
+          .onChange(() => rebuild())
+      }
+      gui.add(params, 'count', [50000, 100000, 200000])
+        .name('粒子数')
+        .onChange(() => rebuild())
+      gui.add(params, 'swirl', 0, 3, 0.05)
+        .name('涡旋强度')
+        .onChange(applyPhysics)
+      gui.add(params, 'gravity', 0, 1.5, 0.01)
+        .name('引力强度')
+        .onChange(applyPhysics)
+      gui.add(params, 'damping', 0.85, 0.995, 0.005)
+        .name('阻尼')
+        .onChange(applyPhysics)
+      gui.add(params, 'paused').name('暂停')
+      gui.add(params, 'reset').name('重置粒子')
+
+      rebuild()
+      applyPhysics()
+
+      /* ---------- 主循环 ---------- */
+      const timer = new THREE.Timer()
+      timer.connect(document)
+
+      let fpsFrames = 0
+      let fpsTime = 0
+      let fps = 0
+      let workMs = 0
+      let hudTime = 0
+
+      renderer.setAnimationLoop(() => {
+        timer.update()
+        const dt = Math.min(timer.getDelta(), 0.033)
+
+        if (!params.paused) {
+          uDt.value = dt
+          uTime.value += dt
+
+          if (activeMode === 'GPU compute') {
+            const t0 = performance.now()
+            renderer.compute(updateCompute)
+            workMs = performance.now() - t0
+          } else {
+            const t0 = performance.now()
+            updateCPU(dt)
+            workMs = performance.now() - t0
+          }
+        }
+
+        controls.update()
+        renderer.render(scene, camera)
+
+        fpsFrames++
+        fpsTime += dt
+        hudTime += dt
+        if (fpsTime >= 0.5) {
+          fps = Math.round(fpsFrames / fpsTime)
+          fpsFrames = 0
+          fpsTime = 0
+        }
+
+        if (hudTime >= 0.4) {
+          hudTime = 0
+          const label = activeMode === 'GPU compute' ? 'compute 提交' : 'CPU 更新'
+          statsEl.innerHTML =
+            '模式：<em>' + activeMode + '</em> · 粒子：<em>' +
+            (particleCount / 10000).toFixed(0) + ' 万</em><br />' +
+            'FPS：<em>' + fps + '</em> · ' + label + '：<em>' +
+            workMs.toFixed(2) + ' ms</em>'
+        }
+      })
+
+      addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight
+        camera.updateProjectionMatrix()
+        renderer.setSize(innerWidth, innerHeight)
+      })
+    }
+
+    main().catch((err) => {
+      console.error(err)
+      fatal(err.message)
+    })
+  </script>
+</body>
+
+</html>

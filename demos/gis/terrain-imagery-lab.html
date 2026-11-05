@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>terrain-imagery-lab · 高程与影像地形台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 390px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .8);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .desc {
+      display: block;
+      margin-top: 4px;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .info .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+      align-items: baseline;
+    }
+
+    .info .row em {
+      font-style: normal;
+      flex: 0 0 108px;
+      color: #9fb4d4;
+      font-size: 11.5px;
+    }
+
+    .info .row code {
+      color: #e2e8f0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .info .note {
+      display: block;
+      margin-top: 7px;
+      color: #fbbf24;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 264px;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        max-width: 208px;
+        font-size: 12px;
+      }
+
+      .info .desc {
+        display: none;
+      }
+
+      .info .row {
+        display: block;
+      }
+
+      .info .row code {
+        display: block;
+        font-size: 10.5px;
+      }
+
+      .hint {
+        font-size: 11px;
+        white-space: normal;
+        width: 92%;
+        text-align: center;
+      }
+
+      .lil-gui.root {
+        --width: 200px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>高程与影像地形台 · DEM 上屏</b>
+    <span class="desc">高程场来自程序化 DEM，影像贴图由高程与坡度烘焙；所有像素在本地生成，不请求外部瓦片。</span>
+    <div class="row"><em>视窗 / 网格</em><code id="hud-size">—</code></div>
+    <div class="row"><em>三角数</em><code id="hud-tris">—</code></div>
+    <div class="row"><em>顶点数</em><code id="hud-verts">—</code></div>
+    <div class="row"><em>显存估算</em><code id="hud-vram">—</code></div>
+    <div class="row"><em>高程夸张</em><code id="hud-exag">—</code></div>
+    <span class="note" id="hud-note"></span>
+  </div>
+  <div class="hint">拖拽旋转 · 滚轮缩放 · 右上角切换夸张系数、网格分辨率与等高线</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 地形参数 ---------- */
+    const EXTENT = 12000 // 12 km 视窗
+    const TEX = 512 // 影像贴图分辨率
+    const HG = 161 // 高程缓存网格（用于双线性采样）
+    const CONTOUR_STEP = 100 // 等高距（米）
+
+    /* ---------- 程序化高程：fBm + 河谷 ---------- */
+    function hash2(x, y) {
+      const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123
+      return s - Math.floor(s)
+    }
+
+    function valueNoise(x, y) {
+      const xi = Math.floor(x)
+      const yi = Math.floor(y)
+      const xf = x - xi
+      const yf = y - yi
+      const u = xf * xf * (3 - 2 * xf)
+      const v = yf * yf * (3 - 2 * yf)
+      const a = hash2(xi, yi)
+      const b = hash2(xi + 1, yi)
+      const c = hash2(xi, yi + 1)
+      const d = hash2(xi + 1, yi + 1)
+      return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v
+    }
+
+    function fbm(x, y) {
+      let sum = 0
+      let amp = 0.5
+      let freq = 1
+      for (let i = 0; i < 4; i++) {
+        sum += amp * valueNoise(x * freq, y * freq)
+        freq *= 2.03
+        amp *= 0.5
+      }
+      return sum
+    }
+
+    // u：东西向 0~1；v：南北向 0（南）~1（北）
+    function heightAt(u, v) {
+      const nx = u * 5.5
+      const ny = v * 5.5
+      let h = Math.pow(fbm(nx, ny), 1.45) * 1650
+      const river = Math.exp(-Math.pow((u - (0.42 + 0.12 * Math.sin(v * 4.2))) / 0.05, 2))
+      h -= river * 300
+      return Math.max(20, Math.min(1400, h))
+    }
+
+    /* ---------- 高程缓存与双线性采样 ---------- */
+    const heightGrid = new Float32Array(HG * HG)
+    for (let j = 0; j < HG; j++) {
+      for (let i = 0; i < HG; i++) {
+        heightGrid[j * HG + i] = heightAt(i / (HG - 1), j / (HG - 1))
+      }
+    }
+
+    function sampleHeight(u, v) {
+      const x = Math.max(0, Math.min(1, u)) * (HG - 1)
+      const y = Math.max(0, Math.min(1, v)) * (HG - 1)
+      const xi = Math.floor(x)
+      const yi = Math.floor(y)
+      const xf = x - xi
+      const yf = y - yi
+      const x1 = Math.min(HG - 1, xi + 1)
+      const y1 = Math.min(HG - 1, yi + 1)
+      const a = heightGrid[yi * HG + xi]
+      const b = heightGrid[yi * HG + x1]
+      const c = heightGrid[y1 * HG + xi]
+      const d = heightGrid[y1 * HG + x1]
+      return a * (1 - xf) * (1 - yf) + b * xf * (1 - yf) + c * (1 - xf) * yf + d * xf * yf
+    }
+
+    /* ---------- 场景与渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 14000, 34000)
+
+    const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 5, 90000)
+    camera.position.set(0, 5200, 6600)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.15
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.08
+    controls.target.set(0, 420, 0)
+    controls.minDistance = 2200
+    controls.maxDistance = 26000
+    controls.maxPolarAngle = Math.PI * 0.46
+
+    scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x1a2438, 1.6))
+    const sun = new THREE.DirectionalLight(0xfff2dc, 2.4)
+    sun.position.set(-6000, 9000, 4200)
+    scene.add(sun)
+
+    /* ---------- 影像贴图：高程 + 坡度阴影 + 等高线 ---------- */
+    function lerpColor(c1, c2, t) {
+      return [
+        c1[0] + (c2[0] - c1[0]) * t,
+        c1[1] + (c2[1] - c1[1]) * t,
+        c1[2] + (c2[2] - c1[2]) * t
+      ]
+    }
+
+    function landColor(h) {
+      const stops = [
+        [60, [28, 66, 104]],
+        [320, [54, 100, 64]],
+        [760, [108, 118, 64]],
+        [1080, [134, 116, 92]],
+        [1240, [188, 192, 200]],
+        [1400, [236, 240, 246]]
+      ]
+      if (h <= stops[0][0]) return stops[0][1]
+      for (let i = 1; i < stops.length; i++) {
+        if (h <= stops[i][0]) {
+          const t = (h - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0])
+          return lerpColor(stops[i - 1][1], stops[i][1], t)
+        }
+      }
+      return stops[stops.length - 1][1]
+    }
+
+    let imageryTexture = null
+
+    function buildImagery(withContours) {
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = TEX
+      const ctx = canvas.getContext('2d')
+      const img = ctx.createImageData(TEX, TEX)
+      const data = img.data
+      const stepM = EXTENT / TEX
+      const lx = -0.4472
+      const ly = 0.8149
+      const lz = -0.3578
+
+      for (let py = 0; py < TEX; py++) {
+        for (let px = 0; px < TEX; px++) {
+          const u = (px + 0.5) / TEX
+          const v = 1 - (py + 0.5) / TEX
+          const h = sampleHeight(u, v)
+          const hR = sampleHeight(u + 1 / TEX, v)
+          const hL = sampleHeight(u - 1 / TEX, v)
+          const hD = sampleHeight(u, v - 1 / TEX)
+          const hU = sampleHeight(u, v + 1 / TEX)
+
+          const dhdx = (hR - hL) / (2 * stepM)
+          const dhdz = (hU - hD) / (2 * stepM)
+          const len = Math.sqrt(dhdx * dhdx + 1 + dhdz * dhdz)
+          const dot = (-dhdx * lx + ly - dhdz * lz) / len
+          const shade = 0.38 + 0.86 * Math.max(0, dot)
+
+          let rgb = landColor(h)
+          const noise = 0.86 + hash2(px * 0.73, py * 1.17) * 0.26
+          let r = rgb[0] * shade * noise
+          let g = rgb[1] * shade * noise
+          let b = rgb[2] * shade * noise
+
+          // 河谷水面：低洼处混合水色
+          if (h < 130) {
+            const w = Math.min(1, (130 - h) / 70)
+            r = r * (1 - w) + 26 * w
+            g = g * (1 - w) + 72 * w
+            b = b * (1 - w) + 112 * w
+          }
+
+          // 等高线：跨越等高距边界时提亮
+          if (withContours) {
+            const band = Math.floor(h / CONTOUR_STEP)
+            if (band !== Math.floor(hR / CONTOUR_STEP) || band !== Math.floor(hD / CONTOUR_STEP)) {
+              r = r * 0.35 + 255 * 0.65
+              g = g * 0.35 + 226 * 0.65
+              b = b * 0.35 + 140 * 0.65
+            }
+          }
+
+          const idx = (py * TEX + px) * 4
+          data[idx] = Math.min(255, r)
+          data[idx + 1] = Math.min(255, g)
+          data[idx + 2] = Math.min(255, b)
+          data[idx + 3] = 255
+        }
+      }
+
+      ctx.putImageData(img, 0, 0)
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      return tex
+    }
+
+    /* ---------- 地形网格 ---------- */
+    const params = {
+      exaggeration: 2.0,
+      resolution: 192,
+      grid: true,
+      contours: true,
+      autoRotate: false
+    }
+
+    const terrainMaterial = new THREE.MeshStandardMaterial({
+      map: buildImagery(params.contours),
+      roughness: 0.96,
+      metalness: 0
+    })
+
+    const terrainMesh = new THREE.Mesh(new THREE.BufferGeometry(), terrainMaterial)
+    scene.add(terrainMesh)
+
+    const gridMesh = new THREE.Mesh(
+      new THREE.BufferGeometry(),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, wireframe: true, transparent: true, opacity: 0.16 })
+    )
+    scene.add(gridMesh)
+
+    function rebuildGeometry() {
+      const seg = params.resolution
+      const oldGeo = terrainMesh.geometry
+      const geo = new THREE.PlaneGeometry(EXTENT, EXTENT, seg, seg)
+      geo.rotateX(-Math.PI / 2)
+
+      const pos = geo.attributes.position
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i)
+        const z = pos.getZ(i)
+        const u = x / EXTENT + 0.5
+        const v = 0.5 - z / EXTENT
+        pos.setY(i, sampleHeight(u, v) * params.exaggeration)
+      }
+      pos.needsUpdate = true
+      geo.computeVertexNormals()
+
+      terrainMesh.geometry = geo
+      gridMesh.geometry = geo
+      gridMesh.visible = params.grid
+      if (oldGeo) oldGeo.dispose()
+      updateHUD()
+    }
+
+    function rebuildTexture() {
+      const old = terrainMaterial.map
+      imageryTexture = buildImagery(params.contours)
+      terrainMaterial.map = imageryTexture
+      terrainMaterial.needsUpdate = true
+      if (old) old.dispose()
+      updateHUD()
+    }
+
+    /* ---------- HUD ---------- */
+    const hudSize = document.getElementById('hud-size')
+    const hudTris = document.getElementById('hud-tris')
+    const hudVerts = document.getElementById('hud-verts')
+    const hudVram = document.getElementById('hud-vram')
+    const hudExag = document.getElementById('hud-exag')
+    const hudNote = document.getElementById('hud-note')
+
+    function updateHUD() {
+      const seg = params.resolution
+      const tris = seg * seg * 2
+      const verts = (seg + 1) * (seg + 1)
+      const vertBytes = verts * 32 // position + normal + uv：8 个 float32
+      const idxBytes = tris * 3 * 4
+      const texBytes = TEX * TEX * 4 * 1.33 // RGBA8 + mip 链
+      const total = (vertBytes + idxBytes + texBytes) / (1024 * 1024)
+
+      hudSize.textContent = `12 km × 12 km · ${seg} × ${seg} 段`
+      hudTris.textContent = `${tris.toLocaleString('en-US')} 个`
+      hudVerts.textContent = `${verts.toLocaleString('en-US')} 个`
+      hudVram.textContent = `${total.toFixed(2)} MB（几何 ${((vertBytes + idxBytes) / (1024 * 1024)).toFixed(2)} + 贴图 ${(texBytes / (1024 * 1024)).toFixed(2)}）`
+      hudExag.textContent = `× ${params.exaggeration.toFixed(1)}`
+      hudNote.textContent = `等高距 ${CONTOUR_STEP} m · 贴图 ${TEX}² · 影像阴影按真实坡度烘焙`
+    }
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '地形参数' })
+    gui.add(params, 'exaggeration', 0.5, 6, 0.1).name('高程夸张系数')
+      .onChange(() => { rebuildGeometry() })
+    gui.add(params, 'resolution', { '64 段': 64, '128 段': 128, '192 段': 192, '256 段': 256, '384 段': 384 })
+      .name('网格分辨率').onChange(() => { rebuildGeometry() })
+    gui.add(params, 'grid').name('坐标网格（线框）').onChange((v) => {
+      gridMesh.visible = v
+      updateHUD()
+    })
+    gui.add(params, 'contours').name('等高线（100 m）').onChange(() => { rebuildTexture() })
+    gui.add(params, 'autoRotate').name('自动旋转').onChange((v) => {
+      controls.autoRotate = v
+      controls.autoRotateSpeed = 0.45
+    })
+
+    rebuildGeometry()
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

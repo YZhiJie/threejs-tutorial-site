@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pass-order-lab · Pass 顺序实验室</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 350px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .chain {
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 270px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 210px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>Pass 顺序实验室</b><br />
+    同一画面，三种效果的不同串联顺序。<br />
+    当前链路：<span class="chain" id="chain"></span><br />
+    重点观察：残影拖尾「带不带辉光」、噪点「会不会被拖尾涂抹」。
+  </div>
+  <div class="hint">右上角切换串联顺序 · 拖拽旋转视角</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+    import { FilmPass } from 'three/addons/postprocessing/FilmPass.js'
+    import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js'
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 3, 9)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.2))
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2)
+    sun.position.set(4, 6, 3)
+    scene.add(sun)
+    scene.add(new THREE.GridHelper(16, 16, 0x334155, 0x1e293b))
+
+    // 静止参照物：看噪点与残影是否影响它
+    const knot = new THREE.Mesh(
+      new THREE.TorusKnotGeometry(1.0, 0.3, 160, 24),
+      new THREE.MeshStandardMaterial({ color: 0x8892a8, roughness: 0.5, metalness: 0.4 })
+    )
+    knot.position.y = 1.6
+    scene.add(knot)
+
+    // 高速彗星：让 Afterimage 残影清晰可见
+    const comet = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 24, 18),
+      new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0x7cc4ff, emissiveIntensity: 4 })
+    )
+    scene.add(comet)
+    const comet2 = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 24, 18),
+      new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff5fa2, emissiveIntensity: 4 })
+    )
+    scene.add(comet2)
+
+    // —— 可重排的 Pass 工厂 ——
+    const params = {
+      order: 'Bloom → Film → Afterimage',
+      bloomStrength: 0.9,
+      filmIntensity: 0.35,
+      damp: 0.92
+    }
+    const factories = {
+      Bloom: () => {
+        const p = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), params.bloomStrength, 0.4, 0.55)
+        live.Bloom = p
+        return p
+      },
+      Film: () => {
+        const p = new FilmPass(params.filmIntensity, false)
+        live.Film = p
+        return p
+      },
+      Afterimage: () => {
+        const p = new AfterimagePass(params.damp)
+        live.Afterimage = p
+        return p
+      }
+    }
+
+    let composer = null
+    let live = {} // 当前链上的 Pass 实例，供滑条实时调参
+
+    function buildComposer() {
+      // 释放旧链：先 Pass 后合成器
+      for (const key of Object.keys(live)) live[key].dispose && live[key].dispose()
+      live = {}
+      if (composer) composer.dispose()
+
+      composer = new EffectComposer(renderer)
+      composer.setPixelRatio(Math.min(devicePixelRatio, 2))
+      composer.addPass(new RenderPass(scene, camera))
+
+      const names = params.order.split(' → ')
+      names.forEach(n => composer.addPass(factories[n]()))
+      composer.addPass(new OutputPass()) // 输出永远在最后
+
+      composer.setSize(innerWidth, innerHeight)
+      document.getElementById('chain').textContent = 'Render → ' + params.order + ' → Output'
+    }
+    buildComposer()
+
+    const gui = new GUI({ title: 'Pass 实验室' })
+    gui.add(params, 'order', [
+      'Bloom → Film → Afterimage',
+      'Afterimage → Bloom → Film',
+      'Film → Bloom → Afterimage',
+      'Bloom → Afterimage → Film'
+    ]).name('串联顺序').onFinishChange(buildComposer)
+    gui.add(params, 'bloomStrength', 0, 2.5, 0.01).name('Bloom 强度')
+      .onChange(v => live.Bloom && (live.Bloom.strength = v))
+    gui.add(params, 'filmIntensity', 0, 1, 0.01).name('Film 噪点强度')
+      .onChange(v => live.Film && (live.Film.uniforms.intensity.value = v))
+    gui.add(params, 'damp', 0.8, 0.98, 0.005).name('残影保留 damp')
+      .onChange(v => live.Afterimage && (live.Afterimage.uniforms.damp.value = v))
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const t = clock.getElapsed()
+
+      comet.position.set(Math.cos(t * 1.6) * 3.4, 1.6 + Math.sin(t * 2.2) * 1.1, Math.sin(t * 1.6) * 3.4)
+      comet2.position.set(Math.cos(-t * 2.1 + 2) * 2.4, 1.6 + Math.cos(t * 1.7) * 0.9, Math.sin(-t * 2.1 + 2) * 2.4)
+      knot.rotation.y += 0.003
+
+      controls.update()
+      composer.render()
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      composer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

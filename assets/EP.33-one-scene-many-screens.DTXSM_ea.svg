@@ -1,0 +1,218 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">
+  <defs>
+    <linearGradient id="bg33" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#101a33"/>
+    </linearGradient>
+    <linearGradient id="titleGrad33" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="good33" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <linearGradient id="bad33" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#94a3b8"/>
+      <stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="840" fill="url(#bg33)"/>
+  <polygon points="980,0 1060,0 760,840 680,840" fill="#22d3ee" opacity="0.04"/>
+  <polygon points="150,0 220,0 1040,840 970,840" fill="#a78bfa" opacity="0.03"/>
+
+  <rect x="20" y="14" width="92" height="36" rx="9" fill="#7C3AED"/>
+  <text x="66" y="38" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffffff">EP.33</text>
+  <text x="126" y="40" font-size="26" font-weight="bold" fill="url(#titleGrad33)">一景多屏：一份场景，三种运行环境</text>
+  <text x="1180" y="38" text-anchor="end" font-size="13" fill="#64748b">Three.js 漫画剧场 · 霓虹墨 NEON INK</text>
+  <rect x="20" y="62" width="1160" height="2" rx="1" fill="url(#titleGrad33)" opacity="0.6"/>
+
+  <g transform="translate(20,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#22d3ee" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#22d3ee"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">1</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">困境：同一场景三块屏</text>
+
+    <g transform="translate(52,100)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#f97316"/>
+      <circle cx="15" cy="4" r="6.5" fill="#f97316"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,6 q3,-2 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,90 74,96 88,102" fill="#f8fafc"/>
+    <rect x="88" y="72" width="292" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="94" font-size="15" fill="#0b1220">Web 上跑得好好的，</text>
+    <text x="102" y="116" font-size="15" fill="#0b1220">小程序里怎么直接黑屏？</text>
+
+    <g transform="translate(52,180)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#1d4ed8"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 L-13,-19 L-8,-5 L-3,-22 L2,-5 L8,-19 L12,-5 L16,-2 Q0,-12 -16,-2 Z" fill="#334155"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-4,5 q4,4 8,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,170 74,176 88,182" fill="#f8fafc"/>
+    <rect x="88" y="152" width="292" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="174" font-size="15" fill="#0b1220">贴图 2048 塞进小游戏，</text>
+    <text x="102" y="196" font-size="15" fill="#0b1220">包体当场就爆了。</text>
+
+    <rect x="24" y="222" width="524" height="58" rx="8" fill="#0a0f1c" stroke="#22d3ee" stroke-opacity="0.35"/>
+    <text x="38" y="244" font-size="12.5" fill="#f472b6" font-family="'SF Mono',Consolas,monospace">new Image()  -&gt;  undefined</text>
+    <text x="38" y="266" font-size="11.5" fill="#94a3b8">requestAnimationFrame / pointerdown 也都不存在</text>
+
+    <rect x="24" y="290" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="290" width="4" height="52" rx="2" fill="#22d3ee"/>
+    <text x="40" y="312" font-size="13.5" fill="#e2e8f0">浏览器白送的 canvas、rAF、事件模型，</text>
+    <text x="40" y="332" font-size="13.5" fill="#94a3b8">在小程序里都得先补一层适配。</text>
+  </g>
+
+  <g transform="translate(608,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#a78bfa" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#a78bfa"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">2</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">揭秘：适配层补了哪些宿主</text>
+
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="286" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">没有 DOM？先给 three</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">补一个最小可用的宿主。</text>
+
+    <rect x="24" y="152" width="116" height="62" rx="8" fill="#111a30" stroke="#22d3ee" stroke-opacity="0.6"/>
+    <text x="82" y="176" text-anchor="middle" font-size="12" font-weight="bold" fill="#e2e8f0">canvas shim</text>
+    <text x="82" y="197" text-anchor="middle" font-size="10" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">createCanvas</text>
+
+    <rect x="152" y="152" width="116" height="62" rx="8" fill="#111a30" stroke="#22d3ee" stroke-opacity="0.6"/>
+    <text x="210" y="176" text-anchor="middle" font-size="12" font-weight="bold" fill="#e2e8f0">WebGL ctx</text>
+    <text x="210" y="197" text-anchor="middle" font-size="10" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">getContext</text>
+
+    <rect x="280" y="152" width="116" height="62" rx="8" fill="#111a30" stroke="#a78bfa" stroke-opacity="0.6"/>
+    <text x="338" y="176" text-anchor="middle" font-size="12" font-weight="bold" fill="#e2e8f0">ImageLoader</text>
+    <text x="338" y="197" text-anchor="middle" font-size="10" fill="#c4b5fd" font-family="'SF Mono',Consolas,monospace">createImage</text>
+
+    <rect x="408" y="152" width="116" height="62" rx="8" fill="#111a30" stroke="#f472b6" stroke-opacity="0.6"/>
+    <text x="466" y="176" text-anchor="middle" font-size="12" font-weight="bold" fill="#e2e8f0">rAF / touch</text>
+    <text x="466" y="197" text-anchor="middle" font-size="10" fill="#f9a8d4" font-family="'SF Mono',Consolas,monospace">shim / map</text>
+
+    <rect x="24" y="226" width="524" height="52" rx="8" fill="#0a0f1c" stroke="#a78bfa" stroke-opacity="0.35"/>
+    <text x="38" y="248" font-size="12" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">new WebGLRenderer({ canvas, context: gl })</text>
+    <text x="38" y="268" font-size="11.5" fill="#94a3b8">同一个渲染器，换掉它脚下的宿主</text>
+
+    <rect x="24" y="290" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="290" width="4" height="52" rx="2" fill="#a78bfa"/>
+    <text x="40" y="312" font-size="13.5" fill="#e2e8f0">适配层不是改 three，而是补齐它依赖的环境；</text>
+    <text x="40" y="332" font-size="13.5" fill="#94a3b8">补完，原版 three 代码才有机会原样跑起来。</text>
+  </g>
+
+  <g transform="translate(20,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#f472b6" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f472b6"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">3</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">实证：三端能力清单</text>
+
+    <g transform="translate(52,104)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,94 74,100 88,106" fill="#f8fafc"/>
+    <rect x="88" y="78" width="300" height="44" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">同一份场景，三端上限完全不同。</text>
+
+    <rect x="24" y="150" width="524" height="112" rx="8" fill="#0a0f1c" stroke="#f472b6" stroke-opacity="0.35"/>
+    <rect x="24" y="150" width="524" height="26" rx="8" fill="#111a30"/>
+    <text x="40" y="168" font-size="12" font-weight="bold" fill="#7dd3fc">能力</text>
+    <text x="152" y="168" font-size="12" font-weight="bold" fill="#34d399">Web</text>
+    <text x="262" y="168" font-size="12" font-weight="bold" fill="#fbbf24">小程序</text>
+    <text x="404" y="168" font-size="12" font-weight="bold" fill="#f472b6">小游戏</text>
+
+    <line x1="36" y1="176" x2="536" y2="176" stroke="#1e2a44"/>
+    <text x="40" y="196" font-size="11.5" fill="#94a3b8">纹理上限</text>
+    <text x="152" y="196" font-size="11.5" fill="#e2e8f0">4096+</text>
+    <text x="262" y="196" font-size="11.5" fill="#e2e8f0">1024</text>
+    <text x="404" y="196" font-size="11.5" fill="#e2e8f0">512</text>
+
+    <text x="40" y="216" font-size="11.5" fill="#94a3b8">事件模型</text>
+    <text x="152" y="216" font-size="11.5" fill="#e2e8f0">pointer</text>
+    <text x="262" y="216" font-size="11.5" fill="#e2e8f0">touch</text>
+    <text x="404" y="216" font-size="11.5" fill="#e2e8f0">wx.touch</text>
+
+    <text x="40" y="236" font-size="11.5" fill="#94a3b8">包体预算</text>
+    <text x="152" y="236" font-size="11.5" fill="#e2e8f0">不限</text>
+    <text x="262" y="236" font-size="11.5" fill="#e2e8f0">20MB</text>
+    <text x="404" y="236" font-size="11.5" fill="#e2e8f0">4MB</text>
+
+    <text x="40" y="256" font-size="11.5" fill="#94a3b8">切后台</text>
+    <text x="152" y="256" font-size="11.5" fill="#e2e8f0">visibility</text>
+    <text x="262" y="256" font-size="11.5" fill="#e2e8f0">onHide</text>
+    <text x="404" y="256" font-size="11.5" fill="#e2e8f0">onHide</text>
+
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#f472b6"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">降级不是随手写 if，而是让能力清单决定加载什么；</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">同一份场景描述，按端裁规格、裁特性。</text>
+  </g>
+
+  <g transform="translate(608,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#f97316" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f97316"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">4</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">结案：一景多端三纪律</text>
+
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="252" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">一份场景描述，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">多个运行时适配器。</text>
+
+    <rect x="24" y="154" width="80" height="26" rx="13" fill="#f97316"/>
+    <text x="64" y="172" text-anchor="middle" font-size="13" font-weight="bold" fill="#0b1220">三个坑</text>
+    <rect x="32" y="200" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="209" font-size="14" fill="#e2e8f0">平台判断散落在业务代码里</text>
+    <rect x="32" y="228" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="237" font-size="14" fill="#e2e8f0">纹理规格写死，小游戏必爆</text>
+    <rect x="32" y="256" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="265" font-size="14" fill="#e2e8f0">切后台不停渲染，回来瞬移</text>
+
+    <rect x="24" y="290" width="524" height="50" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="290" width="4" height="50" rx="2" fill="#22d3ee"/>
+    <text x="40" y="311" font-size="13.5" font-weight="bold" fill="#22d3ee">码叔总结</text>
+    <text x="40" y="331" font-size="13.5" fill="#e2e8f0">先定能力清单，再谈一套代码多端跑。</text>
+  </g>
+
+  <text x="1180" y="832" text-anchor="end" font-size="11" fill="#475569">NEON INK · threejs-tutorial · EP.33</text>
+</svg>

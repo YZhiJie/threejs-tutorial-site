@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#101a33"/>
+    </linearGradient>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="840" fill="url(#bg)"/>
+  <polygon points="980,0 1060,0 760,840 680,840" fill="#22d3ee" opacity="0.04"/>
+  <polygon points="150,0 220,0 1040,840 970,840" fill="#a78bfa" opacity="0.03"/>
+
+  <rect x="20" y="14" width="92" height="36" rx="9" fill="#7C3AED"/>
+  <text x="66" y="38" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffffff">EP.23</text>
+  <text x="126" y="40" font-size="26" font-weight="bold" fill="url(#titleGrad)">让世界有了重力</text>
+  <text x="1180" y="38" text-anchor="end" font-size="13" fill="#64748b">Three.js 漫画剧场 · 霓虹墨 NEON INK</text>
+  <rect x="20" y="62" width="1160" height="2" rx="1" fill="url(#titleGrad)" opacity="0.6"/>
+
+  <g transform="translate(20,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#22d3ee" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#22d3ee"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">1</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">困境：手搓跳跃动画</text>
+    <g transform="translate(52,100)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#22d3ee"/>
+      <circle cx="15" cy="4" r="6.5" fill="#22d3ee"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,6 q3,-2 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,90 74,96 88,102" fill="#f8fafc"/>
+    <rect x="88" y="72" width="230" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="94" font-size="15" fill="#0b1220">改了二十版缓动曲线，</text>
+    <text x="102" y="116" font-size="15" fill="#0b1220">跳跃还是一眼假……</text>
+    <g transform="translate(52,180)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#1d4ed8"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 L-13,-19 L-8,-5 L-3,-22 L2,-5 L8,-19 L12,-5 L16,-2 Q0,-12 -16,-2 Z" fill="#f97316"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-4,5 q4,4 8,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,170 74,176 88,182" fill="#f8fafc"/>
+    <rect x="88" y="152" width="230" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="174" font-size="15" fill="#0b1220">哈哈哈哈——</text>
+    <text x="102" y="196" font-size="15" fill="#0b1220">像个提线木偶！</text>
+    <rect x="24" y="222" width="524" height="58" rx="8" fill="#0a0f1c" stroke="#22d3ee" stroke-opacity="0.35"/>
+    <text x="38" y="246" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">ball.y = Math.abs(Math.sin(t)) * h</text>
+    <text x="38" y="268" font-size="12.5" fill="#fbbf24" font-family="'SF Mono',Consolas,monospace">// 轨迹写死：撞不了任何东西</text>
+    <rect x="24" y="290" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="290" width="4" height="52" rx="2" fill="#22d3ee"/>
+    <text x="40" y="312" font-size="13.5" fill="#e2e8f0">轨迹写死的动画，永远不会「撞」到东西；</text>
+    <text x="40" y="332" font-size="13.5" fill="#94a3b8">松手之后的弹跳，该交给自然法则。</text>
+  </g>
+
+  <g transform="translate(608,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#a78bfa" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#a78bfa"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">2</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">揭秘：两个世界分离</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="210" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">动画是剧本，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">物理是自然法则。</text>
+    <rect x="24" y="152" width="524" height="110" rx="8" fill="#0a0f1c" stroke="#a78bfa" stroke-opacity="0.35"/>
+    <rect x="40" y="172" width="150" height="64" rx="8" fill="#111a30" stroke="#22d3ee" stroke-opacity="0.6"/>
+    <text x="115" y="198" text-anchor="middle" font-size="14" font-weight="bold" fill="#e2e8f0">物理世界</text>
+    <text x="115" y="220" text-anchor="middle" font-size="11.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">World · Body</text>
+    <line x1="196" y1="204" x2="330" y2="204" stroke="#94a3b8" stroke-width="2"/>
+    <polygon points="322,198 334,204 322,210" fill="#94a3b8"/>
+    <text x="265" y="190" text-anchor="middle" font-size="12" fill="#94a3b8">每帧抄坐标</text>
+    <text x="265" y="228" text-anchor="middle" font-size="11" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">mesh ← body</text>
+    <rect x="346" y="172" width="150" height="64" rx="8" fill="#111a30" stroke="#a78bfa" stroke-opacity="0.6"/>
+    <text x="421" y="198" text-anchor="middle" font-size="14" font-weight="bold" fill="#e2e8f0">渲染世界</text>
+    <text x="421" y="220" text-anchor="middle" font-size="11.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">Scene · Mesh</text>
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#a78bfa"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">物理引擎只产出坐标，画面仍归 Three.js 画；</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">两个世界各干各的活，互不越界。</text>
+  </g>
+
+  <g transform="translate(20,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#f472b6" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f472b6"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">3</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">实证：三十行见真章</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#22d3ee"/>
+      <circle cx="15" cy="4" r="6.5" fill="#22d3ee"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,5 q3,3 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="225" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">三十行 cannon-es，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">球真的弹起来了！</text>
+    <rect x="24" y="152" width="524" height="110" rx="8" fill="#0a0f1c" stroke="#f472b6" stroke-opacity="0.35"/>
+    <text x="38" y="178" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">world.step(1/60, dt, 3)</text>
+    <text x="38" y="200" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">mesh.position.copy(body.position)</text>
+    <text x="38" y="222" font-size="12.5" fill="#34d399" font-family="'SF Mono',Consolas,monospace">body.addEventListener('collide', eatCoin)</text>
+    <text x="38" y="244" font-size="12" fill="#fbbf24" font-family="'SF Mono',Consolas,monospace">// 碰撞事件顺手做了金币音效 ♪</text>
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#f472b6"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">弹性摩擦写进 ContactMaterial，</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">反弹多高，不用再调曲线了。</text>
+  </g>
+
+  <g transform="translate(608,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#f97316" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f97316"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">4</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">结案：物理三纪律</text>
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="82" width="170" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">物理不难，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">难在纪律。</text>
+    <rect x="24" y="154" width="96" height="26" rx="13" fill="#f97316"/>
+    <text x="72" y="172" text-anchor="middle" font-size="13" font-weight="bold" fill="#0b1220">⚠ 坑点</text>
+    <rect x="32" y="200" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="209" font-size="14" fill="#e2e8f0">步长太大穿地——固定 1/60 步长</text>
+    <rect x="32" y="228" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="237" font-size="14" fill="#e2e8f0">渲染忘抄坐标——mesh 跟着 body 走</text>
+    <rect x="32" y="256" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="265" font-size="14" fill="#e2e8f0">形状能用球，就别用三角面</text>
+    <rect x="24" y="290" width="524" height="50" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="290" width="4" height="50" rx="2" fill="#22d3ee"/>
+    <text x="40" y="311" font-size="13.5" font-weight="bold" fill="#22d3ee">码叔总结</text>
+    <text x="40" y="331" font-size="13.5" fill="#e2e8f0">动画演轨迹，物理算轨迹——让世界自己动起来。</text>
+  </g>
+
+  <text x="1180" y="832" text-anchor="end" font-size="11" fill="#475569">NEON INK · threejs-tutorial · EP.23</text>
+</svg>

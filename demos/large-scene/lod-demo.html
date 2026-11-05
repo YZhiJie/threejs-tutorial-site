@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>lod-demo · LOD 距离分级</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hud {
+      position: fixed; top: 14px; left: 372px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.8; pointer-events: none;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .hud b { color: #fbbf24; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 250px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .hud { left: 14px; top: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>lod-demo · 同一物体三档精度，按距离自动切换</b><br />
+    L0（距离 ≥ 0）：48 段高精球<br />
+    L1（距离 ≥ 12）：16 段中精球<br />
+    L2（距离 ≥ 28）：低精盒子<br />
+    滚轮拉远/拉近相机，观察雕塑外形变化。
+  </div>
+  <div class="hud" id="hud">相机距离：-- 当前档位：--</div>
+  <div class="hint">滚轮缩放看切换 · 面板可开档位高亮：L0 白 / L1 黄 / L2 红</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 300)
+    camera.position.set(0, 4, 18)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1, 0)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x202020, 1))
+    const dir = new THREE.DirectionalLight(0xffffff, 2)
+    dir.position.set(5, 10, 6)
+    scene.add(dir)
+    scene.add(new THREE.GridHelper(80, 40, 0x334155, 0x1e293b))
+
+    const baseMaterial = new THREE.MeshStandardMaterial({
+      color: 0x4f9cf9, roughness: 0.5, metalness: 0.1 })
+
+    // 三档几何：高精球 / 中精球 / 低精盒
+    const geoms = [
+      new THREE.SphereGeometry(1, 48, 32),
+      new THREE.SphereGeometry(1, 16, 12),
+      new THREE.BoxGeometry(1.6, 1.6, 1.6)
+    ]
+    const DISTANCES = [0, 12, 28]
+    // 档位高亮材质：L0 白 / L1 黄 / L2 红
+    const LEVEL_COLORS = [0xffffff, 0xfbbf24, 0xf87171]
+    const levelMaterials = LEVEL_COLORS.map(c =>
+      new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.1 }))
+
+    const lods = []
+    for (let i = 0; i < 8; i++) {
+      const lod = new THREE.LOD()
+      geoms.forEach((g, level) => {
+        const m = new THREE.Mesh(g, baseMaterial)
+        m.position.y = 1
+        lod.addLevel(m, DISTANCES[level])
+      })
+      lod.position.set((i - 3.5) * 4, 0, 0)
+      scene.add(lod)
+      lods.push(lod)
+    }
+
+    const params = { highlight: false }
+    const gui = new GUI({ title: 'LOD' })
+    gui.add(params, 'highlight').name('档位高亮着色')
+
+    const hud = document.getElementById('hud')
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      controls.update()
+
+      // 高亮开关：给所有档位的 Mesh 换材质
+      lods.forEach(lod => {
+        lod.levels.forEach((entry, i) => {
+          entry.object.material = params.highlight ? levelMaterials[i] : baseMaterial
+        })
+      })
+
+      renderer.render(scene, camera)
+
+      // HUD：以最中间的雕塑为例显示距离与档位
+      const d = camera.position.distanceTo(lods[3].position)
+      let level = 0
+      DISTANCES.forEach((th, i) => { if (d >= th) level = i })
+      hud.innerHTML =
+        `相机距离：<b>${d.toFixed(1)}</b>　当前档位：<b>L${level}</b><br>` +
+        `阈值：L0 ≥ 0　L1 ≥ ${DISTANCES[1]}　L2 ≥ ${DISTANCES[2]}`
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

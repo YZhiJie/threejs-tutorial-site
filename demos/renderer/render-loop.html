@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>render-loop · 渲染循环与 deltaTime</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 340px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .meter {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 14px;
+    }
+
+    .meter div {
+      padding: 8px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 8px;
+      font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace;
+      white-space: pre;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+
+      .meter {
+        flex-direction: column;
+        gap: 6px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>为什么动画要用 deltaTime？</b><br />
+    <b style="color:#60a5fa">蓝立方体</b>按“帧数”旋转：每帧 +0.02，帧率越低转得越慢。<br />
+    <b style="color:#fbbf24">黄立方体</b>按“时间”旋转：每秒固定转 1.2 弧度，任何帧率速度一致。<br />
+    用面板把帧率降到 15fps，立刻能看到两者差别。
+  </div>
+  <div class="meter">
+    <div id="m1">蓝: -- rad/s</div>
+    <div id="m2">黄: -- rad/s</div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.6, 5)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6))
+    const d = new THREE.DirectionalLight(0xffffff, 1.5)
+    d.position.set(3, 5, 4)
+    scene.add(d)
+    scene.add(new THREE.GridHelper(10, 10, 0x334155, 0x1e293b))
+
+    const frameCube = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 1.2),
+      new THREE.MeshStandardMaterial({ color: 0x60a5fa })
+    )
+    frameCube.position.set(-1.6, 0.8, 0)
+    const timeCube = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 1.2),
+      new THREE.MeshStandardMaterial({ color: 0xfbbf24 })
+    )
+    timeCube.position.set(1.6, 0.8, 0)
+    scene.add(frameCube, timeCube)
+
+    const params = { targetFPS: 60 }
+    const gui = new GUI({ title: '模拟帧率' })
+    gui.add(params, 'targetFPS', [60, 30, 20, 15, 8]).name('限制帧率 (fps)')
+
+    // —— 帧率节流：不到下一帧的时间点就直接返回 ——
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    let acc = 0
+
+    // 角速度测量
+    const m1 = document.getElementById('m1')
+    const m2 = document.getElementById('m2')
+    let lastA1 = 0, lastA2 = 0, lastMeasure = performance.now()
+
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const realDelta = clock.getDelta()         // 真实经过时间（秒）
+      acc += realDelta
+      const frameInterval = 1 / params.targetFPS
+      if (acc < frameInterval) return            // 跳过本次更新与渲染
+      // 为稳定，步长固定为一帧逻辑时间
+      const step = acc
+      acc = 0
+
+      // 错误示范：与帧率绑定
+      frameCube.rotation.x += 0.02
+      frameCube.rotation.y += 0.02
+      // 正确示范：与时间绑定（rad/s × 秒）
+      timeCube.rotation.x += 1.2 * step
+      timeCube.rotation.y += 1.2 * step
+
+      controls.update()
+      renderer.render(scene, camera)
+
+      // 每 0.5s 统计两个立方体的实际角速度
+      const now = performance.now()
+      if (now - lastMeasure >= 500) {
+        const dt = (now - lastMeasure) / 1000
+        m1.textContent =
+          `蓝(按帧): ${Math.abs((frameCube.rotation.x - lastA1) / dt).toFixed(2)} rad/s`
+        m2.textContent =
+          `黄(按时): ${Math.abs((timeCube.rotation.x - lastA2) / dt).toFixed(2)} rad/s`
+        lastA1 = frameCube.rotation.x
+        lastA2 = timeCube.rotation.x
+        lastMeasure = now
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

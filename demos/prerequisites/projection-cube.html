@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>projection-cube · 手写透视投影（不依赖 Three.js）</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    canvas { display: block; cursor: grab; touch-action: none; }
+    canvas.dragging { cursor: grabbing; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 320px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .readout {
+      margin-top: 6px; font-variant-numeric: tabular-nums;
+      font-size: 12px; color: #9fb4d4;
+    }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    @media (max-width: 600px) { .info { max-width: 230px; font-size: 12px; } }
+  </style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div class="info">
+    <b>projection-cube · 零依赖</b><br />
+    没有引入 three：立方体由 8 个顶点 + 12 条边手绘。<br />
+    拖拽 = 旋转矩阵 · 近大远小 = 透视除法 f / depth<br />
+    坐标轴：X 红 · Y 绿 · Z 蓝（右手系，Z 朝向你）
+    <div class="readout">相机距离 <span id="rd">4.00</span> · fov 60°</div>
+  </div>
+  <div class="hint">拖拽旋转 · 滚轮调整相机距离</div>
+
+  <script>
+    // 学前预备演示：不依赖 Three.js，把"渲染一个 3D 立方体"的全部数学摊开。
+    // 对应教程《0 学前必备》示例二 —— Three.js 每帧替你做的正是这些事。
+
+    // ---------- 0. 画布与高分屏适配 ----------
+    const canvas = document.getElementById('stage')
+    const ctx = canvas.getContext('2d')
+    let cw = 0, ch = 0
+    function fit() {
+      const dpr = Math.min(window.devicePixelRatio, 2)  // 与教程相同：像素比 clamp 到 2
+      cw = window.innerWidth; ch = window.innerHeight
+      canvas.width = cw * dpr; canvas.height = ch * dpr
+      canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px'
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)  // 之后一律按 CSS 像素绘制
+    }
+    fit()
+    window.addEventListener('resize', fit)
+
+    // ---------- 1. 模型：顶点表 + 边表（模型局部坐标，中心在原点） ----------
+    const S = 1.1  // 半边长
+    const VERTICES = [
+      [-S,-S,-S], [ S,-S,-S], [ S, S,-S], [-S, S,-S],
+      [-S,-S, S], [ S,-S, S], [ S, S, S], [-S, S, S],
+    ]
+    const EDGES = [
+      [0,1],[1,2],[2,3],[3,0],   // 顶面 4 条
+      [4,5],[5,6],[6,7],[7,4],   // 底面 4 条
+      [0,4],[1,5],[2,6],[3,7],   // 竖直 4 条
+    ]
+    // 右手坐标系三条轴：X 红 / Y 绿 / Z 蓝，用于观察旋转方向
+    const AXES = [
+      { dir: [1,0,0], color: '#ff6b6b', label: 'X' },
+      { dir: [0,1,0], color: '#51cf66', label: 'Y' },
+      { dir: [0,0,1], color: '#5c9dff', label: 'Z' },
+    ]
+
+    // ---------- 2. 相机与旋转状态 ----------
+    let cameraDistance = 4      // 相机放在 (0, 0, +4) 看向原点
+    const FOV = 60              // 视场角（度）→ 对应 PerspectiveCamera 第 1 个参数
+    let rx = -0.42, ry = 0.66   // 旋转角（弧度）→ 对应 mesh.rotation
+    let spinning = true         // 用户一旦拖拽就停住自动旋转
+
+    // ---------- 3. 旋转矩阵：先绕 X 再绕 Y（R = Ry · Rx） ----------
+    // Three.js 里 mesh.rotation 每帧背后发生的就是这个 3×3 矩阵乘法
+    function rotate([x, y, z], ax, ay) {
+      const cx = Math.cos(ax), sx = Math.sin(ax)
+      const cy = Math.cos(ay), sy = Math.sin(ay)
+      const y1 = y * cx - z * sx    // 绕 X 轴：y/z 平面内旋转
+      const z1 = y * sx + z * cx
+      const x2 = x * cy + z1 * sy   // 绕 Y 轴：x/z 平面内旋转
+      const z2 = -x * sy + z1 * cy
+      return [x2, y1, z2]
+    }
+
+    // ---------- 4. 透视投影：3D 点 → 2D 像素 ----------
+    // 对应投影矩阵 + 视口变换。核心是透视除法：x/y 同除以深度
+    function project(p) {
+      const [x, y, z] = p
+      const depth = z + cameraDistance               // 把物体推到相机前方
+      const f = 1 / Math.tan((FOV * Math.PI) / 360)  // 半视场角求焦距（角度→弧度）
+      const scale = (f / depth) * (ch / 2)           // 越远 scale 越小 → 近大远小
+      return [cw / 2 + x * scale, ch / 2 - y * scale, depth]
+      // y 取负：屏幕 Y 轴向下，3D Y 轴向上
+    }
+
+    // ---------- 5. 绘制一帧 ----------
+    const rd = document.getElementById('rd')
+    function draw() {
+      ctx.clearRect(0, 0, cw, ch)
+      const pts = VERTICES.map(v => project(rotate(v, rx, ry)))
+
+      // 12 条边：透明度随深度衰减，强化空间感
+      ctx.lineWidth = 2; ctx.lineCap = 'round'
+      const near = cameraDistance - S, far = cameraDistance + S
+      for (const [a, b] of EDGES) {
+        const dAvg = (pts[a][2] + pts[b][2]) / 2
+        const t = (dAvg - near) / (far - near)  // 0 = 最近 → 1 = 最远
+        ctx.strokeStyle = 'rgba(124,196,255,' + (0.95 - 0.62 * t).toFixed(3) + ')'
+        ctx.beginPath()
+        ctx.moveTo(pts[a][0], pts[a][1])
+        ctx.lineTo(pts[b][0], pts[b][1])
+        ctx.stroke()
+      }
+
+      // 8 个顶点小圆点
+      ctx.fillStyle = '#e6edf3'
+      for (const [x, y] of pts) {
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill()
+      }
+
+      // 三条坐标轴：从原点画到轴端，直观看到右手系朝向
+      ctx.font = '600 13px ui-monospace, SFMono-Regular, Menlo, monospace'
+      for (const ax of AXES) {
+        const tip = project(rotate([ax.dir[0] * 1.7, ax.dir[1] * 1.7, ax.dir[2] * 1.7], rx, ry))
+        ctx.strokeStyle = ax.color; ctx.lineWidth = 2
+        ctx.beginPath(); ctx.moveTo(cw / 2, ch / 2); ctx.lineTo(tip[0], tip[1]); ctx.stroke()
+        ctx.fillStyle = ax.color
+        ctx.fillText(ax.label, tip[0] + 8, tip[1] - 6)
+      }
+
+      // 原点标记
+      ctx.fillStyle = 'rgba(230,237,243,.5)'
+      ctx.beginPath(); ctx.arc(cw / 2, ch / 2, 2.5, 0, Math.PI * 2); ctx.fill()
+    }
+
+    // ---------- 6. 渲染循环：requestAnimationFrame 手写版 ----------
+    // 对应 renderer.setAnimationLoop —— 每帧改状态再重画
+    function tick() {
+      if (spinning) ry += 0.005
+      draw()
+      requestAnimationFrame(tick)
+    }
+    tick()
+
+    // ---------- 7. 交互：拖拽旋转 / 滚轮推拉相机 ----------
+    let dragging = false, px = 0, py = 0
+    canvas.addEventListener('pointerdown', e => {
+      dragging = true; spinning = false
+      px = e.clientX; py = e.clientY
+      canvas.classList.add('dragging')
+      canvas.setPointerCapture(e.pointerId)
+    })
+    canvas.addEventListener('pointermove', e => {
+      if (!dragging) return
+      ry += (e.clientX - px) * 0.006  // 水平拖 → 绕 Y 轴转
+      rx += (e.clientY - py) * 0.006  // 垂直拖 → 绕 X 轴转
+      rx = Math.max(-Math.PI, Math.min(Math.PI, rx))  // 限位，避免翻转过头
+      px = e.clientX; py = e.clientY
+    })
+    canvas.addEventListener('pointerup', () => {
+      dragging = false
+      canvas.classList.remove('dragging')
+    })
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault()
+      cameraDistance = Math.min(9, Math.max(2.4, cameraDistance + e.deltaY * 0.0025))
+      rd.textContent = cameraDistance.toFixed(2)
+    }, { passive: false })
+  </script>
+</body>
+</html>

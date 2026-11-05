@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>dispose-lab · 内存泄漏实验室</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hud {
+      position: fixed; top: 14px; left: 378px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.8; pointer-events: none;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .hud b { color: #34d399; }
+    .hud b.over { color: #f87171; }
+    .mem-panel {
+      position: fixed; left: 14px; bottom: 14px;
+      padding: 10px 12px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 12px; pointer-events: none;
+    }
+    .mem-panel .legend { margin-bottom: 6px; color: #9fb4d4; }
+    .mem-panel .legend i {
+      display: inline-block; width: 14px; height: 3px;
+      vertical-align: middle; margin: 0 4px 2px 10px; border-radius: 2px;
+    }
+    #memCanvas { display: block; border-radius: 6px; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 250px; }
+    @media (max-width: 900px) {
+      .info { max-width: 210px; font-size: 12px; }
+      .hud { left: 14px; top: 210px; font-size: 12px; }
+      .hint { display: none; }
+      .lil-gui.root { --width: 190px; }
+      .mem-panel { right: 14px; }
+      #memCanvas { width: 100% !important; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>内存泄漏实验室 · 创建/销毁看曲线</b><br />
+    右侧面板：<b>创建 500 盒</b>（每盒一张独立 256² 纹理）→
+    <b>销毁场景</b>。<br />
+    勾选"销毁时 dispose"：曲线回落；取消勾选：阶梯上涨（泄漏）。<br />
+    内存曲线需 Chrome 内核浏览器。
+  </div>
+  <div class="hud" id="hud">帧时间：--　draw calls：--</div>
+  <div class="mem-panel">
+    <div class="legend">JS 堆内存（近 60s）<i style="background:#34d399"></i>dispose 模式<i style="background:#f87171"></i>泄漏模式<span id="memNow"></span></div>
+    <canvas id="memCanvas" width="540" height="110"></canvas>
+  </div>
+  <div class="hint">反复"创建 → 销毁"，对比两种模式下内存曲线的形状</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    // —— 渲染器常驻，只有"场景"被反复创建与销毁 ——
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 300)
+    camera.position.set(0, 10, 24)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    const emptyScene = new THREE.Scene()          // 无场景时的占位画面
+    emptyScene.background = new THREE.Color(0x0b0e14)
+    emptyScene.add(new THREE.GridHelper(30, 30, 0x334155, 0x1e293b))
+
+    let scene = null                              // 当前活动场景（null = 已销毁）
+
+    // —— 创建：500 个盒子，每个独占一张 CanvasTexture（显存压力来源）——
+    function createScene() {
+      if (scene) destroyScene()                   // 已存在则先销毁
+      scene = new THREE.Scene()
+      scene.background = new THREE.Color(0x0b0e14)
+      scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x202020, 1))
+      const dir = new THREE.DirectionalLight(0xffffff, 1.5)
+      dir.position.set(5, 10, 6)
+      scene.add(dir)
+      const geo = new THREE.BoxGeometry(0.5, 0.5, 0.5) // 共享几何体
+      for (let i = 0; i < 500; i++) {
+        const cv = document.createElement('canvas')
+        cv.width = cv.height = 256
+        const ctx = cv.getContext('2d')
+        ctx.fillStyle = `hsl(${Math.random() * 360},70%,55%)`
+        ctx.fillRect(0, 0, 256, 256)
+        ctx.fillStyle = 'rgba(255,255,255,.75)'
+        ctx.font = 'bold 90px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(i, 128, 128)
+        const tex = new THREE.CanvasTexture(cv)   // 每盒一张独立纹理
+        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }))
+        const side = Math.ceil(Math.cbrt(500))
+        m.position.set(
+          (i % side - side / 2) * 1.6,
+          (Math.floor(i / (side * side)) - side / 2) * 1.6 + 6,
+          (Math.floor(i / side) % side - side / 2) * 1.6)
+        scene.add(m)
+      }
+    }
+
+    // —— 销毁：dispose 开 = 全树释放 GPU 资源；关 = 只丢 JS 引用（泄漏）——
+    function destroyScene() {
+      if (!scene) return
+      if (params.dispose) {
+        scene.traverse(obj => {
+          obj.geometry?.dispose()
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+          mats.forEach(m => { m?.map?.dispose(); m?.dispose() })
+        })
+      }
+      scene = null                                // 断开引用，GC 收 JS、dispose 管 GPU
+    }
+
+    // —— 控制面板 ——
+    const params = {
+      dispose: true, autoLoop: false,
+      create: () => createScene(),
+      destroy: () => destroyScene()
+    }
+    const gui = new GUI({ title: '泄漏实验' })
+    gui.add(params, 'create').name('➕ 创建 500 盒')
+    gui.add(params, 'destroy').name('🗑 销毁场景')
+    gui.add(params, 'dispose').name('销毁时 dispose')
+    gui.add(params, 'autoLoop').name('自动循环（每 2s 创建/销毁）')
+
+    // 自动循环：2s 创建、2s 销毁，交替进行
+    let autoHasScene = false
+    setInterval(() => {
+      if (!params.autoLoop) return
+      if (autoHasScene) { destroyScene(); autoHasScene = false }
+      else { createScene(); autoHasScene = true }
+    }, 2000)
+
+    // —— 内存曲线：每 250ms 采样 usedJSHeapSize，画最近 240 个点 ——
+    const memCanvas = document.getElementById('memCanvas')
+    const mctx = memCanvas.getContext('2d')
+    const memNow = document.getElementById('memNow')
+    const samples = []                            // { mb, leak }
+    const hasMem = !!performance.memory
+
+    setInterval(() => {
+      if (!hasMem) {
+        memNow.textContent = '（当前浏览器无 performance.memory）'
+        return
+      }
+      samples.push({
+        mb: performance.memory.usedJSHeapSize / 1048576,
+        leak: !params.dispose                     // 采样时刻是否处于泄漏模式
+      })
+      if (samples.length > 240) samples.shift()
+      drawCurve()
+    }, 250)
+
+    function drawCurve() {
+      const W = memCanvas.width, H = memCanvas.height
+      mctx.clearRect(0, 0, W, H)
+      mctx.fillStyle = '#0a0f1c'
+      mctx.fillRect(0, 0, W, H)
+      if (samples.length < 2) return
+      const maxMb = Math.max(...samples.map(s => s.mb)) * 1.15
+      // 横向网格线 ×4
+      mctx.strokeStyle = 'rgba(148,163,184,.18)'
+      mctx.fillStyle = '#64748b'
+      mctx.font = '10px sans-serif'
+      for (let g = 1; g <= 4; g++) {
+        const y = H - (H - 6) * g / 4
+        mctx.beginPath(); mctx.moveTo(0, y); mctx.lineTo(W, y); mctx.stroke()
+        mctx.fillText(`${(maxMb * g / 4).toFixed(0)}MB`, 4, y - 3)
+      }
+      // 折线：逐段着色（绿 = dispose 模式，红 = 泄漏模式）
+      const stepX = W / 239
+      mctx.lineWidth = 2
+      for (let i = 1; i < samples.length; i++) {
+        const x0 = W - (samples.length - i) * stepX
+        const x1 = W - (samples.length - 1 - i) * stepX
+        const y0 = H - (samples[i - 1].mb / maxMb) * (H - 6)
+        const y1 = H - (samples[i].mb / maxMb) * (H - 6)
+        mctx.strokeStyle = samples[i].leak ? '#f87171' : '#34d399'
+        mctx.beginPath(); mctx.moveTo(x0, y0); mctx.lineTo(x1, y1); mctx.stroke()
+      }
+      const cur = samples[samples.length - 1].mb
+      memNow.textContent = `　当前 ${cur.toFixed(0)}MB / 峰值 ${Math.max(...samples.map(s => s.mb)).toFixed(0)}MB`
+    }
+
+    // —— HUD：帧时间均值/峰值 + renderer.info + 内存（服务 19.1 的预算仪表盘）——
+    const hud = document.getElementById('hud')
+    let frames = 0, winStart = performance.now(), lastFrame = winStart
+    let costSum = 0, costPeak = 0
+    const BUDGET_MS = 16.6
+
+    const timer = new THREE.Timer()
+    timer.connect(document) // r186：Clock 已弃用，改用 Timer
+    createScene()           // 开局先创建一批
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+      if (scene) scene.rotation.y += dt * 0.15
+      controls.update()
+      renderer.render(scene || emptyScene, camera)
+
+      const now = performance.now()
+      costSum += now - lastFrame
+      costPeak = Math.max(costPeak, now - lastFrame)
+      lastFrame = now
+      frames++
+
+      if (now - winStart >= 500) { // 0.5s 采样窗口刷新 HUD
+        const avg = costSum / frames
+        const info = renderer.info
+        const mem = hasMem ? `${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)} MB` : 'N/A'
+        hud.innerHTML =
+          `帧时间：均值 <b class="${avg > BUDGET_MS ? 'over' : ''}">${avg.toFixed(1)}ms</b>` +
+          `　峰值 <b class="${costPeak > BUDGET_MS * 2 ? 'over' : ''}">${costPeak.toFixed(1)}ms</b><br>` +
+          `draw calls：<b>${info.render.calls}</b>　triangles：<b>${info.render.triangles.toLocaleString()}</b><br>` +
+          `JS 堆内存：<b>${mem}</b>　geometries：${info.memory.geometries}　textures：${info.memory.textures}<br>` +
+          `场景状态：<b>${scene ? '500 盒存活中' : '已销毁'}</b>　dispose：${params.dispose ? '开' : '<b class="over">关（泄漏）</b>'}`
+        frames = 0; costSum = 0; costPeak = 0; winStart = now
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>raw-wgsl-lab · 原生 WebGPU 最小三角形</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #gpu-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 340px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .82);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 12.5px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 3px;
+    }
+
+    .row .k {
+      flex: none;
+      width: 74px;
+      color: #94a3b8;
+    }
+
+    .row .v {
+      color: #e2e8f0;
+      word-break: break-all;
+    }
+
+    .ok {
+      color: #34d399;
+    }
+
+    .warn {
+      color: #fbbf24;
+    }
+
+    .bad {
+      color: #fb7185;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    #fallback {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: radial-gradient(circle at 50% 40%, rgba(34, 211, 238, .08), #0b0e14 62%);
+      pointer-events: none;
+    }
+
+    #fallback.show {
+      display: flex;
+    }
+
+    .fallback-card {
+      width: min(460px, 88vw);
+      padding: 22px 24px 24px;
+      background: rgba(14, 23, 48, .92);
+      border: 1px solid rgba(124, 196, 255, .22);
+      border-radius: 16px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .55);
+      text-align: center;
+    }
+
+    .fallback-card h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      color: #fbbf24;
+      font-weight: 600;
+    }
+
+    .fallback-card p {
+      margin: 0;
+      font-size: 12.5px;
+      line-height: 1.75;
+      color: #94a3b8;
+    }
+
+    .mock-tri {
+      width: 260px;
+      height: 216px;
+      margin: 14px auto 16px;
+      background: linear-gradient(135deg, #f472b6 0%, #fbbf24 34%, #22d3ee 68%, #34d399 100%);
+      clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+      filter: drop-shadow(0 0 24px rgba(34, 211, 238, .45));
+      opacity: .92;
+    }
+
+    .mock-badge {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 3px 10px;
+      border: 1px solid rgba(148, 163, 184, .35);
+      border-radius: 999px;
+      font-size: 11px;
+      color: #94a3b8;
+      letter-spacing: .04em;
+    }
+
+    @media (max-width: 620px) {
+      .info {
+        max-width: 208px;
+        font-size: 11.5px;
+      }
+
+      .row .k {
+        width: 58px;
+      }
+
+      .hint {
+        max-width: 84vw;
+        white-space: normal;
+        text-align: center;
+        font-size: 11px;
+      }
+
+      .mock-tri {
+        width: 200px;
+        height: 168px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="gpu-canvas"></canvas>
+
+  <div class="info">
+    <b>原生 WebGPU · 最小三角形</b><br />
+    这个页面没有引入 Three.js：adapter → device → WGSL → pipeline → draw，全流程手写。<br />
+    <div class="row"><span class="k">API</span><span class="v">navigator.gpu (原生)</span></div>
+    <div class="row"><span class="k">适配器</span><span class="v" id="adapter">初始化中…</span></div>
+    <div class="row"><span class="k">画布格式</span><span class="v" id="format">—</span></div>
+    <div class="row"><span class="k">状态</span><span class="v" id="status">初始化中…</span></div>
+  </div>
+
+  <div class="hint">如果你看到渐变三角，说明后端真的在跑 · 缩放到窗口 · 三角形缓慢旋转</div>
+
+  <div id="fallback">
+    <div class="fallback-card">
+      <span class="mock-badge">示意图 · 非实时渲染</span>
+      <div class="mock-tri"></div>
+      <h2>当前环境没有可用的 WebGPU 后端</h2>
+      <p id="fallback-reason">页面已优雅降级：这里用纯 HTML/CSS 画了一个渐变三角作为示意，不代表实时渲染结果。换到 Chrome / Edge 桌面版并开启硬件加速后，再打开本页即可看到真正的 WebGPU 三角。</p>
+    </div>
+  </div>
+
+  <script type="module">
+    const $ = (id) => document.getElementById(id)
+    const canvas = $('gpu-canvas')
+
+    function showFallback(reason) {
+      $('fallback').classList.add('show')
+      if (reason) $('fallback-reason').textContent = reason
+      $('status').textContent = '不可用 · 已降级'
+      $('status').className = 'v bad'
+      $('adapter').textContent = '—'
+      $('adapter').className = 'v'
+    }
+
+    /* WGSL: vertex + fragment, no external buffers, colors per vertex. */
+    const wgsl = `
+struct Uniforms {
+  time: f32,
+  aspect: f32,
+  pad0: f32,
+  pad1: f32,
+};
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+struct VSOut {
+  @builtin(position) position: vec4f,
+  @location(0) color: vec3f,
+};
+
+@vertex
+fn vs(@builtin(vertex_index) index: u32) -> VSOut {
+  var positions = array<vec2f, 3>(
+    vec2f(-0.56, -0.48),
+    vec2f(0.56, -0.48),
+    vec2f(0.0, 0.56)
+  );
+  var colors = array<vec3f, 3>(
+    vec3f(0.96, 0.42, 0.28),
+    vec3f(0.13, 0.83, 0.87),
+    vec3f(0.70, 0.52, 0.98)
+  );
+
+  let p = positions[index];
+  let a = u.time * 0.32;
+  let s = sin(a);
+  let c = cos(a);
+  let scale = select(1.0 / u.aspect, 1.0, u.aspect < 1.0);
+
+  var out: VSOut;
+  out.position = vec4f((p.x * c - p.y * s) * scale, p.x * s + p.y * c, 0.0, 1.0);
+  out.color = colors[index];
+  return out;
+}
+
+@fragment
+fn fs(in: VSOut) -> @location(0) vec4f {
+  let pulse = 0.84 + 0.16 * sin(u.time * 1.4 + in.position.y * 0.9);
+  return vec4f(in.color * pulse, 1.0);
+}
+`
+
+    let device = null
+    let context = null
+    let pipeline = null
+    let uniformBuffer = null
+    let bindGroup = null
+    let format = ''
+    let aspect = innerWidth / innerHeight
+    let startTime = performance.now()
+    let frameCount = 0
+    let running = false
+
+    function resize() {
+      const dpr = Math.min(devicePixelRatio, 2)
+      canvas.width = Math.max(1, Math.floor(innerWidth * dpr))
+      canvas.height = Math.max(1, Math.floor(innerHeight * dpr))
+      aspect = innerWidth / Math.max(innerHeight, 1)
+      if (device && context) {
+        context.configure({ device, format, alphaMode: 'opaque' })
+      }
+    }
+
+    function draw() {
+      if (!running) return
+      const elapsed = (performance.now() - startTime) / 1000
+      device.queue.writeBuffer(uniformBuffer, 0,
+        new Float32Array([elapsed, aspect, 0, 0]))
+
+      const encoder = device.createCommandEncoder()
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: context.getCurrentTexture().createView(),
+          clearValue: { r: 0.043, g: 0.055, b: 0.078, a: 1 },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }]
+      })
+      pass.setPipeline(pipeline)
+      pass.setBindGroup(0, bindGroup)
+      pass.draw(3)
+      pass.end()
+      device.queue.submit([encoder.finish()])
+
+      frameCount++
+      if (frameCount % 30 === 0) {
+        $('status').textContent = '渲染中 · 第 ' + frameCount + ' 帧'
+        $('status').className = 'v ok'
+      }
+      requestAnimationFrame(draw)
+    }
+
+    async function init() {
+      if (!navigator.gpu) {
+        showFallback('当前浏览器没有 navigator.gpu：可能是不支持、被策略关闭，或不在安全上下文（HTTPS / localhost）。')
+        return
+      }
+
+      try {
+        const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
+        if (!adapter) {
+          showFallback('requestAdapter() 返回 null：没有可用 GPU 适配器。页面不会白屏，继续用示意说明。')
+          return
+        }
+        device = await adapter.requestDevice()
+
+        const info = adapter.info || {}
+        const label = [info.vendor, info.architecture, info.description]
+          .filter(Boolean).join(' · ')
+        $('adapter').textContent = label || '浏览器未公开 adapter.info'
+        $('adapter').className = 'v ok'
+
+        device.lost.then((info) => {
+          running = false
+          showFallback('GPU 设备丢失：' + (info.message || 'unknown reason') + '。刷新页面可重试。')
+        })
+
+        device.onuncapturederror = (event) => {
+          $('status').textContent = 'WebGPU 错误：' + event.error.message
+          $('status').className = 'v bad'
+        }
+
+        context = canvas.getContext('webgpu')
+        if (!context) {
+          showFallback('canvas.getContext("webgpu") 返回 null：画布无法建立 WebGPU 上下文。')
+          return
+        }
+
+        format = navigator.gpu.getPreferredCanvasFormat()
+        $('format').textContent = format
+        context.configure({ device, format, alphaMode: 'opaque' })
+
+        const module = device.createShaderModule({ code: wgsl })
+        const shaderInfo = await module.getCompilationInfo()
+        const messages = shaderInfo.messages.filter((m) => m.type === 'error')
+        if (messages.length) {
+          showFallback('WGSL 编译失败：' + messages[0].message)
+          return
+        }
+
+        pipeline = device.createRenderPipeline({
+          layout: 'auto',
+          vertex: { module, entryPoint: 'vs' },
+          fragment: {
+            module,
+            entryPoint: 'fs',
+            targets: [{ format }]
+          },
+          primitive: { topology: 'triangle-list' }
+        })
+
+        uniformBuffer = device.createBuffer({
+          size: 16,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        })
+
+        bindGroup = device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: uniformBuffer } }]
+        })
+
+        resize()
+        startTime = performance.now()
+        running = true
+        $('status').textContent = '渲染中 · 首帧即将出现'
+        $('status').className = 'v ok'
+        requestAnimationFrame(draw)
+      } catch (err) {
+        showFallback('初始化失败：' + err.message + '。页面已降级为静态示意，不会抛未捕获异常。')
+      }
+    }
+
+    addEventListener('resize', resize)
+    init()
+  </script>
+</body>
+
+</html>

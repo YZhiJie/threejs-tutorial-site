@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>drawcall-budget-lab · draw call 预算对照台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 366px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .74);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .num {
+      font-family: 'SF Mono', Consolas, monospace;
+      color: #e2e8f0;
+    }
+
+    .table {
+      position: fixed;
+      left: 14px;
+      bottom: 46px;
+      width: 366px;
+      padding: 8px 10px;
+      background: rgba(11, 14, 20, .8);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .table th {
+      text-align: left;
+      font-weight: 600;
+      color: #64748b;
+      font-size: 11px;
+      padding: 3px 4px;
+    }
+
+    .table td {
+      padding: 4px;
+      color: #94a3b8;
+      font-family: 'SF Mono', Consolas, monospace;
+      white-space: nowrap;
+    }
+
+    .table tr.active td {
+      color: #e2e8f0;
+      background: rgba(124, 196, 255, .1);
+    }
+
+    .table tr.active td:first-child {
+      color: #7cc4ff;
+    }
+
+    .table tr.active td:first-child::before {
+      content: '● ';
+      color: #22d3ee;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 262px;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        max-width: 214px;
+        font-size: 12px;
+      }
+
+      .table {
+        width: 236px;
+        left: 8px;
+      }
+
+      .table td,
+      .table th {
+        font-size: 11px;
+      }
+
+      .lil-gui.root {
+        --width: 196px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>drawcall-budget-lab · draw call 预算对照台</b><br />
+    同一堆 <span class="num" id="hudCount">1000</span> 个盒子，三条实现路径：独立 Mesh / InstancedMesh / 合并几何。<br />
+    当前：<span class="num" id="hudMode">--</span> ·
+    draw calls <span class="num" id="hudCalls">--</span> ·
+    几何显存 <span class="num" id="hudMem">--</span> ·
+    FPS <span class="num" id="hudFps">--</span> ·
+    帧时间 <span class="num" id="hudMs">--</span> ms<br />
+    右下角切换实现，表格里保留每种实现的最近一次读数，方便横向对照。
+  </div>
+  <div class="table">
+    <table>
+      <thead>
+        <tr><th>实现</th><th>draw calls</th><th>几何显存</th><th>FPS</th></tr>
+      </thead>
+      <tbody id="tbody">
+        <tr data-mode="mesh"><td>独立 Mesh</td><td>--</td><td>--</td><td>--</td></tr>
+        <tr data-mode="instanced"><td>InstancedMesh</td><td>--</td><td>--</td><td>--</td></tr>
+        <tr data-mode="merged"><td>合并几何</td><td>--</td><td>--</td><td>--</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="hint">右下滑块切换实现 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 基础环境 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(0, 21, 26)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.6))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.autoRotate = true
+    controls.autoRotateSpeed = 0.7
+    controls.target.set(0, 0.4, 0)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x151a26, 1.1))
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2)
+    sun.position.set(9, 16, 7)
+    scene.add(sun)
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(80, 80),
+      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.95 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.position.y = -0.05
+    scene.add(ground)
+    scene.add(new THREE.GridHelper(80, 40, 0x2b3a55, 0x1b2536))
+
+    /* ---------- 共享资源 ---------- */
+    const BOX = new THREE.BoxGeometry(0.7, 0.7, 0.7)
+    const SHARED_MAT = new THREE.MeshStandardMaterial({
+      color: 0x6ea8ff,
+      roughness: 0.42,
+      metalness: 0.2
+    })
+    const COLS = 32
+    const dummy = new THREE.Object3D()
+    const color = new THREE.Color()
+
+    function place(i) {
+      const col = i % COLS
+      const row = Math.floor(i / COLS)
+      dummy.position.set((col - (COLS - 1) / 2) * 0.95, 0.42, (row - (COLS - 1) / 2) * 0.95)
+      dummy.rotation.set(0, (i % 5) * 0.12, 0)
+      dummy.updateMatrix()
+    }
+
+    /* ---------- 几何内存统计 ---------- */
+    function geomBytes(g) {
+      let bytes = g.index ? g.index.array.byteLength : 0
+      for (const key in g.attributes) bytes += g.attributes[key].array.byteLength
+      return bytes
+    }
+
+    function fmtBytes(b) {
+      return b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : (b / 1024).toFixed(1) + ' KB'
+    }
+
+    /* ---------- 三种实现 ---------- */
+    let current = null // 场景里的当前对象
+    let currentGeo = null // 合并模式生成的大几何体，切走时要 dispose
+    let currentMem = 0
+
+    function disposeCurrent() {
+      if (!current) return
+      scene.remove(current)
+      if (current.isInstancedMesh) current.dispose()
+      if (currentGeo) {
+        currentGeo.dispose()
+        currentGeo = null
+      }
+      current = null
+    }
+
+    function buildMeshMode(count) {
+      const group = new THREE.Group()
+      for (let i = 0; i < count; i++) {
+        const m = new THREE.Mesh(BOX, SHARED_MAT)
+        place(i)
+        m.position.copy(dummy.position)
+        m.rotation.copy(dummy.rotation)
+        m.frustumCulled = false // 让读数恒定为 count 次提交，便于横向比较
+        group.add(m)
+      }
+      currentMem = geomBytes(BOX)
+      return group
+    }
+
+    function buildInstancedMode(count) {
+      const mesh = new THREE.InstancedMesh(BOX, SHARED_MAT, count)
+      mesh.frustumCulled = false
+      for (let i = 0; i < count; i++) {
+        place(i)
+        mesh.setMatrixAt(i, dummy.matrix)
+        mesh.setColorAt(i, color.setHSL(0.56 + (i % 40) / 200, 0.62, 0.6))
+      }
+      mesh.instanceMatrix.needsUpdate = true
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+      currentMem = geomBytes(BOX) + mesh.instanceMatrix.array.byteLength +
+        (mesh.instanceColor ? mesh.instanceColor.array.byteLength : 0)
+      return mesh
+    }
+
+    function buildMergedMode(count) {
+      const parts = []
+      for (let i = 0; i < count; i++) {
+        place(i)
+        const g = BOX.clone()
+        g.applyMatrix4(dummy.matrix)
+        parts.push(g)
+      }
+      const merged = mergeGeometries(parts)
+      parts.forEach(p => p.dispose())
+      merged.computeVertexNormals()
+      currentGeo = merged
+      currentMem = geomBytes(merged)
+      const mesh = new THREE.Mesh(merged, SHARED_MAT)
+      mesh.frustumCulled = false
+      return mesh
+    }
+
+    const MODES = {
+      mesh: { label: '独立 Mesh', build: buildMeshMode },
+      instanced: { label: 'InstancedMesh', build: buildInstancedMode },
+      merged: { label: '合并几何', build: buildMergedMode }
+    }
+    const LABEL_TO_KEY = {
+      '独立 Mesh': 'mesh',
+      InstancedMesh: 'instanced',
+      '合并几何': 'merged'
+    }
+    let currentKey = 'instanced'
+
+    const statsByMode = {
+      mesh: { calls: '--', mem: '--', fps: '--' },
+      instanced: { calls: '--', mem: '--', fps: '--' },
+      merged: { calls: '--', mem: '--', fps: '--' }
+    }
+    const SCENE_OVERHEAD = 2 // 地面 + 网格：统计盒子自身的提交次数时扣掉
+
+    const params = { mode: 'InstancedMesh', count: 1000, autoRotate: true }
+
+    function rebuild() {
+      disposeCurrent()
+      currentKey = LABEL_TO_KEY[params.mode]
+      current = MODES[currentKey].build(params.count)
+      scene.add(current)
+      resetWindow()
+      refreshTable()
+    }
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '实现切换' })
+    gui.add(params, 'mode', ['独立 Mesh', 'InstancedMesh', '合并几何']).name('渲染实现')
+      .onChange(() => rebuild())
+    gui.add(params, 'count', 200, 2000, 100).name('盒子数量').onFinishChange(() => {
+      document.getElementById('hudCount').textContent = params.count
+      rebuild()
+    })
+    gui.add(params, 'autoRotate').name('自动旋转').onChange(v => { controls.autoRotate = v })
+
+    /* ---------- HUD ---------- */
+    const hud = {
+      mode: document.getElementById('hudMode'),
+      calls: document.getElementById('hudCalls'),
+      mem: document.getElementById('hudMem'),
+      fps: document.getElementById('hudFps'),
+      ms: document.getElementById('hudMs')
+    }
+    const rows = { mesh: document.querySelector('[data-mode="mesh"]'), instanced: document.querySelector('[data-mode="instanced"]'), merged: document.querySelector('[data-mode="merged"]') }
+
+    function refreshTable() {
+      for (const key in rows) {
+        const s = statsByMode[key]
+        const tds = rows[key].children
+        tds[1].textContent = s.calls
+        tds[2].textContent = s.mem
+        tds[3].textContent = s.fps
+        rows[key].classList.toggle('active', key === currentKey)
+      }
+    }
+
+    let frames = 0
+    let windowStart = performance.now()
+    let lastFrame = performance.now()
+    let msSum = 0
+
+    function resetWindow() {
+      frames = 0
+      msSum = 0
+      windowStart = performance.now()
+      lastFrame = performance.now()
+    }
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      controls.update()
+
+      // 让三种实现都有可见的动态，公平地付矩阵更新的钱
+      if (current) current.rotation.y += 0.002
+
+      renderer.render(scene, camera)
+
+      const now = performance.now()
+      msSum += now - lastFrame
+      lastFrame = now
+      frames++
+
+      const elapsed = now - windowStart
+      if (elapsed >= 700 && frames > 0) {
+        const fps = frames * 1000 / elapsed
+        const ms = msSum / frames
+        const info = renderer.info
+        const boxCalls = Math.max(0, info.render.calls - SCENE_OVERHEAD)
+        statsByMode[currentKey] = {
+          calls: String(boxCalls),
+          mem: fmtBytes(currentMem),
+          fps: Math.round(fps) + ' / ' + ms.toFixed(1) + 'ms'
+        }
+        hud.mode.textContent = MODES[currentKey].label
+        hud.calls.textContent = boxCalls
+        hud.mem.textContent = fmtBytes(currentMem)
+        hud.fps.textContent = Math.round(fps)
+        hud.ms.textContent = ms.toFixed(1)
+        refreshTable()
+        frames = 0
+        msSum = 0
+        windowStart = now
+      }
+    })
+
+    rebuild()
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

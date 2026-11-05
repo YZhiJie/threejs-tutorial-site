@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>gpu-field-lab · GPU 可交互粒子场</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+      touch-action: none;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 356px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .row {
+      display: block;
+      margin-top: 4px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+      color: #9fb4d4;
+    }
+
+    .info .row em {
+      color: #fbbf24;
+      font-style: normal;
+    }
+
+    .info .fallback {
+      display: block;
+      margin-top: 6px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(249, 115, 22, .14);
+      color: #fdba74;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 268px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 210px;
+        font-size: 12px;
+      }
+
+      .hint {
+        white-space: normal;
+        text-align: center;
+        max-width: 88vw;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+      "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
+      "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.tsl.js"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>GPU 可交互粒子场 · 鼠标就是力场中心</b><br />
+    左键按住拖动：吸引 / 搅动；右键拖动：旋转视角。<br />
+    速度与位置由 GPU 更新，颜色按速度映射。<br />
+    <span class="row" id="stats">准备中…</span>
+    <span class="fallback" id="fallback" hidden></span>
+  </div>
+  <div class="hint">左键拖拽搅动流场 · 右键旋转 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three/webgpu'
+    import { WebGLRenderer } from 'three'
+    import {
+      Fn, uniform, varying, vec3, color, mix, sin, cos, uv, float,
+      smoothstep, select, clamp, instancedArray, instanceIndex
+    } from 'three/tsl'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const statsEl = document.getElementById('stats')
+    const fallbackEl = document.getElementById('fallback')
+
+    function fatal(message) {
+      statsEl.textContent = '初始化失败'
+      fallbackEl.hidden = false
+      fallbackEl.textContent = message
+    }
+
+    async function main() {
+      const hasNavigatorGPU = typeof navigator !== 'undefined' && !!navigator.gpu
+
+      /* ---------- 渲染器：优先 WebGPU，失败降级到 WebGL2 ---------- */
+      let renderer = null
+      let backendMode = 'fbo'
+
+      if (hasNavigatorGPU) {
+        try {
+          const candidate = new THREE.WebGPURenderer({ antialias: true })
+          await candidate.init()
+          if (candidate.backend && candidate.backend.isWebGLBackend !== true) {
+            renderer = candidate
+            backendMode = 'compute'
+          } else {
+            candidate.dispose()
+          }
+        } catch (err) {
+          console.warn('WebGPU init failed, falling back to WebGL2 FBO.', err)
+        }
+      }
+
+      if (renderer === null) {
+        renderer = new WebGLRenderer({ antialias: true })
+        backendMode = 'fbo'
+        fallbackEl.hidden = false
+        fallbackEl.textContent = '未检测到可用 WebGPU · 已自动降级到 FBO GPGPU（WebGL2）'
+      }
+
+      renderer.setSize(innerWidth, innerHeight)
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+      renderer.toneMapping = THREE.NoToneMapping
+      renderer.outputColorSpace = THREE.SRGBColorSpace
+      document.getElementById('app').appendChild(renderer.domElement)
+
+      /* ---------- 场景 ---------- */
+      const scene = new THREE.Scene()
+      scene.background = new THREE.Color(0x0b0e14)
+
+      const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.1, 200)
+      camera.position.set(0, 2.5, 34)
+
+      const controls = new OrbitControls(camera, renderer.domElement)
+      controls.enableDamping = true
+      controls.target.set(0, 0, 0)
+      controls.minDistance = 10
+      controls.maxDistance = 70
+      controls.mouseButtons = {
+        LEFT: null,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.ROTATE
+      }
+
+      /* ---------- 参数 ---------- */
+      const params = {
+        count: 147456,
+        gravity: 1.4,
+        swirl: 0.9,
+        damping: 0.955,
+        wrap: true,
+        paused: false,
+        reset: () => rebuild()
+      }
+
+      const BOUND = 14
+      const mouseWorld = new THREE.Vector3(0, 0, 0)
+      let pointerActive = false
+
+      /* ---------- 共享 uniform（TSL） ---------- */
+      const uTime = uniform(0)
+      const uDt = uniform(0.016)
+      const uMouse = uniform(new THREE.Vector3(0, 0, 0))
+      const uMouseOn = uniform(0)
+      const uGravity = uniform(params.gravity)
+      const uSwirl = uniform(params.swirl)
+      const uDamping = uniform(params.damping)
+      const uWrap = uniform(1)
+      const uSize = uniform(0.08)
+
+      /* ---------- 运行时状态 ---------- */
+      let sprite = null
+      let updateCompute = null
+      let particleCount = 0
+      let simTime = 0
+
+      let gpuCompute = null
+      let posVar = null
+      let velVar = null
+      let points = null
+      let fboUniforms = null
+
+      function disposeParticles() {
+        if (sprite) {
+          scene.remove(sprite)
+          sprite.material.dispose()
+          sprite = null
+        }
+        if (points) {
+          scene.remove(points)
+          points.geometry.dispose()
+          points.material.dispose()
+          points = null
+        }
+        if (gpuCompute) {
+          gpuCompute.dispose()
+          gpuCompute = null
+          posVar = null
+          velVar = null
+          fboUniforms = null
+        }
+        updateCompute = null
+      }
+
+      function fillSphere(array, count, radius) {
+        for (let i = 0; i < count; i++) {
+          const r = Math.cbrt(Math.random()) * radius
+          const t = Math.random() * Math.PI * 2
+          const p = Math.acos(2 * Math.random() - 1)
+          array[i * 3] = r * Math.sin(p) * Math.cos(t)
+          array[i * 3 + 1] = r * Math.sin(p) * Math.sin(t)
+          array[i * 3 + 2] = r * Math.cos(p)
+        }
+      }
+
+      /* ---------- WebGPU / TSL compute 路径 ---------- */
+      function buildComputeParticles(count) {
+        const positions = instancedArray(count, 'vec3')
+        const velocities = instancedArray(count, 'vec3')
+
+        fillSphere(positions.value.array, count, 12)
+        positions.value.needsUpdate = true
+
+        const velArray = velocities.value.array
+        for (let i = 0; i < count * 3; i++) velArray[i] = (Math.random() - 0.5) * 0.12
+        velocities.value.needsUpdate = true
+
+        updateCompute = Fn(() => {
+          const p = positions.element(instanceIndex).toVar()
+          const v = velocities.element(instanceIndex).toVar()
+
+          const toMouse = uMouse.sub(p).toVar()
+          const dist = toMouse.length().max(0.6).toVar()
+          const pull = toMouse.normalize().mul(
+            uMouseOn.mul(uGravity).div(dist.mul(dist).add(0.9))
+          )
+
+          const force = vec3(
+            sin(p.y.mul(0.55).add(uTime)),
+            cos(p.z.mul(0.55).add(uTime.mul(0.8))),
+            sin(p.x.mul(0.55).add(uTime.mul(0.6)))
+          ).mul(uSwirl).toVar()
+
+          force.addAssign(pull)
+          force.subAssign(p.mul(0.03))
+
+          v.addAssign(force.mul(uDt))
+          v.mulAssign(uDamping)
+
+          const next = p.add(v.mul(uDt)).toVar()
+          const bound = float(BOUND)
+
+          const wrapAxis = (c) => select(
+            c.greaterThan(bound),
+            c.sub(bound.mul(2)),
+            select(c.lessThan(bound.mul(-1)), c.add(bound.mul(2)), c)
+          )
+
+          const wrapped = vec3(wrapAxis(next.x), wrapAxis(next.y), wrapAxis(next.z))
+          const clamped = clamp(next, vec3(-BOUND), vec3(BOUND))
+          const finalPos = select(uWrap.greaterThan(0.5), wrapped, clamped)
+
+          positions.element(instanceIndex).assign(finalPos)
+          velocities.element(instanceIndex).assign(v)
+        })().compute(count)
+
+        const vSpeed = varying(velocities.toAttribute().length())
+
+        const material = new THREE.SpriteNodeMaterial()
+        material.positionNode = positions.toAttribute()
+        material.scaleNode = uSize
+        material.colorNode = mix(
+          color(0x1d4ed8),
+          color(0x67e8f9),
+          smoothstep(0, 3.2, vSpeed)
+        )
+        material.opacityNode = float(1).sub(smoothstep(0.08, 0.5, uv().sub(0.5).length()))
+        material.transparent = true
+        material.blending = THREE.AdditiveBlending
+        material.depthWrite = false
+
+        sprite = new THREE.Sprite(material)
+        sprite.count = count
+        sprite.frustumCulled = false
+        scene.add(sprite)
+
+        particleCount = count
+      }
+
+      /* ---------- WebGL2 / FBO GPGPU 降级路径 ---------- */
+      const fboPositionShader = /* glsl */ `
+        uniform float uDt;
+        uniform float uWrap;
+
+        void main() {
+          vec2 uvCoord = gl_FragCoord.xy / resolution;
+          vec4 posData = texture2D(texturePosition, uvCoord);
+          vec4 velData = texture2D(textureVelocity, uvCoord);
+
+          vec3 p = posData.xyz + velData.xyz * uDt;
+
+          float bound = 14.0;
+
+          if (uWrap > 0.5) {
+            if (p.x > bound) p.x -= bound * 2.0;
+            if (p.x < -bound) p.x += bound * 2.0;
+            if (p.y > bound) p.y -= bound * 2.0;
+            if (p.y < -bound) p.y += bound * 2.0;
+            if (p.z > bound) p.z -= bound * 2.0;
+            if (p.z < -bound) p.z += bound * 2.0;
+          } else {
+            p = clamp(p, vec3(-bound), vec3(bound));
+          }
+
+          gl_FragColor = vec4(p, 1.0);
+        }
+      `
+
+      const fboVelocityShader = /* glsl */ `
+        uniform float uDt;
+        uniform float uTime;
+        uniform vec3 uMouse;
+        uniform float uMouseOn;
+        uniform float uGravity;
+        uniform float uSwirl;
+        uniform float uDamping;
+
+        void main() {
+          vec2 uvCoord = gl_FragCoord.xy / resolution;
+          vec3 p = texture2D(texturePosition, uvCoord).xyz;
+          vec3 v = texture2D(textureVelocity, uvCoord).xyz;
+
+          vec3 force = vec3(
+            sin(p.y * 0.55 + uTime),
+            cos(p.z * 0.55 + uTime * 0.8),
+            sin(p.x * 0.55 + uTime * 0.6)
+          ) * uSwirl;
+
+          vec3 toMouse = uMouse - p;
+          float dist = max(length(toMouse), 0.6);
+          force += normalize(toMouse) * uMouseOn * uGravity / (dist * dist + 0.9);
+
+          force -= p * 0.03;
+
+          v += force * uDt;
+          v *= uDamping;
+
+          gl_FragColor = vec4(v, 1.0);
+        }
+      `
+
+      function buildFboParticles(count) {
+        const width = Math.round(Math.sqrt(count))
+        gpuCompute = new GPUComputationRenderer(width, width, renderer)
+
+        const posTexture = gpuCompute.createTexture()
+        const velTexture = gpuCompute.createTexture()
+
+        const posData = posTexture.image.data
+        const velData = velTexture.image.data
+
+        for (let i = 0; i < width * width; i++) {
+          const r = Math.cbrt(Math.random()) * 12
+          const t = Math.random() * Math.PI * 2
+          const ph = Math.acos(2 * Math.random() - 1)
+
+          posData[i * 4] = r * Math.sin(ph) * Math.cos(t)
+          posData[i * 4 + 1] = r * Math.sin(ph) * Math.sin(t)
+          posData[i * 4 + 2] = r * Math.cos(ph)
+          posData[i * 4 + 3] = 1
+
+          velData[i * 4] = (Math.random() - 0.5) * 0.12
+          velData[i * 4 + 1] = (Math.random() - 0.5) * 0.12
+          velData[i * 4 + 2] = (Math.random() - 0.5) * 0.12
+          velData[i * 4 + 3] = 1
+        }
+
+        posVar = gpuCompute.addVariable('texturePosition', fboPositionShader, posTexture)
+        velVar = gpuCompute.addVariable('textureVelocity', fboVelocityShader, velTexture)
+
+        gpuCompute.setVariableDependencies(posVar, [posVar, velVar])
+        gpuCompute.setVariableDependencies(velVar, [posVar, velVar])
+
+        fboUniforms = {
+          uDt: { value: 0.016 },
+          uTime: { value: 0 },
+          uMouse: { value: new THREE.Vector3(0, 0, 0) },
+          uMouseOn: { value: 0 },
+          uGravity: { value: params.gravity },
+          uSwirl: { value: params.swirl },
+          uDamping: { value: params.damping },
+          uWrap: { value: params.wrap ? 1 : 0 }
+        }
+
+        Object.keys(fboUniforms).forEach((key) => {
+          posVar.material.uniforms[key] = fboUniforms[key]
+          velVar.material.uniforms[key] = fboUniforms[key]
+        })
+
+        const error = gpuCompute.init()
+        if (error !== null) {
+          fatal('FBO GPGPU 初始化失败：' + error)
+          return
+        }
+
+        const geometry = new THREE.BufferGeometry()
+        const positionAttr = new Float32Array(width * width * 3)
+        const referenceAttr = new Float32Array(width * width * 2)
+
+        for (let i = 0; i < width * width; i++) {
+          positionAttr[i * 3] = posData[i * 4]
+          positionAttr[i * 3 + 1] = posData[i * 4 + 1]
+          positionAttr[i * 3 + 2] = posData[i * 4 + 2]
+
+          referenceAttr[i * 2] = ((i % width) + 0.5) / width
+          referenceAttr[i * 2 + 1] = (Math.floor(i / width) + 0.5) / width
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positionAttr, 3))
+        geometry.setAttribute('reference', new THREE.BufferAttribute(referenceAttr, 2))
+
+        const material = new THREE.ShaderMaterial({
+          uniforms: {
+            texturePosition: { value: gpuCompute.getCurrentRenderTarget(posVar).texture },
+            textureVelocity: { value: gpuCompute.getCurrentRenderTarget(velVar).texture },
+            uSize: { value: 1 }
+          },
+          vertexShader: /* glsl */ `
+            uniform sampler2D texturePosition;
+            uniform sampler2D textureVelocity;
+            uniform float uSize;
+            attribute vec2 reference;
+            varying float vSpeed;
+
+            void main() {
+              vec3 p = texture2D(texturePosition, reference).xyz;
+              vec3 v = texture2D(textureVelocity, reference).xyz;
+
+              vSpeed = length(v);
+
+              vec4 mv = modelViewMatrix * vec4(p, 1.0);
+              gl_Position = projectionMatrix * mv;
+              gl_PointSize = uSize * (90.0 / max(-mv.z, 0.001));
+            }
+          `,
+          fragmentShader: /* glsl */ `
+            varying float vSpeed;
+
+            void main() {
+              vec2 c = gl_PointCoord - 0.5;
+              float d = length(c);
+
+              if (d > 0.5) discard;
+
+              float alpha = (1.0 - smoothstep(0.12, 0.5, d)) * 0.55;
+              float k = smoothstep(0.0, 3.2, vSpeed);
+              vec3 col = mix(vec3(0.114, 0.306, 0.847), vec3(0.404, 0.909, 0.976), k);
+
+              gl_FragColor = vec4(col, alpha);
+
+              #include <colorspace_fragment>
+            }
+          `,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+
+        points = new THREE.Points(geometry, material)
+        points.frustumCulled = false
+        scene.add(points)
+
+        particleCount = width * width
+      }
+
+      function rebuild() {
+        disposeParticles()
+        if (backendMode === 'compute') buildComputeParticles(params.count)
+        else buildFboParticles(params.count)
+      }
+
+      /* ---------- 交互：鼠标映射到 z=0 平面 ---------- */
+      const raycaster = new THREE.Raycaster()
+      const pointerNdc = new THREE.Vector2()
+      const fieldPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
+
+      function updateMouseWorld(event) {
+        const rect = renderer.domElement.getBoundingClientRect()
+        pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+        pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+
+        raycaster.setFromCamera(pointerNdc, camera)
+
+        const hit = new THREE.Vector3()
+        if (raycaster.ray.intersectPlane(fieldPlane, hit)) {
+          mouseWorld.copy(hit)
+        }
+      }
+
+      renderer.domElement.addEventListener('pointermove', (event) => {
+        updateMouseWorld(event)
+      })
+
+      renderer.domElement.addEventListener('pointerdown', (event) => {
+        if (event.button === 0) {
+          pointerActive = true
+          updateMouseWorld(event)
+        }
+      })
+
+      renderer.domElement.addEventListener('pointerup', (event) => {
+        if (event.button === 0) pointerActive = false
+      })
+
+      renderer.domElement.addEventListener('pointerleave', () => {
+        pointerActive = false
+      })
+
+      /* ---------- 参数同步 ---------- */
+      function applySettings() {
+        uGravity.value = params.gravity
+        uSwirl.value = params.swirl
+        uDamping.value = params.damping
+        uWrap.value = params.wrap ? 1 : 0
+
+        if (fboUniforms) {
+          fboUniforms.uGravity.value = params.gravity
+          fboUniforms.uSwirl.value = params.swirl
+          fboUniforms.uDamping.value = params.damping
+          fboUniforms.uWrap.value = params.wrap ? 1 : 0
+        }
+      }
+
+      /* ---------- GUI ---------- */
+      const gui = new GUI({ title: 'GPU 粒子场' })
+
+      gui.add(params, 'count', [65536, 147456, 262144])
+        .name('粒子数')
+        .onChange(() => rebuild())
+      gui.add(params, 'gravity', 0, 3, 0.01)
+        .name('引力强度')
+        .onChange(applySettings)
+      gui.add(params, 'swirl', 0, 2.5, 0.01)
+        .name('涡旋强度')
+        .onChange(applySettings)
+      gui.add(params, 'damping', 0.85, 0.995, 0.005)
+        .name('阻尼')
+        .onChange(applySettings)
+      gui.add(params, 'wrap').name('边界回绕')
+        .onChange(applySettings)
+      gui.add(params, 'paused').name('暂停')
+      gui.add(params, 'reset').name('重置')
+
+      rebuild()
+      applySettings()
+
+      /* ---------- 主循环 ---------- */
+      const timer = new THREE.Timer()
+      timer.connect(document)
+
+      let fpsFrames = 0
+      let fpsTime = 0
+      let fps = 0
+      let workMs = 0
+      let hudTime = 0
+
+      renderer.setAnimationLoop(() => {
+        timer.update()
+        const dt = Math.min(timer.getDelta(), 0.033)
+
+        if (!params.paused) {
+          simTime += dt
+
+          if (backendMode === 'compute' && updateCompute) {
+            uDt.value = dt
+            uTime.value = simTime
+            uMouse.value.copy(mouseWorld)
+            uMouseOn.value = pointerActive ? 1 : 0
+            applySettings()
+
+            const t0 = performance.now()
+            renderer.compute(updateCompute)
+            workMs = performance.now() - t0
+          } else if (backendMode === 'fbo' && gpuCompute && fboUniforms && points) {
+            fboUniforms.uDt.value = dt
+            fboUniforms.uTime.value = simTime
+            fboUniforms.uMouse.value.copy(mouseWorld)
+            fboUniforms.uMouseOn.value = pointerActive ? 1 : 0
+
+            const t0 = performance.now()
+            gpuCompute.compute()
+            workMs = performance.now() - t0
+
+            points.material.uniforms.texturePosition.value =
+              gpuCompute.getCurrentRenderTarget(posVar).texture
+            points.material.uniforms.textureVelocity.value =
+              gpuCompute.getCurrentRenderTarget(velVar).texture
+            points.material.uniforms.uSize.value = 1
+          }
+        }
+
+        controls.update()
+        renderer.render(scene, camera)
+
+        fpsFrames++
+        fpsTime += dt
+        hudTime += dt
+        if (fpsTime >= 0.5) {
+          fps = Math.round(fpsFrames / fpsTime)
+          fpsFrames = 0
+          fpsTime = 0
+        }
+
+        if (hudTime >= 0.4) {
+          hudTime = 0
+          const modeLabel = backendMode === 'compute' ? 'WebGPU compute' : 'FBO GPGPU'
+          statsEl.innerHTML =
+            '后端：<em>' + modeLabel + '</em> · 粒子：<em>' +
+            (particleCount / 10000).toFixed(1) + ' 万</em><br />' +
+            'FPS：<em>' + fps + '</em> · compute 提交：<em>' +
+            workMs.toFixed(2) + ' ms</em>'
+        }
+      })
+
+      addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight
+        camera.updateProjectionMatrix()
+        renderer.setSize(innerWidth, innerHeight)
+      })
+    }
+
+    main().catch((err) => {
+      console.error(err)
+      fatal(err.message)
+    })
+  </script>
+</body>
+
+</html>

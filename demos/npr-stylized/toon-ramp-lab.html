@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>toon-ramp-lab · 卡通着色与光照分级</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 372px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .chain {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .tip {
+      display: block;
+      margin-top: 3px;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 258px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 204px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 196px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>卡通着色与光照分级</b><br />
+    同一组模型，把 Lambert 的连续光照切成不同数量的色阶，再叠加全局描边。<br />
+    <span class="chain" id="stat"></span>
+    <span class="tip" id="tip"></span>
+  </div>
+  <div class="hint">右上角切换色阶与描边 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 基础渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(3.6, 3.3, 6.4)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.NoToneMapping
+    renderer.info.autoReset = false
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0.35, 1.45, 0)
+    controls.minDistance = 4
+    controls.maxDistance = 16
+
+    /* ---------- 共享 uniform ---------- */
+    const globalU = {
+      uRamp: { value: null },
+      uLightDir: { value: new THREE.Vector3(0.5, 0.85, 0.55).normalize() },
+      uShadowTint: { value: new THREE.Color(0x35569e) },
+      uSpecStrength: { value: 0.55 },
+      uSpecThreshold: { value: 0.42 }
+    }
+
+    /* ---------- 程序化 ramp 贴图 ---------- */
+    function makeRamp(stops) {
+      const canvas = document.createElement('canvas')
+      canvas.width = 256
+      canvas.height = 1
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(0, 0, 256, 1)
+      const grad = ctx.createLinearGradient(0, 0, 256, 0)
+      stops.forEach(([pos, color]) => grad.addColorStop(pos, color))
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 256, 1)
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.wrapS = THREE.ClampToEdgeWrapping
+      tex.wrapT = THREE.ClampToEdgeWrapping
+      tex.minFilter = THREE.NearestFilter
+      tex.magFilter = THREE.NearestFilter
+      tex.colorSpace = THREE.NoColorSpace
+      tex.needsUpdate = true
+      return tex
+    }
+
+    const ramps = {
+      '平滑': makeRamp([
+        [0.00, '#343a4d'],
+        [0.50, '#8f8f9c'],
+        [1.00, '#f4e7cf']
+      ]),
+      '3 阶': makeRamp([
+        [0.00, '#343a4d'],
+        [0.32, '#343a4d'],
+        [0.33, '#8d8e9a'],
+        [0.66, '#8d8e9a'],
+        [0.67, '#f4e7cf'],
+        [1.00, '#f4e7cf']
+      ]),
+      '5 阶': makeRamp([
+        [0.00, '#2f3446'],
+        [0.20, '#2f3446'],
+        [0.21, '#5c6479'],
+        [0.40, '#5c6479'],
+        [0.41, '#8d8e9a'],
+        [0.60, '#8d8e9a'],
+        [0.61, '#c9bea8'],
+        [0.80, '#c9bea8'],
+        [0.81, '#f6ecd6'],
+        [1.00, '#f6ecd6']
+      ]),
+      '自定义 ramp 贴图': makeRamp([
+        [0.00, '#26326b'],
+        [0.30, '#26326b'],
+        [0.31, '#4c6fb3'],
+        [0.58, '#4c6fb3'],
+        [0.59, '#f0b880'],
+        [0.82, '#f0b880'],
+        [0.83, '#fff2cf'],
+        [1.00, '#fff2cf']
+      ])
+    }
+    globalU.uRamp.value = ramps['平滑']
+
+    /* ---------- 卡通材质 ---------- */
+    function makeToonMat(hex) {
+      return new THREE.ShaderMaterial({
+        uniforms: {
+          uBase: { value: new THREE.Color(hex) },
+          ...globalU
+        },
+        vertexShader: /* glsl */`
+          varying vec3 vN;
+          varying vec3 vWorld;
+
+          void main() {
+            vec4 wp = modelMatrix * vec4(position, 1.0);
+            vWorld = wp.xyz;
+            vN = normalize(mat3(modelMatrix) * normal);
+            gl_Position = projectionMatrix * viewMatrix * wp;
+          }
+        `,
+        fragmentShader: /* glsl */`
+          uniform vec3 uBase;
+          uniform sampler2D uRamp;
+          uniform vec3 uLightDir;
+          uniform vec3 uShadowTint;
+          uniform float uSpecStrength;
+          uniform float uSpecThreshold;
+          varying vec3 vN;
+          varying vec3 vWorld;
+
+          void main() {
+            vec3 n = normalize(vN);
+            vec3 l = normalize(uLightDir);
+            vec3 v = normalize(cameraPosition - vWorld);
+
+            float ndl = clamp(dot(n, l), 0.0, 1.0);
+            vec3 ramp = texture2D(uRamp, vec2(ndl, 0.5)).rgb;
+            vec3 col = uBase * ramp;
+
+            col += uShadowTint * (1.0 - ramp.r) * 0.20;
+
+            vec3 h = normalize(l + v);
+            float spec = pow(max(dot(n, h), 0.0), 26.0);
+            float block = step(uSpecThreshold, spec) * uSpecStrength;
+            col += vec3(1.0, 0.96, 0.9) * block;
+
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `
+      })
+    }
+
+    /* ---------- 反向外壳 ---------- */
+    const shellMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uWidth: { value: 3 },
+        uResolution: { value: new THREE.Vector2(innerWidth, innerHeight) },
+        uColor: { value: new THREE.Color(0x9fe8ff) }
+      },
+      vertexShader: /* glsl */`
+        uniform float uWidth;
+        uniform vec2 uResolution;
+
+        void main() {
+          vec3 nView = normalize(normalMatrix * normal);
+          vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          clip.xy += nView.xy * uWidth * 2.0 / uResolution * clip.w;
+          gl_Position = clip;
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform vec3 uColor;
+
+        void main() {
+          gl_FragColor = vec4(uColor, 1.0);
+        }
+      `,
+      side: THREE.BackSide
+    })
+
+    const shellMeshes = []
+
+    function addOutline(mesh) {
+      const shell = new THREE.Mesh(mesh.geometry, shellMaterial)
+      mesh.add(shell)
+      shellMeshes.push(shell)
+    }
+
+    function addToonMesh(geometry, color, position, rotation) {
+      const mesh = new THREE.Mesh(geometry, makeToonMat(color))
+      mesh.position.set(...position)
+      if (rotation) mesh.rotation.set(...rotation)
+      scene.add(mesh)
+      addOutline(mesh)
+      return mesh
+    }
+
+    /* ---------- 角色状几何 ---------- */
+    const character = new THREE.Group()
+    character.position.set(-0.65, -0.36, 0.1)
+    scene.add(character)
+
+    function addPart(geometry, color, position, rotation) {
+      const mesh = new THREE.Mesh(geometry, makeToonMat(color))
+      mesh.position.set(...position)
+      if (rotation) mesh.rotation.set(...rotation)
+      character.add(mesh)
+      addOutline(mesh)
+      return mesh
+    }
+
+    addPart(new THREE.CapsuleGeometry(0.42, 0.66, 10, 24), 0x46c2b8, [0, 1.12, 0])
+    addPart(new THREE.SphereGeometry(0.5, 40, 28), 0xf4c9a3, [0, 2.06, 0])
+    addPart(new THREE.SphereGeometry(0.075, 16, 12), 0x11151f, [-0.17, 2.13, 0.45])
+    addPart(new THREE.SphereGeometry(0.075, 16, 12), 0x11151f, [0.17, 2.13, 0.45])
+    addPart(new THREE.ConeGeometry(0.36, 0.62, 22), 0x5b6bd6, [0, 2.62, 0])
+    addPart(new THREE.CapsuleGeometry(0.105, 0.36, 8, 16), 0x46c2b8,
+      [-0.62, 1.3, 0], [0, 0, 0.55])
+    addPart(new THREE.CapsuleGeometry(0.105, 0.36, 8, 16), 0x46c2b8,
+      [0.62, 1.3, 0], [0, 0, -0.55])
+
+    // 检查色阶用的大球
+    addToonMesh(new THREE.SphereGeometry(1.0, 56, 36), 0xe8875a, [1.95, 1.15, 0])
+
+    // 地面
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(30, 30),
+      makeToonMat(0x222b3d)
+    )
+    ground.rotation.x = -Math.PI / 2
+    scene.add(ground)
+
+    /* ---------- 参数 ---------- */
+    const params = {
+      ramp: '平滑',
+      outline: true,
+      width: 3,
+      spec: 0.55,
+      shadowTint: '#35569e',
+      autoRotate: true
+    }
+
+    const stat = document.getElementById('stat')
+    const tipEl = document.getElementById('tip')
+
+    function applyRamp() {
+      globalU.uRamp.value = ramps[params.ramp]
+      const tips = {
+        '平滑': '连续 Lambert：过渡自然，但缺少"画"的笔触感',
+        '3 阶': '最常用的卡通分档：亮 / 中间 / 暗，成本最低',
+        '5 阶': '更多层次，适合有体积感、需要柔和过渡的角色',
+        '自定义 ramp 贴图': '用 RGB 色阶同时染亮部与暗部，美术可直接改贴图'
+      }
+      tipEl.textContent = tips[params.ramp]
+    }
+
+    function applyOutline() {
+      shellMeshes.forEach((s) => { s.visible = params.outline })
+    }
+
+    function updateWidth() {
+      shellMaterial.uniforms.uWidth.value = params.width * Math.min(devicePixelRatio, 2)
+    }
+
+    const gui = new GUI({ title: '卡通着色实验室' })
+    gui.add(params, 'ramp', ['平滑', '3 阶', '5 阶', '自定义 ramp 贴图'])
+      .name('色阶模式').onChange(applyRamp)
+    gui.add(params, 'outline').name('全局描边').onChange(applyOutline)
+    gui.add(params, 'width', 1, 8, 0.5).name('描边宽度 px').onChange(updateWidth)
+    gui.add(params, 'spec', 0, 1, 0.01).name('高光块强度')
+      .onChange((v) => { globalU.uSpecStrength.value = v })
+    gui.addColor(params, 'shadowTint').name('阴影冷色')
+      .onChange((v) => { globalU.uShadowTint.value.set(v) })
+    gui.add(params, 'autoRotate').name('自动旋转')
+
+    applyRamp()
+    applyOutline()
+    updateWidth()
+
+    /* ---------- 主循环 ---------- */
+    let calls = 0
+    let lastStat = 0
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const t = timer.getElapsed()
+      renderer.info.reset()
+
+      if (params.autoRotate) {
+        character.rotation.y = Math.sin(t * 0.5) * 0.35
+        character.position.y = -0.36 + Math.sin(t * 1.4) * 0.05
+      }
+
+      controls.update()
+      renderer.render(scene, camera)
+      calls = renderer.info.render.calls
+
+      if (t - lastStat > 0.25) {
+        lastStat = t
+        const steps = params.ramp === '平滑' ? '连续' : params.ramp
+        stat.textContent = `色阶：${steps} · 描边：${params.outline ? '开' : '关'} · Draw calls：${calls}`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2())
+      shellMaterial.uniforms.uResolution.value.set(size.x, size.y)
+      updateWidth()
+    })
+
+    const initSize = renderer.getDrawingBufferSize(new THREE.Vector2())
+    shellMaterial.uniforms.uResolution.value.set(initSize.x, initSize.y)
+    updateWidth()
+  </script>
+</body>
+
+</html>

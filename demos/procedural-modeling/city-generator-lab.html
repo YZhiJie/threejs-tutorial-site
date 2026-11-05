@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>city-generator-lab · 程序化城市生成器</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 400px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .stats {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .note {
+      display: block;
+      margin-top: 3px;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .config {
+      position: fixed;
+      left: 14px;
+      bottom: 44px;
+      width: 312px;
+      padding: 10px 12px;
+      background: rgba(11, 14, 20, .86);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 10px;
+      font-size: 12px;
+    }
+
+    .config header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      color: #7cc4ff;
+      font-weight: 600;
+    }
+
+    .config textarea {
+      box-sizing: border-box;
+      width: 100%;
+      height: 124px;
+      resize: none;
+      padding: 8px;
+      border-radius: 7px;
+      border: 1px solid #1e2a44;
+      background: #0a0f1c;
+      color: #a5d8ff;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      outline: none;
+    }
+
+    .config .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .config button {
+      flex: 1;
+      padding: 5px 8px;
+      border-radius: 6px;
+      border: 1px solid #22d3ee55;
+      background: #10203a;
+      color: #9fe6ff;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .config button:hover {
+      background: #173252;
+    }
+
+    .lil-gui.root {
+      --width: 262px;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        max-width: 208px;
+        font-size: 12px;
+      }
+
+      .config {
+        width: 210px;
+      }
+
+      .config textarea {
+        height: 92px;
+      }
+
+      .lil-gui.root {
+        --width: 186px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>程序化城市生成器</b><br />
+    地块 → 体块 → 屋顶 → 街道 → 绿化 → 合并 / 实例化，一条流水线长出一座城。<br />
+    <span class="stats" id="stats"></span>
+    <span class="note" id="note">同一 seed 必得到同一座城，参数改了才换城。</span>
+  </div>
+  <div class="hint">右上角调种子 / 密度 / 层数 / 地块尺寸 / 风格 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <div class="config">
+    <header>
+      <span>配置 JSON</span>
+      <span id="configTip" style="color:#64748b;font-weight:400">确定性输入</span>
+    </header>
+    <textarea id="config" spellcheck="false"></textarea>
+    <div class="row">
+      <button id="applyBtn" type="button">应用配置</button>
+      <button id="copyBtn" type="button">复制 JSON</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 基础渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 130, 360)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.5, 600)
+    camera.position.set(84, 70, 108)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.1
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 10, 0)
+    controls.minDistance = 20
+    controls.maxDistance = 260
+    controls.maxPolarAngle = Math.PI * 0.49
+
+    /* ---------- 灯光 ---------- */
+    scene.add(new THREE.HemisphereLight(0xa8ccff, 0x101827, 1.25))
+    const sun = new THREE.DirectionalLight(0xfff0d0, 2.4)
+    sun.position.set(70, 110, 50)
+    scene.add(sun)
+    const fill = new THREE.DirectionalLight(0x8b5cf6, 0.85)
+    fill.position.set(-80, 40, -60)
+    scene.add(fill)
+
+    /* ---------- 共享几何与材质 ---------- */
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1)
+    const roofGeo = new THREE.ConeGeometry(0.72, 1, 4, 1)
+    roofGeo.rotateY(Math.PI / 4)
+    const windowGeo = new THREE.BoxGeometry(1, 1, 1)
+    const lampPoleGeo = new THREE.CylinderGeometry(0.07, 0.09, 1, 5, 1)
+    const lampHeadGeo = new THREE.SphereGeometry(0.2, 8, 6)
+    const treeGeo = new THREE.IcosahedronGeometry(0.8, 0)
+    const trunkGeo = new THREE.CylinderGeometry(0.09, 0.12, 1, 5, 1)
+
+    const buildingMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.7,
+      metalness: 0.18,
+      flatShading: false
+    })
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.8 })
+    const windowMat = new THREE.MeshStandardMaterial({
+      color: 0x0b1220,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.85,
+      roughness: 0.35,
+      metalness: 0.2
+    })
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x1b2433, roughness: 0.95 })
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x0f1725, roughness: 1 })
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.7 })
+    const lampGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xfff3c4,
+      emissive: 0xffd27f,
+      emissiveIntensity: 1.4,
+      roughness: 0.4
+    })
+    const treeMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.9,
+      flatShading: true
+    })
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a4433, roughness: 1 })
+    const landmarkMat = new THREE.MeshStandardMaterial({
+      color: 0x1e3a5f,
+      roughness: 0.45,
+      metalness: 0.6
+    })
+    const landmarkGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xf472b6,
+      emissive: 0xf472b6,
+      emissiveIntensity: 1.6
+    })
+
+    const cityGroup = new THREE.Group()
+    scene.add(cityGroup)
+
+    const ground = new THREE.Mesh(new THREE.BoxGeometry(240, 0.6, 240), groundMat)
+    ground.position.y = -0.32
+    scene.add(ground)
+
+    /* ---------- 伪随机（可复现） ---------- */
+    function mulberry32(seed) {
+      let a = seed >>> 0
+      return function () {
+        a = (a + 0x6D2B79F5) >>> 0
+        let t = Math.imul(a ^ (a >>> 15), 1 | a)
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+      }
+    }
+
+    /* ---------- 参数 ---------- */
+    const params = {
+      seed: 2029,
+      density: 0.62,
+      maxFloors: 22,
+      lotSize: 9,
+      style: '现代',
+      autoRotate: true
+    }
+
+    const statsEl = document.getElementById('stats')
+    const configArea = document.getElementById('config')
+    const configTip = document.getElementById('configTip')
+
+    const dummy = new THREE.Object3D()
+    const tint = new THREE.Color()
+    let ownedGeometries = []
+    let lastStats = { buildings: 0, blocks: 0 }
+
+    /* ---------- 生成流水线 ---------- */
+    function clearCity() {
+      cityGroup.children.forEach((obj) => {
+        if (obj.isInstancedMesh) obj.dispose()
+      })
+      cityGroup.clear()
+      ownedGeometries.forEach((g) => g.dispose())
+      ownedGeometries = []
+    }
+
+    function styleOptions() {
+      if (params.style === '低层') {
+        return { baseFloors: 1, floorSpread: 4, coverage: [0.7, 0.9], setback: 0 }
+      }
+      if (params.style === '高密度') {
+        return { baseFloors: 7, floorSpread: params.maxFloors, coverage: [0.8, 0.95], setback: 0 }
+      }
+      return { baseFloors: 3, floorSpread: params.maxFloors, coverage: [0.58, 0.8], setback: 0.6 }
+    }
+
+    function generate() {
+      clearCity()
+      const rand = mulberry32(params.seed)
+      const lot = params.lotSize
+      const n = Math.max(6, Math.floor(118 / lot))
+      const opt = styleOptions()
+      const FLOOR_H = 2.6
+
+      const blocks = []
+      const roofs = []
+      const windows = []
+      const lamps = []
+      const trees = []
+      const emptyLots = []
+      let buildings = 0
+      let windowBudget = 14000
+
+      /* 窗格：贴在楼块前后两面，按块的实际尺寸与高度排布 */
+      function addWindows(b) {
+        if (windowBudget <= 0) return
+        const rows = Math.min(8, Math.max(1, Math.floor(b.h / FLOOR_H)))
+        const cols = b.w > lot * 0.7 ? 4 : 3
+        const bottom = b.y - b.h / 2 + 1.1
+        const top = b.y + b.h / 2 - 0.9
+        for (let r = 0; r < rows; r++) {
+          const wy = bottom + (top - bottom) * (rows === 1 ? 0.5 : r / (rows - 1))
+          for (let c = 0; c < cols; c++) {
+            const wx = b.x + (c - (cols - 1) / 2) * (b.w * 0.68 / Math.max(1, cols - 1))
+            windows.push({ x: wx, y: wy, z: b.z + b.d / 2 + 0.04, w: 0.42, h: 0.62 })
+            windows.push({ x: wx, y: wy, z: b.z - b.d / 2 - 0.04, w: 0.42, h: 0.62 })
+            windowBudget -= 2
+          }
+        }
+      }
+
+      /* 地标占用的中心地块 */
+      let landmarkLot = null
+
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const cx = (i - (n - 1) / 2) * lot + (rand() - 0.5) * lot * 0.22
+          const cz = (j - (n - 1) / 2) * lot + (rand() - 0.5) * lot * 0.22
+
+          // 中心地块留给地标
+          if (Math.abs(i - (n - 1) / 2) <= 0.5 && Math.abs(j - (n - 1) / 2) <= 0.5) {
+            landmarkLot = { x: cx, z: cz }
+            continue
+          }
+
+          if (rand() > params.density) {
+            emptyLots.push({ x: cx, z: cz })
+            continue
+          }
+
+          buildings++
+
+          const spread = Math.min(
+            Math.max(1, Math.round(opt.floorSpread)),
+            Math.max(1, params.maxFloors - opt.baseFloors + 1)
+          )
+          const floors = Math.min(
+            params.maxFloors,
+            opt.baseFloors + Math.floor(rand() * spread)
+          )
+          const totalH = Math.max(1, floors) * FLOOR_H
+          const w = lot * (opt.coverage[0] + rand() * (opt.coverage[1] - opt.coverage[0]))
+          const d = lot * (0.62 + rand() * 0.2)
+
+          tint.setHSL(0.52 + rand() * 0.1, 0.08 + rand() * 0.22, 0.3 + rand() * 0.26)
+          const color = tint.clone()
+
+          const doSetback = opt.setback > 0 && totalH > 16 && rand() < opt.setback
+          if (doSetback) {
+            const lowerH = totalH * 0.6
+            const upperH = totalH - lowerH
+            const lower = { x: cx, z: cz, y: lowerH / 2, w, h: lowerH, d, color }
+            const upper = {
+              x: cx, z: cz, y: lowerH + upperH / 2,
+              w: w * 0.66, h: upperH, d: d * 0.66, color
+            }
+            blocks.push(lower, upper)
+            addWindows(lower)
+            addWindows(upper)
+          } else {
+            const block = { x: cx, z: cz, y: totalH / 2, w, h: totalH, d, color }
+            blocks.push(block)
+            addWindows(block)
+            if (params.style === '低层' && rand() < 0.62) {
+              roofs.push({ x: cx, z: cz, y: totalH, w })
+            }
+          }
+        }
+      }
+
+      /* 街道：横纵各一组路带，合并成 1 个 Mesh */
+      const roadParts = []
+      for (let i = 0; i <= n; i++) {
+        const p = (i - n / 2) * lot
+        const gx = boxGeo.clone().scale(1.9, 0.08, n * lot + lot * 0.6)
+        gx.translate(p, 0.04, 0)
+        roadParts.push(gx)
+        const gz = boxGeo.clone().scale(n * lot + lot * 0.6, 0.08, 1.9)
+        gz.translate(0, 0.04, p)
+        roadParts.push(gz)
+      }
+      const roadGeo = mergeAll(roadParts)
+      const roads = new THREE.Mesh(roadGeo, roadMat)
+      cityGroup.add(roads)
+
+      /* 建筑体块：所有楼块 1 个 InstancedMesh */
+      if (blocks.length) {
+        const mesh = new THREE.InstancedMesh(boxGeo, buildingMat, blocks.length)
+        blocks.forEach((b, i) => {
+          dummy.position.set(b.x, b.y, b.z)
+          dummy.rotation.set(0, 0, 0)
+          dummy.scale.set(b.w, b.h, b.d)
+          dummy.updateMatrix()
+          mesh.setMatrixAt(i, dummy.matrix)
+          mesh.setColorAt(i, b.color)
+        })
+        mesh.instanceMatrix.needsUpdate = true
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+        cityGroup.add(mesh)
+      }
+
+      /* 屋顶：低层坡屋顶 1 个 InstancedMesh */
+      if (roofs.length) {
+        const roofH = 2.4
+        const mesh = new THREE.InstancedMesh(roofGeo, roofMat, roofs.length)
+        roofs.forEach((r, i) => {
+          dummy.position.set(r.x, r.y + roofH / 2, r.z)
+          dummy.rotation.set(0, 0, 0)
+          dummy.scale.set(r.w, roofH, r.w)
+          dummy.updateMatrix()
+          mesh.setMatrixAt(i, dummy.matrix)
+        })
+        mesh.instanceMatrix.needsUpdate = true
+        cityGroup.add(mesh)
+      }
+
+      /* 窗格：1 个 InstancedMesh */
+      if (windows.length) {
+        const mesh = new THREE.InstancedMesh(windowGeo, windowMat, windows.length)
+        windows.forEach((w, i) => {
+          dummy.position.set(w.x, w.y, w.z)
+          dummy.rotation.set(0, 0, 0)
+          dummy.scale.set(w.w, w.h, 0.08)
+          dummy.updateMatrix()
+          mesh.setMatrixAt(i, dummy.matrix)
+        })
+        mesh.instanceMatrix.needsUpdate = true
+        cityGroup.add(mesh)
+      }
+
+      /* 路灯：杆 + 灯头各 1 个 InstancedMesh */
+      for (let i = 0; i <= n; i += 2) {
+        for (let j = 0; j <= n; j += 2) {
+          lamps.push({
+            x: (i - n / 2) * lot + lot * 0.45,
+            z: (j - n / 2) * lot + lot * 0.45
+          })
+        }
+      }
+      if (lamps.length) {
+        const poles = new THREE.InstancedMesh(lampPoleGeo, lampMat, lamps.length)
+        const heads = new THREE.InstancedMesh(lampHeadGeo, lampGlowMat, lamps.length)
+        lamps.forEach((l, i) => {
+          dummy.position.set(l.x, 1.5, l.z)
+          dummy.rotation.set(0, 0, 0)
+          dummy.scale.set(1, 3, 1)
+          dummy.updateMatrix()
+          poles.setMatrixAt(i, dummy.matrix)
+
+          dummy.position.set(l.x, 3.1, l.z)
+          dummy.scale.set(1, 1, 1)
+          dummy.updateMatrix()
+          heads.setMatrixAt(i, dummy.matrix)
+        })
+        poles.instanceMatrix.needsUpdate = true
+        heads.instanceMatrix.needsUpdate = true
+        cityGroup.add(poles, heads)
+      }
+
+      /* 绿化：空地块上随机种树，树冠 + 树干各 1 个实例缓冲 */
+      emptyLots.forEach((lotPos) => {
+        if (rand() > 0.42) return
+        const s = 0.8 + rand() * 0.9
+        trees.push({
+          x: lotPos.x + (rand() - 0.5) * lot * 0.5,
+          z: lotPos.z + (rand() - 0.5) * lot * 0.5,
+          s
+        })
+      })
+      if (trees.length) {
+        const crowns = new THREE.InstancedMesh(treeGeo, treeMat, trees.length)
+        const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, trees.length)
+        trees.forEach((t, i) => {
+          dummy.position.set(t.x, 1.7 * t.s, t.z)
+          dummy.rotation.set(0, 0, 0)
+          dummy.scale.setScalar(t.s)
+          dummy.updateMatrix()
+          crowns.setMatrixAt(i, dummy.matrix)
+          tint.setHSL(0.3 + (i % 5) * 0.012, 0.42, 0.3 + (i % 4) * 0.03)
+          crowns.setColorAt(i, tint)
+
+          dummy.position.set(t.x, 0.8 * t.s, t.z)
+          dummy.scale.set(t.s, 1.6 * t.s, t.s)
+          dummy.updateMatrix()
+          trunks.setMatrixAt(i, dummy.matrix)
+        })
+        crowns.instanceMatrix.needsUpdate = true
+        if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true
+        trunks.instanceMatrix.needsUpdate = true
+        cityGroup.add(crowns, trunks)
+      }
+
+      /* 地标：退台塔 + 天线，独立几个 Mesh */
+      buildLandmark(landmarkLot || { x: 0, z: 0 }, lot, rand)
+
+      lastStats = { buildings, blocks: blocks.length }
+      updateConfig()
+    }
+
+    function buildLandmark(pos, lot, rand) {
+      const total = params.maxFloors * 2.6 * 1.35 + 12
+      const baseW = lot * 0.96
+      const tiers = [
+        { w: baseW, h: total * 0.44 },
+        { w: baseW * 0.72, h: total * 0.32 },
+        { w: baseW * 0.46, h: total * 0.24 }
+      ]
+      let y = 0
+      tiers.forEach((t) => {
+        const g = new THREE.BoxGeometry(t.w, t.h, t.w)
+        ownedGeometries.push(g)
+        const m = new THREE.Mesh(g, landmarkMat)
+        m.position.set(pos.x, y + t.h / 2, pos.z)
+        cityGroup.add(m)
+        y += t.h
+      })
+
+      const antennaGeo = new THREE.CylinderGeometry(0.12, 0.2, 9, 6)
+      ownedGeometries.push(antennaGeo)
+      const antenna = new THREE.Mesh(antennaGeo, landmarkMat)
+      antenna.position.set(pos.x, y + 4.5, pos.z)
+      cityGroup.add(antenna)
+
+      const glowGeo = new THREE.SphereGeometry(0.55, 12, 8)
+      ownedGeometries.push(glowGeo)
+      const glow = new THREE.Mesh(glowGeo, landmarkGlowMat)
+      glow.position.set(pos.x, y + 9.2, pos.z)
+      cityGroup.add(glow)
+    }
+
+    function mergeAll(parts) {
+      if (!parts.length) return new THREE.BufferGeometry()
+      if (parts.length === 1) {
+        ownedGeometries.push(parts[0])
+        return parts[0]
+      }
+      // mergeGeometries 要求属性结构一致；同一份 BoxGeometry 的克隆天然一致
+      const merged = mergeGeometries(parts, false)
+      parts.forEach((g) => g.dispose())
+      ownedGeometries.push(merged)
+      return merged
+    }
+
+    /* ---------- 配置 JSON ---------- */
+    function configObject() {
+      return {
+        version: '29.3',
+        seed: params.seed,
+        density: params.density,
+        maxFloors: params.maxFloors,
+        lotSize: params.lotSize,
+        style: params.style,
+        stats: { buildings: lastStats.buildings, blocks: lastStats.blocks }
+      }
+    }
+
+    function updateConfig() {
+      configArea.value = JSON.stringify(configObject(), null, 2)
+    }
+
+    function applyConfig() {
+      try {
+        const cfg = JSON.parse(configArea.value)
+        if (Number.isFinite(cfg.seed)) params.seed = Math.round(cfg.seed)
+        if (Number.isFinite(cfg.density)) {
+          params.density = THREE.MathUtils.clamp(cfg.density, 0.15, 0.95)
+        }
+        if (Number.isFinite(cfg.maxFloors)) {
+          params.maxFloors = THREE.MathUtils.clamp(Math.round(cfg.maxFloors), 2, 40)
+        }
+        if (Number.isFinite(cfg.lotSize)) {
+          params.lotSize = THREE.MathUtils.clamp(Math.round(cfg.lotSize), 6, 16)
+        }
+        if (['现代', '低层', '高密度'].includes(cfg.style)) params.style = cfg.style
+        gui.controllersRecursive().forEach((c) => c.updateDisplay())
+        generate()
+        configTip.textContent = '已按 JSON 重建'
+        configTip.style.color = '#34d399'
+      } catch (err) {
+        configTip.textContent = 'JSON 解析失败'
+        configTip.style.color = '#fb7185'
+      }
+    }
+
+    /* ---------- GUI ---------- */
+    const gui = new GUI({ title: '城市参数' })
+    gui.add(params, 'seed', 1, 9999, 1).name('seed').onChange(generate)
+    gui.add(params, 'density', 0.15, 0.95, 0.01).name('密度').onChange(generate)
+    gui.add(params, 'maxFloors', 2, 40, 1).name('最高层数').onChange(generate)
+    gui.add(params, 'lotSize', 6, 16, 1).name('地块尺寸').onChange(generate)
+    gui.add(params, 'style', ['现代', '低层', '高密度']).name('风格').onChange(generate)
+    gui.add({ regenerate: () => { generate(); configTip.textContent = '已重新生成'; configTip.style.color = '#34d399' } }, 'regenerate')
+      .name('重新生成')
+    gui.add(params, 'autoRotate').name('自动旋转')
+
+    document.getElementById('applyBtn').addEventListener('click', applyConfig)
+    document.getElementById('copyBtn').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(configArea.value)
+        configTip.textContent = '已复制'
+        configTip.style.color = '#34d399'
+      } catch (err) {
+        configArea.select()
+        configTip.textContent = '请手动复制'
+        configTip.style.color = '#fb7185'
+      }
+    })
+
+    generate()
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    let statsElapsed = 0
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = timer.getDelta()
+      if (params.autoRotate) cityGroup.rotation.y += dt * 0.035
+      controls.update()
+      renderer.render(scene, camera)
+
+      statsElapsed += dt
+      if (statsElapsed > 0.35) {
+        statsElapsed = 0
+        statsEl.textContent =
+          `建筑 ${lastStats.buildings} 栋 · 体块 ${lastStats.blocks} · ` +
+          `三角 ${renderer.info.render.triangles} · draw calls ${renderer.info.render.calls}`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

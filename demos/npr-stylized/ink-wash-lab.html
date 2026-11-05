@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ink-wash-lab · 水墨与漫画渲染管线</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 384px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .chain {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .tip {
+      display: block;
+      margin-top: 3px;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 264px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 208px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 198px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>水墨与漫画风格管线</b><br />
+    山石、树、雾的同一场景，在写实 / 卡通 / 水墨三种渲染模式下对比。<br />
+    <span class="chain" id="stat"></span>
+    <span class="tip" id="tip"></span>
+  </div>
+  <div class="hint">右上角切换渲染模式 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+    import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const DARK = 0x0b0e14
+    const PAPER = 0xece5d3
+
+    /* ---------- 基础渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(DARK)
+    scene.fog = new THREE.Fog(DARK, 10, 30)
+
+    const camera = new THREE.PerspectiveCamera(44, innerWidth / innerHeight, 0.1, 120)
+    camera.position.set(0.5, 4.4, 10.5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.NoToneMapping
+    renderer.info.autoReset = false
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0.2, 1.7, -1.5)
+    controls.minDistance = 6
+    controls.maxDistance = 26
+
+    /* ---------- 灯光（写实模式使用） ---------- */
+    const hemi = new THREE.HemisphereLight(0xb8cbe4, 0x1b2230, 0.65)
+    scene.add(hemi)
+    const sun = new THREE.DirectionalLight(0xffe8c8, 1.7)
+    sun.position.set(7, 10, 5)
+    scene.add(sun)
+
+    /* ---------- 共享 uniform ---------- */
+    const globalU = {
+      uRamp: { value: null },
+      uLightDir: { value: new THREE.Vector3(0.55, 0.85, 0.5).normalize() },
+      uShadowTint: { value: new THREE.Color(0x3a4f7a) },
+      uSpecStrength: { value: 0.0 },
+      uSpecThreshold: { value: 0.5 },
+      uFogColor: { value: new THREE.Color(DARK) },
+      uFogNear: { value: 10 },
+      uFogFar: { value: 30 }
+    }
+
+    /* ---------- 程序化 ramp ---------- */
+    function makeRamp(stops) {
+      const canvas = document.createElement('canvas')
+      canvas.width = 256
+      canvas.height = 1
+      const ctx = canvas.getContext('2d')
+      const grad = ctx.createLinearGradient(0, 0, 256, 0)
+      stops.forEach(([pos, color]) => grad.addColorStop(pos, color))
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 256, 1)
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.wrapS = THREE.ClampToEdgeWrapping
+      tex.wrapT = THREE.ClampToEdgeWrapping
+      tex.minFilter = THREE.NearestFilter
+      tex.magFilter = THREE.NearestFilter
+      tex.colorSpace = THREE.NoColorSpace
+      return tex
+    }
+
+    const rampToon = makeRamp([
+      [0.00, '#38405a'],
+      [0.34, '#38405a'],
+      [0.35, '#8f97ad'],
+      [0.68, '#8f97ad'],
+      [0.69, '#f0e4c8'],
+      [1.00, '#f0e4c8']
+    ])
+    const rampInk = makeRamp([
+      [0.00, '#3a3a38'],
+      [0.30, '#3a3a38'],
+      [0.31, '#8f8b80'],
+      [0.62, '#8f8b80'],
+      [0.63, '#efe8d6'],
+      [1.00, '#efe8d6']
+    ])
+
+    /* ---------- 程序化纸张纹理 ---------- */
+    function makePaperTexture() {
+      const S = 256
+      const canvas = document.createElement('canvas')
+      canvas.width = S
+      canvas.height = S
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#f3ecdb'
+      ctx.fillRect(0, 0, S, S)
+
+      for (let i = 0; i < 1100; i++) {
+        const alpha = 0.02 + Math.random() * 0.06
+        ctx.strokeStyle = `rgba(92, 82, 62, ${alpha})`
+        ctx.lineWidth = Math.random() * 1.3
+        const x = Math.random() * S
+        const y = Math.random() * S
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x + (Math.random() - 0.5) * 46, y + (Math.random() - 0.5) * 7)
+        ctx.stroke()
+      }
+      for (let i = 0; i < 260; i++) {
+        ctx.fillStyle = `rgba(70, 62, 48, ${0.01 + Math.random() * 0.03})`
+        ctx.fillRect(Math.random() * S, Math.random() * S, Math.random() * 2.2, Math.random() * 2.2)
+      }
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.wrapS = THREE.RepeatWrapping
+      tex.wrapT = THREE.RepeatWrapping
+      tex.colorSpace = THREE.NoColorSpace
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      return tex
+    }
+    const paperTex = makePaperTexture()
+
+    /* ---------- 卡通 / 水墨材质 ---------- */
+    function makeToonMat(hex) {
+      return new THREE.ShaderMaterial({
+        uniforms: {
+          uBase: { value: new THREE.Color(hex) },
+          ...globalU
+        },
+        vertexShader: /* glsl */`
+          varying vec3 vN;
+          varying vec3 vWorld;
+
+          void main() {
+            vec4 wp = modelMatrix * vec4(position, 1.0);
+            vWorld = wp.xyz;
+            vN = normalize(mat3(modelMatrix) * normal);
+            gl_Position = projectionMatrix * viewMatrix * wp;
+          }
+        `,
+        fragmentShader: /* glsl */`
+          uniform vec3 uBase;
+          uniform sampler2D uRamp;
+          uniform vec3 uLightDir;
+          uniform vec3 uShadowTint;
+          uniform float uSpecStrength;
+          uniform float uSpecThreshold;
+          uniform vec3 uFogColor;
+          uniform float uFogNear;
+          uniform float uFogFar;
+          varying vec3 vN;
+          varying vec3 vWorld;
+
+          void main() {
+            vec3 n = normalize(vN);
+            vec3 l = normalize(uLightDir);
+            vec3 v = normalize(cameraPosition - vWorld);
+
+            float ndl = clamp(dot(n, l), 0.0, 1.0);
+            vec3 ramp = texture2D(uRamp, vec2(ndl, 0.5)).rgb;
+            vec3 col = uBase * ramp;
+            col += uShadowTint * (1.0 - ramp.r) * 0.22;
+
+            vec3 h = normalize(l + v);
+            float spec = pow(max(dot(n, h), 0.0), 30.0);
+            float block = step(uSpecThreshold, spec) * uSpecStrength;
+            col += vec3(1.0, 0.97, 0.92) * block;
+
+            float dist = length(cameraPosition - vWorld);
+            float fog = smoothstep(uFogNear, uFogFar, dist);
+            col = mix(col, uFogColor, fog);
+
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `
+      })
+    }
+
+    /* ---------- 反向外壳 ---------- */
+    const shellMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uWidth: { value: 3 },
+        uResolution: { value: new THREE.Vector2(innerWidth, innerHeight) },
+        uColor: { value: new THREE.Color(0x06090f) }
+      },
+      vertexShader: /* glsl */`
+        uniform float uWidth;
+        uniform vec2 uResolution;
+
+        void main() {
+          vec3 nView = normalize(normalMatrix * normal);
+          vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          clip.xy += nView.xy * uWidth * 2.0 / uResolution * clip.w;
+          gl_Position = clip;
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform vec3 uColor;
+
+        void main() {
+          gl_FragColor = vec4(uColor, 1.0);
+        }
+      `,
+      side: THREE.BackSide
+    })
+
+    /* ---------- 场景装配 ---------- */
+    const proxies = []
+    const realMaterials = []
+
+    function addNprMesh(geometry, options, shell) {
+      const { real, toon, ink } = options
+      const realMat = new THREE.MeshStandardMaterial({
+        color: real,
+        roughness: 0.92,
+        metalness: 0.02
+      })
+      realMaterials.push(realMat)
+
+      const mesh = new THREE.Mesh(geometry, realMat)
+      mesh.position.set(...options.position)
+      if (options.rotation) mesh.rotation.set(...options.rotation)
+      if (options.scale) mesh.scale.set(...options.scale)
+      scene.add(mesh)
+
+      const record = {
+        mesh,
+        real: realMat,
+        toon: makeToonMat(toon),
+        ink: makeToonMat(ink),
+        shell: null
+      }
+
+      if (shell) {
+        const shellMesh = new THREE.Mesh(geometry, shellMaterial)
+        mesh.add(shellMesh)
+        shellMesh.visible = false
+        record.shell = shellMesh
+      }
+      proxies.push(record)
+      return record
+    }
+
+    // 地面
+    addNprMesh(
+      new THREE.PlaneGeometry(46, 46),
+      { real: 0x3b4a3d, toon: 0x2b3646, ink: 0xd6cfbb, position: [0, 0, 0], rotation: [-Math.PI / 2, 0, 0] },
+      false
+    )
+
+    // 远山
+    addNprMesh(
+      new THREE.ConeGeometry(3.9, 5.6, 8),
+      { real: 0x6b7c8f, toon: 0x53698c, ink: 0xc9c2b0, position: [-6.4, 2.8, -8.2] },
+      false
+    )
+    addNprMesh(
+      new THREE.ConeGeometry(5.0, 7.2, 9),
+      { real: 0x6f8093, toon: 0x495e80, ink: 0xc2bba9, position: [0.6, 3.6, -11.0] },
+      false
+    )
+    addNprMesh(
+      new THREE.ConeGeometry(3.1, 4.9, 7),
+      { real: 0x7a8998, toon: 0x62759a, ink: 0xcec7b5, position: [7.6, 2.45, -7.0] },
+      false
+    )
+
+    // 山石
+    addNprMesh(
+      new THREE.DodecahedronGeometry(0.85, 0),
+      { real: 0x8b94a1, toon: 0x7d879c, ink: 0xc0b9a8, position: [-1.5, 0.72, 1.6], rotation: [0.2, 0.5, 0.1] },
+      true
+    )
+    addNprMesh(
+      new THREE.DodecahedronGeometry(0.52, 0),
+      { real: 0x828b97, toon: 0x77819a, ink: 0xbcb5a4, position: [1.9, 0.44, 2.2], rotation: [0.5, 0.3, 0.2] },
+      true
+    )
+    addNprMesh(
+      new THREE.IcosahedronGeometry(0.34, 0),
+      { real: 0x77808c, toon: 0x6d7891, ink: 0xb7b09f, position: [0.4, 0.28, 2.7], rotation: [0.1, 0.9, 0.4] },
+      true
+    )
+
+    // 树
+    function addTree(x, z, scale, seed) {
+      const trunkColor = { real: 0x6b4b34, toon: 0x7a5638, ink: 0xaba493 }
+      const leafColor = { real: 0x357a54, toon: 0x2f8a68, ink: 0xb3ab98 }
+
+      addNprMesh(
+        new THREE.CylinderGeometry(0.1, 0.17, 1.25, 8),
+        {
+          ...trunkColor,
+          position: [x, 0.62 * scale, z],
+          scale: [scale, scale, scale]
+        },
+        true
+      )
+      addNprMesh(
+        new THREE.ConeGeometry(0.68, 1.6, 8),
+        {
+          ...leafColor,
+          position: [x, 1.62 * scale, z],
+          scale: [scale, scale, scale],
+          rotation: [0, seed, 0]
+        },
+        true
+      )
+      addNprMesh(
+        new THREE.ConeGeometry(0.5, 1.2, 7),
+        {
+          ...leafColor,
+          position: [x, 2.28 * scale, z],
+          scale: [scale, scale, scale],
+          rotation: [0, seed + 0.8, 0]
+        },
+        true
+      )
+    }
+
+    addTree(2.4, 1.0, 1.15, 0.4)
+    addTree(-2.6, 1.9, 0.95, 1.1)
+    addTree(4.2, -0.4, 1.35, 2.3)
+    addTree(-4.4, 0.4, 0.85, 3.0)
+
+    /* ---------- 水墨后处理 Shader ---------- */
+    const InkShader = {
+      uniforms: {
+        tDiffuse: { value: null },
+        uPaper: { value: paperTex },
+        uResolution: { value: new THREE.Vector2(innerWidth, innerHeight) },
+        uTime: { value: 0 },
+        uInk: { value: 1.0 },
+        uEdge: { value: 0.09 },
+        uBoil: { value: 0.55 },
+        uPaperAmp: { value: 0.55 }
+      },
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
+
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform sampler2D tDiffuse;
+        uniform sampler2D uPaper;
+        uniform vec2 uResolution;
+        uniform float uTime;
+        uniform float uInk;
+        uniform float uEdge;
+        uniform float uBoil;
+        uniform float uPaperAmp;
+        varying vec2 vUv;
+
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+                     mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+        }
+
+        float luma(vec3 c) {
+          return dot(c, vec3(0.299, 0.587, 0.114));
+        }
+
+        void main() {
+          vec2 texel = 1.0 / uResolution;
+          float boil = (noise(vUv * 26.0 + vec2(uTime * 1.7, uTime * 2.1)) - 0.5) * uBoil;
+          vec2 uv = vUv + vec2(boil, -boil) * texel * 3.0;
+
+          float l0 = luma(texture2D(tDiffuse, uv).rgb);
+          float lx = luma(texture2D(tDiffuse, uv + vec2(texel.x * 1.6, 0.0)).rgb)
+                   - luma(texture2D(tDiffuse, uv - vec2(texel.x * 1.6, 0.0)).rgb);
+          float ly = luma(texture2D(tDiffuse, uv + vec2(0.0, texel.y * 1.6)).rgb)
+                   - luma(texture2D(tDiffuse, uv - vec2(0.0, texel.y * 1.6)).rgb);
+          float grad = length(vec2(lx, ly)) * 2.0;
+          float line = smoothstep(uEdge, uEdge + 0.12, grad);
+
+          float grain = (noise(vUv * 7.0 + uTime * 0.12) - 0.5) * 0.16;
+          float q = l0 + grain;
+          float lv1 = smoothstep(0.30, 0.36, q);
+          float lv2 = smoothstep(0.58, 0.64, q);
+          float tone = 0.20 + 0.34 * lv1 + 0.36 * lv2;
+
+          vec3 paper = texture2D(uPaper, vUv).rgb;
+          float paperMix = mix(1.0, paper.r, uPaperAmp);
+          float brush = (noise(vUv * 170.0) - 0.5) * 0.055;
+
+          vec3 col = vec3(tone) * paperMix + brush;
+          col = mix(col, vec3(0.045, 0.05, 0.062), line * 0.92 * uInk);
+
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `
+    }
+
+    const composer = new EffectComposer(renderer)
+    composer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    composer.addPass(new RenderPass(scene, camera))
+    const inkPass = new ShaderPass(InkShader)
+    inkPass.uniforms.uPaper.value = paperTex
+    inkPass.enabled = false
+    composer.addPass(inkPass)
+    composer.addPass(new OutputPass())
+    composer.setSize(innerWidth, innerHeight)
+
+    /* ---------- 参数与模式切换 ---------- */
+    const params = {
+      mode: '写实',
+      ink: 1.0,
+      edge: 0.09,
+      boil: 0.55,
+      paper: 0.55,
+      autoRotate: true
+    }
+
+    const stat = document.getElementById('stat')
+    const tipEl = document.getElementById('tip')
+
+    function applyMode() {
+      const m = params.mode
+      proxies.forEach((p) => {
+        p.mesh.material = m === '写实' ? p.real : m === '卡通' ? p.toon : p.ink
+        if (p.shell) p.shell.visible = (m === '卡通')
+      })
+
+      const inkMode = m === '水墨'
+      scene.background.set(inkMode ? PAPER : DARK)
+      scene.fog.color.set(inkMode ? PAPER : DARK)
+      scene.fog.near = inkMode ? 9 : 10
+      scene.fog.far = inkMode ? 26 : 30
+
+      globalU.uFogColor.value.set(inkMode ? PAPER : DARK)
+      globalU.uFogNear.value = scene.fog.near
+      globalU.uFogFar.value = scene.fog.far
+      globalU.uRamp.value = inkMode ? rampInk : rampToon
+      globalU.uSpecStrength.value = inkMode ? 0 : 0.45
+      globalU.uShadowTint.value.set(inkMode ? 0x6b6659 : 0x3a4f7a)
+
+      inkPass.enabled = inkMode
+      renderer.toneMapping = m === '写实' ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping
+      realMaterials.forEach((mat) => { mat.needsUpdate = true })
+
+      const tips = {
+        '写实': 'PBR + ACES：靠光照与材质本身出画面，零额外后处理',
+        '卡通': '硬分阶 + 反向外壳描边：多一组 BackSide draw call',
+        '水墨': '去色 + 噪声阈值 + 墨色分层 + 纸张纹理：多一次全屏 InkPass'
+      }
+      tipEl.textContent = tips[m]
+    }
+
+    const gui = new GUI({ title: '渲染模式' })
+    gui.add(params, 'mode', ['写实', '卡通', '水墨']).name('渲染模式').onChange(applyMode)
+    gui.add(params, 'ink', 0.3, 1.4, 0.01).name('墨线浓度')
+      .onChange((v) => { inkPass.uniforms.uInk.value = v })
+    gui.add(params, 'edge', 0.02, 0.3, 0.005).name('墨线阈值')
+      .onChange((v) => { inkPass.uniforms.uEdge.value = v })
+    gui.add(params, 'boil', 0, 1.6, 0.01).name('线条抖动 boil')
+      .onChange((v) => { inkPass.uniforms.uBoil.value = v })
+    gui.add(params, 'paper', 0, 1, 0.01).name('纸张纹理强度')
+      .onChange((v) => { inkPass.uniforms.uPaperAmp.value = v })
+    gui.add(params, 'autoRotate').name('自动旋转')
+
+    applyMode()
+
+    /* ---------- 主循环与帧时间 ---------- */
+    let calls = 0
+    let frameMs = 16
+    let lastStat = 0
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    let prevNow = performance.now()
+
+    const tmpSize = new THREE.Vector2()
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const t = timer.getElapsed()
+      renderer.info.reset()
+
+      const now = performance.now()
+      frameMs = frameMs * 0.88 + Math.min(now - prevNow, 80) * 0.12
+      prevNow = now
+
+      if (params.autoRotate) {
+        scene.rotation.y = Math.sin(t * 0.12) * 0.25
+      }
+
+      inkPass.uniforms.uTime.value = t
+      controls.update()
+      composer.render()
+
+      calls = renderer.info.render.calls
+      if (t - lastStat > 0.25) {
+        lastStat = t
+        const passes = composer.passes.filter((p) => p.enabled).length
+        stat.textContent = `模式：${params.mode} · Pass：${passes} · Draw calls：${calls} · ${frameMs.toFixed(1)} ms`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      composer.setSize(innerWidth, innerHeight)
+      renderer.getDrawingBufferSize(tmpSize)
+      inkPass.uniforms.uResolution.value.set(tmpSize.x, tmpSize.y)
+      shellMaterial.uniforms.uResolution.value.set(tmpSize.x, tmpSize.y)
+      shellMaterial.uniforms.uWidth.value = 3 * Math.min(devicePixelRatio, 2)
+    })
+
+    renderer.getDrawingBufferSize(tmpSize)
+    inkPass.uniforms.uResolution.value.set(tmpSize.x, tmpSize.y)
+    shellMaterial.uniforms.uResolution.value.set(tmpSize.x, tmpSize.y)
+    shellMaterial.uniforms.uWidth.value = 3 * Math.min(devicePixelRatio, 2)
+  </script>
+</body>
+
+</html>

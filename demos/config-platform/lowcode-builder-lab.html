@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>lowcode-builder-lab · 低代码配置台</title>
+  <style>
+    * { box-sizing: border-box; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app { position: fixed; left: 356px; right: 0; top: 0; bottom: 212px; }
+    canvas { display: block; }
+
+    .panel {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      bottom: 12px;
+      width: 332px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      padding: 12px;
+      background: rgba(13, 19, 30, .9);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 12px;
+      z-index: 10;
+      overflow-y: auto;
+    }
+
+    .info { font-size: 12.5px; line-height: 1.6; }
+    .info b { color: #7cc4ff; font-size: 13.5px; }
+    .info .sub { display: block; color: #94a3b8; margin-top: 3px; }
+
+    .sec {
+      font-size: 10.5px;
+      letter-spacing: .08em;
+      color: #64748b;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sec::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: rgba(148, 163, 184, .18);
+    }
+
+    .field { display: flex; flex-direction: column; gap: 4px; }
+
+    .field label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11.5px;
+      color: #cbd5e1;
+    }
+
+    .field .val {
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+      color: #7dd3fc;
+    }
+
+    .field input[type="range"] {
+      width: 100%;
+      accent-color: #22d3ee;
+      height: 18px;
+    }
+
+    .field select,
+    .field input[type="color"] {
+      width: 100%;
+      height: 28px;
+      border-radius: 7px;
+      border: 1px solid rgba(148, 163, 184, .3);
+      background: #0a0f1c;
+      color: #cbd5e1;
+      font-size: 12px;
+      padding: 0 7px;
+      outline: none;
+    }
+
+    .field input[type="color"] { padding: 0; cursor: pointer; }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11.5px;
+      color: #cbd5e1;
+    }
+
+    .check input { accent-color: #22d3ee; }
+
+    .versions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .vchip {
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10.5px;
+      border: 1px solid rgba(148, 163, 184, .25);
+      color: #94a3b8;
+      background: rgba(148, 163, 184, .08);
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+
+    .vchip.live { border-color: rgba(52, 211, 153, .55); color: #6ee7b7; background: rgba(52, 211, 153, .12); }
+
+    .status {
+      font-size: 11.5px;
+      line-height: 1.55;
+      color: #94a3b8;
+      min-height: 46px;
+      padding: 7px 9px;
+      border-radius: 8px;
+      background: rgba(148, 163, 184, .07);
+      border: 1px solid rgba(148, 163, 184, .18);
+    }
+
+    .status.ok { color: #34d399; border-color: rgba(52, 211, 153, .35); }
+    .status.bad { color: #fb7185; border-color: rgba(251, 113, 133, .35); }
+
+    .bottom {
+      position: fixed;
+      left: 356px;
+      right: 12px;
+      bottom: 12px;
+      height: 188px;
+      display: flex;
+      flex-direction: column;
+      padding: 9px 11px;
+      background: rgba(13, 19, 30, .9);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 12px;
+      z-index: 12;
+      gap: 7px;
+    }
+
+    .bottom-bar {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+
+    .bottom-bar b { font-size: 12px; color: #e2e8f0; }
+    .bottom-bar .spacer { flex: 1; }
+
+    .btn {
+      padding: 5px 10px;
+      border-radius: 7px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: .18s;
+      border: 1px solid rgba(148, 163, 184, .3);
+      background: rgba(148, 163, 184, .1);
+      color: #cbd5e1;
+    }
+
+    .btn:hover { background: rgba(148, 163, 184, .2); }
+    .btn:disabled { opacity: .38; cursor: not-allowed; }
+
+    .btn.primary {
+      border-color: rgba(34, 211, 238, .55);
+      background: rgba(34, 211, 238, .16);
+      color: #a5f3fc;
+      font-weight: 700;
+    }
+
+    .btn.primary:hover { background: rgba(34, 211, 238, .28); }
+
+    .btn.warn {
+      border-color: rgba(251, 191, 36, .45);
+      background: rgba(251, 191, 36, .12);
+      color: #fcd34d;
+    }
+
+    textarea {
+      flex: 1;
+      width: 100%;
+      resize: none;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, .24);
+      background: #0a0f1c;
+      color: #cbd5e1;
+      font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.5;
+      outline: none;
+    }
+
+    textarea:focus { border-color: rgba(34, 211, 238, .5); }
+    textarea.bad { border-color: rgba(251, 113, 133, .75); }
+
+    .hint {
+      position: fixed;
+      right: 18px;
+      bottom: 218px;
+      padding: 5px 12px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 11.5px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 20;
+    }
+
+    @media (max-width: 920px) {
+      .panel { width: 288px; }
+      #app { left: 312px; bottom: 196px; }
+      .bottom { left: 312px; height: 172px; }
+      .hint { bottom: 202px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="panel">
+    <div class="info">
+      <b>低代码配置台 · 表单驱动场景</b>
+      <span class="sub">控件全部由 schema 生成；改表单即改 DSL，右侧实时重建。</span>
+    </div>
+
+    <div class="sec">表单</div>
+    <div id="form"></div>
+
+    <div class="sec">版本</div>
+    <div class="versions" id="versions"></div>
+
+    <div class="status" id="status">草稿已就绪。发布后会生成一个不可变版本，可回滚到上一版。</div>
+  </div>
+
+  <div class="bottom">
+    <div class="bottom-bar">
+      <b>DSL JSON</b>
+      <span class="btn" id="applyJson" style="padding:4px 8px">从 JSON 应用</span>
+      <span class="spacer"></span>
+      <button class="btn primary" id="publish">发布当前配置</button>
+      <button class="btn warn" id="rollback">回滚上一版</button>
+    </div>
+    <textarea id="dsl" spellcheck="false" aria-label="生成的 DSL JSON"></textarea>
+  </div>
+
+  <div class="hint">改表单或编辑 DSL · 发布生成版本 · 回滚恢复上一版</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    /* ---------- 渲染基础 ---------- */
+    const container = document.getElementById('app')
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 220)
+    camera.position.set(10, 8, 13)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFShadowMap
+    container.appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.4, 0)
+
+    let root = new THREE.Group()
+    scene.add(root)
+    let anims = []
+
+    function resize() {
+      const w = container.clientWidth || 1
+      const h = container.clientHeight || 1
+      camera.aspect = w / h
+      camera.updateProjectionMatrix()
+      renderer.setSize(w, h)
+    }
+
+    /* ---------- 由 schema 生成表单 ---------- */
+    const FIELDS = [
+      {
+        key: 'sceneType',
+        label: '场景类型',
+        type: 'select',
+        options: [['campus', '园区'], ['gallery', '展厅'], ['terrain', '地形']]
+      },
+      { key: 'fov', label: '相机 FOV', type: 'range', min: 25, max: 85, step: 1, unit: '°' },
+      { key: 'light', label: '光照强度', type: 'range', min: 0, max: 3, step: 0.05, unit: '' },
+      { key: 'count', label: '物体数量', type: 'range', min: 3, max: 12, step: 1, unit: ' 个' },
+      { key: 'color', label: '材质颜色', type: 'color' },
+      { key: 'rotate', label: '自动旋转', type: 'checkbox' }
+    ]
+
+    const form = {
+      sceneType: 'campus',
+      fov: 45,
+      light: 1.0,
+      count: 6,
+      color: '#22d3ee',
+      rotate: true
+    }
+
+    const formEl = document.getElementById('form')
+    const inputs = new Map()
+
+    function buildForm() {
+      formEl.innerHTML = ''
+      FIELDS.forEach((f) => {
+        const wrap = document.createElement('div')
+        wrap.className = f.type === 'checkbox' ? 'check' : 'field'
+
+        if (f.type === 'checkbox') {
+          const input = document.createElement('input')
+          input.type = 'checkbox'
+          input.id = 'f-' + f.key
+          input.checked = !!form[f.key]
+          const label = document.createElement('label')
+          label.htmlFor = 'f-' + f.key
+          label.textContent = f.label
+          label.style.fontSize = '11.5px'
+          wrap.appendChild(input)
+          wrap.appendChild(label)
+          input.addEventListener('change', () => {
+            form[f.key] = input.checked
+            render()
+          })
+          inputs.set(f.key, input)
+          formEl.appendChild(wrap)
+          return
+        }
+
+        const label = document.createElement('label')
+        label.htmlFor = 'f-' + f.key
+        const name = document.createElement('span')
+        name.textContent = f.label
+        const val = document.createElement('span')
+        val.className = 'val'
+        val.id = 'v-' + f.key
+        label.appendChild(name)
+        label.appendChild(val)
+        wrap.appendChild(label)
+
+        let input
+        if (f.type === 'select') {
+          input = document.createElement('select')
+          f.options.forEach(([value, text]) => {
+            const opt = document.createElement('option')
+            opt.value = value
+            opt.textContent = text
+            input.appendChild(opt)
+          })
+          input.value = form[f.key]
+          input.addEventListener('change', () => {
+            form[f.key] = input.value
+            render({ frame: true })
+          })
+        } else if (f.type === 'color') {
+          input = document.createElement('input')
+          input.type = 'color'
+          input.value = form[f.key]
+          input.addEventListener('input', () => {
+            form[f.key] = input.value
+            render()
+          })
+        } else {
+          input = document.createElement('input')
+          input.type = 'range'
+          input.min = f.min
+          input.max = f.max
+          input.step = f.step
+          input.value = form[f.key]
+          input.addEventListener('input', () => {
+            form[f.key] = Number(input.value)
+            render()
+          })
+        }
+
+        input.id = 'f-' + f.key
+        inputs.set(f.key, input)
+        wrap.appendChild(input)
+        formEl.appendChild(wrap)
+        syncValueLabel(f)
+      })
+    }
+
+    function syncValueLabel(f) {
+      const val = document.getElementById('v-' + f.key)
+      if (!val) return
+      if (f.type === 'range') {
+        val.textContent = String(form[f.key]) + f.unit
+      } else if (f.type === 'select') {
+        const found = f.options.find((o) => o[0] === form[f.key])
+        val.textContent = found ? found[1] : ''
+      } else if (f.type === 'color') {
+        val.textContent = form[f.key]
+      }
+    }
+
+    function syncFormFromDsl(data) {
+      const kind = data.scene && data.scene.kind
+      if (['campus', 'gallery', 'terrain'].includes(kind)) form.sceneType = kind
+      if (data.camera && typeof data.camera.fov === 'number') form.fov = data.camera.fov
+      const sun = (data.lights || []).find((l) => l.type === 'directional')
+      if (sun && typeof sun.intensity === 'number') form.light = Math.round(sun.intensity / 2.2 * 100) / 100
+      const primary = (data.materials || []).find((m) => m.id === 'primary')
+      if (primary && primary.color) form.color = primary.color
+      form.count = (data.objects || []).filter((o) => o.role === 'prop').length || form.count
+      form.rotate = !!(data.animations && data.animations.length)
+
+      FIELDS.forEach((f) => {
+        const input = inputs.get(f.key)
+        if (!input) return
+        if (f.type === 'checkbox') input.checked = !!form[f.key]
+        else input.value = form[f.key]
+        syncValueLabel(f)
+      })
+    }
+
+    /* ---------- 表单 → DSL ---------- */
+    function makeDsl(f) {
+      const objects = []
+      const primary = f.color
+      const propCount = Math.round(f.count)
+      let heroPos = [0, 3.2, 0]
+      let camPos = [11, 8, 14]
+      let camTarget = [0, 1.5, 0]
+      let kind = f.sceneType
+      let ground = '#1b2436'
+
+      if (kind === 'campus') {
+        camPos = [12, 8.5, 14]
+        objects.push(
+          { id: 'ground', type: 'plane', role: 'static', position: [0, 0, 0], rotation: [-1.5708, 0, 0], scale: [30, 1, 30], material: 'ground' },
+          { id: 'plaza', type: 'cylinder', role: 'static', position: [0, 0.05, 0], scale: [4.6, 0.12, 4.6], material: 'stone' },
+          { id: 'hero', type: 'torus', role: 'hero', position: heroPos, scale: [1.1, 1.1, 1.1], material: 'primary' }
+        )
+        for (let i = 0; i < propCount; i++) {
+          const a = i / propCount * Math.PI * 2
+          const r = 6 + (i % 3) * 0.9
+          const h = 1.4 + (i % 4) * 0.7
+          objects.push({
+            id: 'prop-' + i, type: 'box', role: 'prop',
+            position: [Math.cos(a) * r, h / 2, Math.sin(a) * r],
+            rotation: [0, a, 0],
+            scale: [1.2, h, 1.2],
+            material: i % 2 ? 'primary' : 'stone'
+          })
+        }
+      } else if (kind === 'gallery') {
+        camPos = [8, 5, 12]
+        camTarget = [0, 1.8, 0]
+        objects.push(
+          { id: 'ground', type: 'plane', role: 'static', position: [0, 0, 0], rotation: [-1.5708, 0, 0], scale: [26, 1, 26], material: 'ground' },
+          { id: 'wall', type: 'box', role: 'static', position: [0, 2, -10], scale: [20, 5, 0.4], material: 'stone' },
+          { id: 'hero', type: 'sphere', role: 'hero', position: [0, 3.2, 0], scale: [1.4, 1.4, 1.4], material: 'primary' }
+        )
+        for (let i = 0; i < propCount; i++) {
+          const a = i / propCount * Math.PI * 2
+          const r = 4.6 + (i % 2) * 1.2
+          const x = Math.cos(a) * r
+          const z = Math.sin(a) * r
+          objects.push(
+            { id: 'prop-' + i, type: 'box', role: 'prop', position: [x, 0.55, z], scale: [1.4, 1.1, 1.4], material: 'stone' },
+            { id: 'exhibit-' + i, type: 'ico', role: 'exhibit', position: [x, 1.8, z], rotation: [0.3, a, 0], scale: [0.62, 0.62, 0.62], material: i % 2 ? 'primary' : 'stone' }
+          )
+        }
+      } else {
+        camPos = [14, 9, 15]
+        objects.push(
+          { id: 'ground', type: 'terrain', role: 'static', position: [0, 0, 0], scale: [1, 1, 1], size: 22, material: 'ground' },
+          { id: 'hero', type: 'ico', role: 'hero', position: [0, 4.2, 0], scale: [0.9, 0.9, 0.9], material: 'primary' }
+        )
+        for (let i = 0; i < propCount; i++) {
+          const a = i / propCount * Math.PI * 2
+          const r = 3 + (i % 4) * 1.7
+          objects.push({
+            id: 'prop-' + i, type: 'ico', role: 'prop',
+            position: [Math.cos(a) * r, 0.7 + (i % 3) * 0.3, Math.sin(a) * r],
+            rotation: [0.1, a, 0.2],
+            scale: [0.5 + (i % 3) * 0.22, 0.5 + (i % 3) * 0.22, 0.5 + (i % 3) * 0.22],
+            material: i % 2 ? 'stone' : 'primary'
+          })
+        }
+        ground = '#243247'
+      }
+
+      return {
+        version: 1,
+        scene: { kind, background: '#0b0e14', fog: { color: '#0b0e14', near: 16, far: 44 } },
+        camera: { fov: Math.round(f.fov), position: camPos, target: camTarget },
+        materials: [
+          { id: 'ground', color: ground, metalness: 0.05, roughness: 0.95 },
+          { id: 'stone', color: '#94a3b8', metalness: 0.1, roughness: 0.8 },
+          { id: 'primary', color: primary, metalness: 0.6, roughness: 0.28 }
+        ],
+        objects,
+        lights: [
+          { type: 'hemisphere', sky: '#93c5fd', ground: '#0f172a', intensity: Math.round(f.light * 0.5 * 100) / 100 },
+          { type: 'directional', position: [7, 11, 6], intensity: Math.round(f.light * 2.2 * 100) / 100, color: '#ffe6bf', shadow: true },
+          { type: 'point', position: [0, 4, 0], intensity: 0.7, color: primary, distance: 14 }
+        ],
+        animations: f.rotate ? [{ target: 'hero', type: 'spin', axis: 'y', speed: 0.8 }] : []
+      }
+    }
+
+    /* ---------- 构建 3D ---------- */
+    function geometryFor(o) {
+      switch (o.type) {
+        case 'sphere': return new THREE.SphereGeometry(0.6, 32, 24)
+        case 'cone': return new THREE.ConeGeometry(0.6, 1.4, 24)
+        case 'cylinder': return new THREE.CylinderGeometry(0.6, 0.6, 1, 24)
+        case 'torus': return new THREE.TorusGeometry(0.55, 0.18, 20, 48)
+        case 'plane': return new THREE.PlaneGeometry(1, 1)
+        case 'ico': return new THREE.IcosahedronGeometry(0.6, 0)
+        case 'terrain': return terrainGeometry(o)
+        default: return new THREE.BoxGeometry(1, 1, 1)
+      }
+    }
+
+    function terrainGeometry(o) {
+      const size = o.size || 18
+      const g = new THREE.PlaneGeometry(size, size, 56, 56)
+      g.rotateX(-Math.PI / 2)
+      const pos = g.attributes.position
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i)
+        const z = pos.getZ(i)
+        pos.setY(i, Math.sin(x * 0.42) * 0.85 + Math.cos(z * 0.55) * 0.7 + Math.sin((x + z) * 0.22) * 0.5)
+      }
+      g.computeVertexNormals()
+      return g
+    }
+
+    function buildScene(data, frameCamera) {
+      const group = new THREE.Group()
+      const animList = []
+      const mats = new Map()
+      ;(data.materials || []).forEach((m) => {
+        mats.set(m.id, new THREE.MeshStandardMaterial({
+          color: m.color || '#94a3b8',
+          metalness: m.metalness ?? 0.1,
+          roughness: m.roughness ?? 0.7
+        }))
+      })
+
+      const nodes = new Map()
+      ;(data.objects || []).forEach((o) => {
+        const mat = mats.get(o.material) || new THREE.MeshStandardMaterial({ color: 0x94a3b8 })
+        const node = o.type === 'terrain'
+          ? new THREE.Mesh(geometryFor(o), mat)
+          : o.type === 'group'
+            ? new THREE.Group()
+            : new THREE.Mesh(geometryFor(o), mat)
+        node.name = o.id
+        if (node.isMesh) {
+          node.castShadow = o.type !== 'plane' && o.type !== 'terrain'
+          node.receiveShadow = true
+        }
+        nodes.set(o.id, node)
+      })
+
+      ;(data.objects || []).forEach((o) => {
+        const node = nodes.get(o.id)
+        node.position.fromArray(o.position || [0, 0, 0])
+        node.rotation.fromArray(o.rotation || [0, 0, 0])
+        node.scale.fromArray(o.scale || [1, 1, 1])
+        const parent = o.parent ? nodes.get(o.parent) : null
+        if (parent) parent.add(node)
+        else group.add(node)
+      })
+
+      ;(data.lights || []).forEach((l) => {
+        let light
+        const intensity = Number.isFinite(Number(l.intensity)) ? Number(l.intensity) : 1
+        if (l.type === 'hemisphere') {
+          light = new THREE.HemisphereLight(l.sky || '#93c5fd', l.ground || '#0f172a', intensity)
+        } else if (l.type === 'directional') {
+          light = new THREE.DirectionalLight(l.color || '#ffffff', intensity)
+          light.position.fromArray(l.position || [7, 11, 6])
+          light.castShadow = true
+          light.shadow.mapSize.set(1024, 1024)
+          light.shadow.camera.left = -18
+          light.shadow.camera.right = 18
+          light.shadow.camera.top = 18
+          light.shadow.camera.bottom = -18
+          light.shadow.camera.far = 60
+          light.shadow.bias = -0.0005
+        } else if (l.type === 'point') {
+          light = new THREE.PointLight(l.color || '#ffffff', intensity, l.distance || 20)
+          light.position.fromArray(l.position || [0, 4, 0])
+        } else {
+          light = new THREE.AmbientLight(l.color || '#ffffff', intensity)
+        }
+        group.add(light)
+      })
+
+      ;(data.animations || []).forEach((a) => {
+        const obj = nodes.get(a.target)
+        if (!obj) return
+        animList.push({
+          obj,
+          type: a.type,
+          axis: a.axis || 'y',
+          speed: a.speed ?? 0.8,
+          amp: 0.3,
+          radius: 2.4,
+          baseY: obj.position.y,
+          cx: obj.position.x,
+          cz: obj.position.z,
+          angle: 0,
+          phase: 0
+        })
+      })
+
+      const old = root
+      root = group
+      anims = animList
+      scene.add(root)
+      scene.remove(old)
+      old.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose()
+        if (obj.material) {
+          const list = Array.isArray(obj.material) ? obj.material : [obj.material]
+          list.forEach((m) => m.dispose())
+        }
+      })
+      old.clear()
+
+      scene.fog = data.scene && data.scene.fog
+        ? new THREE.Fog(data.scene.fog.color || '#0b0e14', data.scene.fog.near ?? 16, data.scene.fog.far ?? 44)
+        : null
+
+      if (data.camera) {
+        camera.fov = Number(data.camera.fov) || 45
+        camera.updateProjectionMatrix()
+        if (frameCamera) {
+          camera.position.fromArray(data.camera.position || [11, 8, 14])
+          controls.target.fromArray(data.camera.target || [0, 1.4, 0])
+          controls.update()
+        }
+      }
+    }
+
+    /* ---------- 状态、草稿、版本 ---------- */
+    const ta = document.getElementById('dsl')
+    const statusEl = document.getElementById('status')
+    const versionsEl = document.getElementById('versions')
+    const published = []
+    let currentDsl = ''
+    let draftAt = ''
+
+    function setStatus(text, cls) {
+      statusEl.textContent = text
+      statusEl.className = 'status' + (cls ? ' ' + cls : '')
+    }
+
+    function renderVersions() {
+      const chips = ['草稿 ' + (draftAt || '--:--')]
+      published.forEach((v, i) => chips.push('v' + (i + 1)))
+      versionsEl.innerHTML = chips.map((c, i) =>
+        '<span class="vchip' + (i === chips.length - 1 && published.length ? ' live' : '') + '">' + c + '</span>'
+      ).join('')
+    }
+
+    let lastRender = 0
+    function safeBuild(data, frame) {
+      try {
+        buildScene(data, frame)
+        return true
+      } catch (error) {
+        setStatus('重建失败：' + error.message, 'bad')
+        return false
+      }
+    }
+
+    function render(opts) {
+      const options = opts || {}
+      const now = new Date()
+      draftAt = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')
+      const data = makeDsl(form)
+      currentDsl = JSON.stringify(data, null, 2)
+      ta.value = currentDsl
+      ta.classList.remove('bad')
+      buildScene(data, !!options.frame)
+
+      const props = data.objects.filter((o) => o.role === 'prop').length
+      const calls = (data.objects || []).length + (data.lights || []).length
+      setStatus('草稿已更新：' + form.sceneType + ' · ' + props + ' 个 props · '
+        + calls + ' 个对象节点 · 自动旋转' + (form.rotate ? '开' : '关'), 'ok')
+      renderVersions()
+      lastRender = performance.now()
+    }
+
+    function applyJson() {
+      let data
+      try {
+        data = JSON.parse(ta.value)
+      } catch (e) {
+        ta.classList.add('bad')
+        setStatus('JSON 解析失败：' + e.message, 'bad')
+        return
+      }
+      if (!data || !Array.isArray(data.objects)) {
+        ta.classList.add('bad')
+        setStatus('缺少 objects 数组，无法应用', 'bad')
+        return
+      }
+      if (!safeBuild(data, true)) return
+      syncFormFromDsl(data)
+      currentDsl = JSON.stringify(data, null, 2)
+      ta.value = currentDsl
+      ta.classList.remove('bad')
+      draftAt = new Date().toTimeString().slice(0, 5)
+      setStatus('已从 JSON 同步到表单并重建，草稿已保存', 'ok')
+      renderVersions()
+    }
+
+    function publish() {
+      let data
+      try {
+        data = JSON.parse(ta.value)
+      } catch (e) {
+        ta.classList.add('bad')
+        setStatus('发布前校验失败：' + e.message, 'bad')
+        return
+      }
+
+      const prev = published[published.length - 1]
+      const props = (data.objects || []).filter((o) => o.role === 'prop').length
+      let impact = ''
+      if (prev) {
+        const prevData = JSON.parse(prev.dsl)
+        const prevProps = (prevData.objects || []).filter((o) => o.role === 'prop').length
+        const prevFov = prevData.camera ? prevData.camera.fov : 0
+        impact = ' · 影响面：props ' + prevProps + ' → ' + props
+          + '，FOV ' + prevFov + ' → ' + (data.camera ? data.camera.fov : 0)
+      } else {
+        impact = ' · 首个版本，影响面 = 全量'
+      }
+
+      if (!safeBuild(data, true)) return
+
+      published.push({ dsl: ta.value, form: Object.assign({}, form) })
+      syncFormFromDsl(data)
+      currentDsl = ta.value
+      setStatus('✓ 已发布 v' + published.length + '：' + (data.objects || []).length
+        + ' 个节点' + impact, 'ok')
+      renderVersions()
+    }
+
+    function rollback() {
+      if (published.length < 2) {
+        setStatus('没有可回滚的上一版：至少需要发布两个版本', 'bad')
+        return
+      }
+      published.pop()
+      const prev = published[published.length - 1]
+      const data = JSON.parse(prev.dsl)
+      Object.assign(form, prev.form)
+      FIELDS.forEach((f) => {
+        const input = inputs.get(f.key)
+        if (!input) return
+        if (f.type === 'checkbox') input.checked = !!form[f.key]
+        else input.value = form[f.key]
+        syncValueLabel(f)
+      })
+      currentDsl = prev.dsl
+      ta.value = prev.dsl
+      ta.classList.remove('bad')
+      buildScene(data, true)
+      draftAt = new Date().toTimeString().slice(0, 5)
+      setStatus('已回滚到 v' + published.length + '，表单与预览同步恢复', 'ok')
+      renderVersions()
+    }
+
+    document.getElementById('applyJson').addEventListener('click', applyJson)
+    document.getElementById('publish').addEventListener('click', publish)
+    document.getElementById('rollback').addEventListener('click', rollback)
+
+    /* ---------- 启动 ---------- */
+    buildForm()
+    published.push({ dsl: JSON.stringify(makeDsl(form), null, 2), form: Object.assign({}, form) })
+    render({ frame: true })
+    renderVersions()
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+      const t = timer.getElapsed()
+      anims.forEach((a) => {
+        if (a.type === 'spin') a.obj.rotation[a.axis] += a.speed * dt
+        else if (a.type === 'bob') a.obj.position.y = a.baseY + Math.sin(t * a.speed + a.phase) * a.amp
+        else if (a.type === 'orbit') {
+          a.angle += a.speed * dt
+          a.obj.position.x = a.cx + Math.cos(a.angle) * a.radius
+          a.obj.position.z = a.cz + Math.sin(a.angle) * a.radius
+        }
+      })
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    resize()
+    addEventListener('resize', resize)
+  </script>
+</body>
+
+</html>

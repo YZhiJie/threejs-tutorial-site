@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>orthographic-switch · 正交相机对比</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 320px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .badge {
+      position: fixed; top: 14px; right: 14px; padding: 6px 14px;
+      background: rgba(59,130,246,.85); border-radius: 999px;
+      font-size: 13px; font-weight: 700; pointer-events: none;
+    }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 250px; }
+    @media (max-width: 600px) { .info { max-width: 200px; font-size: 12px; } .lil-gui.root { --width: 190px; } }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>OrthographicCamera 正交相机</b>：没有“近大远小”，
+    同样大小的物体在任何距离看起来都一样大，适合 2.5D、建模软件、CAD 视图。<br />
+    切换相机类型后，绕到侧面观察远处立方体大小的差异。
+  </div>
+  <div class="badge" id="badge">PerspectiveCamera 透视</div>
+  <div class="hint">右上角切换相机 · 拖拽旋转 · 滚轮缩放（正交下是视野放缩）</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    /* ---- 透视相机 ---- */
+    const perspCamera = new THREE.PerspectiveCamera(
+      50, innerWidth / innerHeight, 0.1, 100
+    )
+    perspCamera.position.set(0, 2.2, 9)
+
+    /* ---- 正交相机（left/right/top/bottom/near/far）---- */
+    const frustum = 5
+    const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100)
+    orthoCamera.position.set(0, 2.2, 9)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    // 让正交视口随画布宽高比伸缩，避免画面拉伸
+    function updateOrtho() {
+      const aspect = innerWidth / innerHeight
+      orthoCamera.left = (-frustum * aspect) / 2
+      orthoCamera.right = (frustum * aspect) / 2
+      orthoCamera.top = frustum / 2
+      orthoCamera.bottom = -frustum / 2
+      orthoCamera.updateProjectionMatrix()
+    }
+    updateOrtho()
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55))
+    const dir = new THREE.DirectionalLight(0xffffff, 1.6)
+    dir.position.set(3, 6, 4)
+    scene.add(dir)
+    scene.add(new THREE.GridHelper(24, 24, 0x334155, 0x1e293b))
+
+    // 同样大小的球体沿纵深排列 + 两侧参考线，凸显两种投影差别
+    const colors = [0x60a5fa, 0xf472b6, 0x34d399, 0xfbbf24]
+    colors.forEach((c, i) => {
+      const s = new THREE.Mesh(
+        new THREE.SphereGeometry(0.6, 32, 24),
+        new THREE.MeshStandardMaterial({ color: c, roughness: 0.35 })
+      )
+      s.position.set(0, 0.6, -i * 3)
+      scene.add(s)
+    })
+
+    /* ---- 控制器需要跟随当前相机重建 ---- */
+    let controls = new OrbitControls(perspCamera, renderer.domElement)
+    controls.enableDamping = true
+    let current = 'perspective'
+
+    const params = { camera: 'perspective' }
+    const gui = new GUI({ title: '相机' })
+    gui.add(params, 'camera', ['perspective', 'orthographic'])
+      .name('相机类型')
+      .onChange(switchCamera)
+
+    const badge = document.getElementById('badge')
+
+    function switchCamera(type) {
+      // 记录旧相机的观察状态，切换后保持视角连续
+      const oldCam = current === 'perspective' ? perspCamera : orthoCamera
+      const newCam = type === 'perspective' ? perspCamera : orthoCamera
+      newCam.position.copy(oldCam.position)
+      newCam.rotation.copy(oldCam.rotation)
+      newCam.zoom = 1
+
+      controls.dispose()
+      controls = new OrbitControls(newCam, renderer.domElement)
+      controls.enableDamping = true
+      current = type
+
+      badge.textContent = type === 'perspective'
+        ? 'PerspectiveCamera 透视'
+        : 'OrthographicCamera 正交'
+      newCam.updateProjectionMatrix()
+    }
+
+    renderer.setAnimationLoop(() => {
+      controls.update()
+      renderer.render(scene, current === 'perspective' ? perspCamera : orthoCamera)
+    })
+
+    addEventListener('resize', () => {
+      renderer.setSize(innerWidth, innerHeight)
+      perspCamera.aspect = innerWidth / innerHeight
+      perspCamera.updateProjectionMatrix()
+      updateOrtho()
+    })
+  </script>
+</body>
+</html>

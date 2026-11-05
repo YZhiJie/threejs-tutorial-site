@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>capability-lab · WebGPU 能力探测台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 374px;
+      max-height: calc(100vh - 72px);
+      overflow: auto;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .82);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 12.5px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .row .k {
+      flex: none;
+      width: 84px;
+      color: #94a3b8;
+    }
+
+    .row .v {
+      color: #e2e8f0;
+      word-break: break-all;
+    }
+
+    .ok {
+      color: #34d399;
+    }
+
+    .warn {
+      color: #fbbf24;
+    }
+
+    .bad {
+      color: #fb7185;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2px 10px;
+      margin-top: 7px;
+      padding: 7px 9px;
+      background: #0a0f1c;
+      border: 1px solid rgba(124, 196, 255, .18);
+      border-radius: 8px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11.5px;
+    }
+
+    .grid .name {
+      color: #94a3b8;
+    }
+
+    .grid .val {
+      color: #7dd3fc;
+      text-align: right;
+    }
+
+    .features {
+      max-height: 72px;
+      overflow: auto;
+      margin-top: 7px;
+      padding: 6px 9px;
+      background: #0a0f1c;
+      border: 1px solid rgba(124, 196, 255, .18);
+      border-radius: 8px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+      color: #c4b5fd;
+      word-break: break-all;
+    }
+
+    .verdict {
+      display: block;
+      margin-top: 8px;
+      font-weight: 600;
+    }
+
+    .note {
+      display: block;
+      margin-top: 4px;
+      color: #fbbf24;
+      font-size: 12px;
+    }
+
+    .switch {
+      width: 100%;
+      margin-top: 8px;
+      padding: 7px 10px;
+      border: 1px solid rgba(124, 196, 255, .35);
+      border-radius: 8px;
+      background: rgba(34, 211, 238, .1);
+      color: #7dd3fc;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    .switch:hover:not(:disabled) {
+      background: rgba(34, 211, 238, .2);
+    }
+
+    .switch:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 720px) {
+      .info {
+        width: 214px;
+        font-size: 11.5px;
+      }
+
+      .row .k {
+        width: 64px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+
+      .hint {
+        font-size: 11px;
+        white-space: normal;
+        text-align: center;
+        max-width: 82vw;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+      "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
+      "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.tsl.js"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>WebGPU 能力探测台</b><br />
+    页面加载即调用 requestAdapter / requestDevice，并列出关键 limits 与 features。<br />
+    <div class="row"><span class="k">navigator.gpu</span><span class="v" id="has-gpu">探测中…</span></div>
+    <div class="row"><span class="k">适配器</span><span class="v" id="adapter">探测中…</span></div>
+    <div class="row"><span class="k">当前后端</span><span class="v" id="backend">准备中…</span></div>
+    <button class="switch" id="switch-btn" type="button">切换到 WebGL2 后端</button>
+    <div class="grid" id="limits">
+      <span class="name">maxTextureDimension2D</span><span class="val" id="l0">—</span>
+      <span class="name">maxComputeWorkgroupSizeX</span><span class="val" id="l1">—</span>
+      <span class="name">maxComputeInvocations</span><span class="val" id="l2">—</span>
+      <span class="name">maxStorageBufferBindingSize</span><span class="val" id="l3">—</span>
+      <span class="name">maxBufferSize</span><span class="val" id="l4">—</span>
+    </div>
+    <span class="verdict" id="verdict">正在判断…</span>
+    <span class="note" id="note"></span>
+    <div class="features" id="features">features: 探测中…</div>
+  </div>
+  <div class="hint">信息卡按钮或右上角切换后端 · 拖拽旋转 · 滚轮缩放 · 同一场景，两套后端</div>
+
+  <script type="module">
+    import * as THREE from 'three/webgpu'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const $ = (id) => document.getElementById(id)
+    const bytes = (n) => {
+      if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
+      if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(1) + ' GB'
+      if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(0) + ' MB'
+      return String(n)
+    }
+
+    /* ---------- 场景：同一份内容，供两套后端共用 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 9, 20)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(2.6, 1.9, 5.2)
+
+    const knot = new THREE.Mesh(
+      new THREE.TorusKnotGeometry(1.05, 0.32, 160, 24),
+      new THREE.MeshStandardMaterial({ color: 0x7cc4ff, metalness: 0.75, roughness: 0.26 })
+    )
+    knot.position.y = 0.95
+    scene.add(knot)
+
+    const core = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.34, 1),
+      new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.4, roughness: 0.35 })
+    )
+    core.position.y = 0.95
+    scene.add(core)
+
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(6.5, 64),
+      new THREE.MeshStandardMaterial({ color: 0x111a30, metalness: 0.2, roughness: 0.85 })
+    )
+    floor.rotation.x = -Math.PI / 2
+    scene.add(floor)
+
+    const grid = new THREE.GridHelper(12, 24, 0x223055, 0x1a2438)
+    grid.position.y = 0.02
+    scene.add(grid)
+
+    scene.add(new THREE.HemisphereLight(0xbfdbfe, 0x111827, 0.65))
+    const key = new THREE.DirectionalLight(0xffffff, 2.1)
+    key.position.set(3.5, 5, 3)
+    scene.add(key)
+    const rim = new THREE.DirectionalLight(0x7c3aed, 1.4)
+    rim.position.set(-4, 2, -3)
+    scene.add(rim)
+
+    /* ---------- 能力探测 ---------- */
+    const cap = {
+      hasGpu: !!navigator.gpu,
+      adapter: null,
+      features: [],
+      deviceOk: false,
+      reason: ''
+    }
+
+    function setVerdict(text, cls) {
+      const el = $('verdict')
+      el.textContent = text
+      el.className = 'verdict ' + (cls || '')
+    }
+
+    async function detectCapabilities() {
+      const gpuEl = $('has-gpu')
+      if (!navigator.gpu) {
+        gpuEl.textContent = '不存在（unsupported）'
+        gpuEl.className = 'v bad'
+        $('adapter').textContent = '—'
+        $('features').textContent = 'features: —'
+        cap.reason = 'navigator.gpu missing'
+        setVerdict('结论：当前环境不可用 → 继续 WebGL', 'bad')
+        $('note').textContent = '页面已自动回退到 WebGL2，不会白屏。'
+        return
+      }
+
+      gpuEl.textContent = '存在'
+      gpuEl.className = 'v ok'
+
+      try {
+        const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
+        if (!adapter) {
+          $('adapter').textContent = 'requestAdapter 返回 null'
+          setVerdict('结论：拿不到适配器 → 继续 WebGL', 'bad')
+          $('note').textContent = '可能是无独立 GPU、浏览器策略或远程桌面环境。'
+          cap.reason = 'no adapter'
+          return
+        }
+
+        cap.adapter = adapter
+        const info = adapter.info || {}
+        const label = [info.vendor, info.architecture, info.device, info.description]
+          .filter(Boolean).join(' · ')
+        $('adapter').textContent = label || '浏览器未公开 adapter.info'
+        $('adapter').className = 'v ok'
+
+        const limits = adapter.limits
+        $('l0').textContent = limits.maxTextureDimension2D
+        $('l1').textContent = limits.maxComputeWorkgroupSizeX
+        $('l2').textContent = limits.maxComputeInvocationsPerWorkgroup
+        $('l3').textContent = bytes(limits.maxStorageBufferBindingSize)
+        $('l4').textContent = bytes(limits.maxBufferSize)
+
+        cap.features = Array.from(adapter.features).sort()
+        $('features').textContent = 'features (' + cap.features.length + '): '
+          + (cap.features.length ? cap.features.join(' · ') : '无额外特性')
+
+        try {
+          const device = await adapter.requestDevice()
+          cap.deviceOk = true
+          device.destroy()
+        } catch (err) {
+          cap.deviceOk = false
+          cap.reason = 'requestDevice failed: ' + err.message
+        }
+
+        if (cap.deviceOk) {
+          setVerdict('结论：建议使用 WebGPU（设备创建成功）', 'ok')
+          $('note').textContent = '旧项目不必立刻重写；新项目可以优先试水 WebGPU。'
+        } else {
+          setVerdict('结论：可探测但设备创建失败 → 继续 WebGL', 'warn')
+          $('note').textContent = cap.reason
+        }
+      } catch (err) {
+        $('adapter').textContent = '探测异常：' + err.message
+        $('adapter').className = 'v bad'
+        setVerdict('结论：探测异常 → 继续 WebGL', 'bad')
+        $('note').textContent = '异常已被捕获，页面仍使用 WebGL2 渲染。'
+      }
+    }
+
+    /* ---------- 渲染器：两套后端共用同一个场景 ---------- */
+    let renderer = null
+    let controls = null
+    let switching = false
+    let actualBackend = '—'
+
+    function showBackend(forceWebGL, autoFallback) {
+      const el = $('backend')
+      actualBackend = renderer && renderer.backend && renderer.backend.isWebGPUBackend
+        ? 'WebGPU 原生'
+        : 'WebGL2 后端'
+      el.textContent = actualBackend + (forceWebGL
+        ? (autoFallback ? '（自动回退）' : '（forceWebGL）')
+        : '')
+      el.className = 'v ' + (renderer && renderer.backend && renderer.backend.isWebGPUBackend ? 'ok' : 'warn')
+    }
+
+    async function createRenderer(forceWebGL, autoFallback = false) {
+      if (switching) return
+      switching = true
+      $('note').textContent = '正在初始化 ' + (forceWebGL ? 'WebGL2' : 'WebGPU') + ' 后端…'
+
+      if (renderer) {
+        renderer.setAnimationLoop(null)
+        renderer.dispose()
+        renderer.domElement.remove()
+      }
+      if (controls) {
+        controls.dispose()
+        controls = null
+      }
+
+      let next = null
+      try {
+        next = new THREE.WebGPURenderer({ antialias: true, forceWebGL })
+        next.setSize(innerWidth, innerHeight)
+        next.setPixelRatio(Math.min(devicePixelRatio, 2))
+        next.toneMapping = THREE.ACESFilmicToneMapping
+        next.toneMappingExposure = 1.05
+        await next.init()
+      } catch (err) {
+        if (!forceWebGL) {
+          $('note').textContent = 'WebGPU 初始化失败，自动回退 WebGL2：' + err.message
+          switching = false
+          return createRenderer(true, true)
+        }
+        $('note').textContent = '两套后端都初始化失败：' + err.message
+        setVerdict('结论：当前环境无法创建渲染器', 'bad')
+        switching = false
+        return
+      }
+
+      renderer = next
+      $('app').appendChild(renderer.domElement)
+      controls = new OrbitControls(camera, renderer.domElement)
+      controls.enableDamping = true
+      controls.target.set(0, 0.9, 0)
+      controls.minDistance = 2.4
+      controls.maxDistance = 14
+
+      showBackend(forceWebGL, autoFallback)
+      if (actualBackend === 'WebGL2 后端') {
+        $('note').textContent = autoFallback
+          ? '当前环境不支持 WebGPU，已自动回退 WebGL2，画面仍然可用。'
+          : '已强制使用 WebGL2 后端：画面与 WebGPU 几乎一致。'
+      } else {
+        $('note').textContent = 'WebGPU 后端已启用；切换后端观察首帧与画面差异。'
+      }
+
+      const timer = new THREE.Timer()
+      timer.connect(document)
+      renderer.setAnimationLoop(() => {
+        timer.update()
+        const dt = Math.min(timer.getDelta(), 0.05)
+        if (params.rotate) {
+          knot.rotation.x += dt * 0.45
+          knot.rotation.y += dt * 0.32
+          core.rotation.y -= dt * 0.8
+        }
+        controls.update()
+        try {
+          renderer.render(scene, camera)
+        } catch (err) {
+          $('note').textContent = '渲染异常：' + err.message + '（可切回 WebGL2）'
+        }
+      })
+
+      switching = false
+    }
+
+    /* ---------- GUI ---------- */
+    const params = { backend: '优先 WebGPU', rotate: true }
+    const gui = new GUI({ title: '后端切换' })
+    const backendCtrl = gui.add(params, 'backend', ['优先 WebGPU', '强制 WebGL2'])
+      .name('渲染后端')
+      .onChange((v) => {
+        refreshSwitchBtn()
+        createRenderer(v === '强制 WebGL2')
+      })
+    gui.add(params, 'rotate').name('自动旋转')
+
+    const switchBtn = $('switch-btn')
+    function refreshSwitchBtn() {
+      if (!cap.hasGpu) {
+        switchBtn.disabled = true
+        switchBtn.textContent = 'WebGPU 不可用'
+        return
+      }
+      switchBtn.disabled = false
+      switchBtn.textContent = params.backend === '强制 WebGL2'
+        ? '切回 WebGPU 后端'
+        : '切换到 WebGL2 后端'
+    }
+    switchBtn.addEventListener('click', () => {
+      if (!cap.hasGpu) return
+      const toWebGL = params.backend !== '强制 WebGL2'
+      params.backend = toWebGL ? '强制 WebGL2' : '优先 WebGPU'
+      backendCtrl.updateDisplay()
+      refreshSwitchBtn()
+      createRenderer(toWebGL)
+    })
+
+    /* ---------- 启动 ---------- */
+    await detectCapabilities()
+    if (!cap.hasGpu) {
+      params.backend = '强制 WebGL2'
+      backendCtrl.updateDisplay()
+      backendCtrl.disable()
+    }
+    refreshSwitchBtn()
+    await createRenderer(params.backend === '强制 WebGL2', !cap.hasGpu)
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      if (renderer) renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

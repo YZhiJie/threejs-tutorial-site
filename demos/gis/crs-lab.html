@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>crs-lab · 坐标系对照台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 404px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .8);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .desc {
+      display: block;
+      margin-top: 4px;
+      color: #9fb4d4;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .info .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 5px;
+      align-items: baseline;
+    }
+
+    .info .row em {
+      font-style: normal;
+      flex: 0 0 104px;
+      color: #9fb4d4;
+      font-size: 11.5px;
+    }
+
+    .info .row code {
+      color: #e2e8f0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .info .verdict {
+      display: block;
+      margin-top: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+
+    .verdict.ok {
+      color: #34d399;
+    }
+
+    .verdict.bad {
+      color: #fb7185;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 268px;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        max-width: 214px;
+        font-size: 12px;
+      }
+
+      .info .row {
+        display: block;
+      }
+
+      .info .row code {
+        display: block;
+        font-size: 10.5px;
+      }
+
+      .info .desc {
+        display: none;
+      }
+
+      .hint {
+        font-size: 11px;
+        white-space: normal;
+        width: 92%;
+        text-align: center;
+      }
+
+      .lil-gui.root {
+        --width: 208px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>坐标系对照台 · WGS84 / GCJ-02 / Web Mercator</b>
+    <span class="desc">点击地面选点，三种坐标同步刷新；开启 GCJ-02 偏移，观察数据点与底图错位。</span>
+    <div class="row"><em>① 经纬度 WGS84</em><code id="hud-ll">—</code></div>
+    <div class="row"><em>② Web Mercator</em><code id="hud-mc">—</code></div>
+    <div class="row"><em>③ 局部 ENU 坐标</em><code id="hud-local">—</code></div>
+    <div class="row"><em>④ 偏移量</em><code id="hud-off">—</code></div>
+    <span class="verdict ok" id="hud-verdict"></span>
+  </div>
+  <div class="hint">点击地面选点 · 拖拽旋转视角 · 滚轮缩放 · 右上角可调经纬度与偏移开关</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 坐标常数：北京原点，20 km 视窗 ---------- */
+    const EARTH_R = 6378137 // WGS84 椭球长半轴，Web Mercator 用它做球体半径
+    const DEG = Math.PI / 180
+    const ORIGIN = { lon: 116.4074, lat: 39.9042 }
+    const EXTENT = 20000
+    const OFFSET_E = 520 // 模拟 GCJ-02 相对 WGS84 的东向偏移（米）
+    const OFFSET_N = 240 // 模拟北向偏移（米）
+    const OFFSET_LEN = Math.hypot(OFFSET_E, OFFSET_N)
+
+    /* ---------- 经纬度 <-> 米制坐标 ---------- */
+    function lonLatToMercator(lon, lat) {
+      return {
+        x: EARTH_R * lon * DEG,
+        y: EARTH_R * Math.log(Math.tan(Math.PI / 4 + lat * DEG / 2))
+      }
+    }
+
+    // 局部 ENU：以 ORIGIN 为原点的东-北切平面，z 轴向南（Three.js 的 -Z 为北）
+    function lonLatToLocal(lon, lat) {
+      const east = (lon - ORIGIN.lon) * DEG * EARTH_R * Math.cos(ORIGIN.lat * DEG)
+      const north = (lat - ORIGIN.lat) * DEG * EARTH_R
+      return { east, north, x: east, z: -north }
+    }
+
+    function localToLonLat(x, z) {
+      return {
+        lon: ORIGIN.lon + x / (DEG * EARTH_R * Math.cos(ORIGIN.lat * DEG)),
+        lat: ORIGIN.lat - z / (DEG * EARTH_R)
+      }
+    }
+
+    /* ---------- 渲染器与场景 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 26000, 62000)
+
+    const camera = new THREE.PerspectiveCamera(44, innerWidth / innerHeight, 1, 120000)
+    camera.position.set(0, 15000, 16500)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.NoToneMapping
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.08
+    controls.target.set(0, 0, 0)
+    controls.minDistance = 5000
+    controls.maxDistance = 52000
+    controls.maxPolarAngle = Math.PI * 0.42
+
+    scene.add(new THREE.HemisphereLight(0xbcd8ff, 0x101a2e, 1.4))
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2)
+    sun.position.set(-8000, 16000, 9000)
+    scene.add(sun)
+
+    /* ---------- 程序化底图：网格 + 公园 + 道路 ---------- */
+    const TEX = 1024
+    const worldToPx = (v) => (v / EXTENT + 0.5) * TEX
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath()
+      ctx.moveTo(x + r, y)
+      ctx.arcTo(x + w, y, x + w, y + h, r)
+      ctx.arcTo(x + w, y + h, x, y + h, r)
+      ctx.arcTo(x, y + h, x, y, r)
+      ctx.arcTo(x, y, x + w, y, r)
+      ctx.closePath()
+    }
+
+    function makeBaseMap() {
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = TEX
+      const ctx = canvas.getContext('2d')
+
+      ctx.fillStyle = '#0f1728'
+      ctx.fillRect(0, 0, TEX, TEX)
+
+      // 街区填充：每 2 km 一个方格
+      for (let gx = -10000; gx < 10000; gx += 2000) {
+        for (let gz = -10000; gz < 10000; gz += 2000) {
+          const x = worldToPx(gx + 200)
+          const y = worldToPx(gz + 200)
+          const w = worldToPx(1600) - worldToPx(0)
+          ctx.fillStyle = (gx + gz) % 4000 === 0 ? '#142036' : '#121c30'
+          ctx.fillRect(x, y, w, w)
+        }
+      }
+
+      // 河流：一条斜向的曲线带
+      ctx.strokeStyle = '#16405e'
+      ctx.lineWidth = 22
+      ctx.beginPath()
+      ctx.moveTo(worldToPx(-10000), worldToPx(3600))
+      ctx.bezierCurveTo(worldToPx(-3600), worldToPx(2400), worldToPx(2400), worldToPx(-3200), worldToPx(10000), worldToPx(-4200))
+      ctx.stroke()
+
+      // 主干道网格
+      ctx.strokeStyle = '#2d466d'
+      ctx.lineWidth = 3
+      for (let g = -10000; g <= 10000; g += 2000) {
+        const p = worldToPx(g)
+        ctx.beginPath()
+        ctx.moveTo(p, 0)
+        ctx.lineTo(p, TEX)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(0, p)
+        ctx.lineTo(TEX, p)
+        ctx.stroke()
+      }
+      // 一条对角线大道
+      ctx.strokeStyle = '#3d5b86'
+      ctx.lineWidth = 5
+      ctx.beginPath()
+      ctx.moveTo(worldToPx(-9600), worldToPx(-9600))
+      ctx.lineTo(worldToPx(9600), worldToPx(9600))
+      ctx.stroke()
+
+      // 原点公园：选点前后错位最直观的参照物
+      ctx.fillStyle = '#173a2c'
+      roundRect(ctx, worldToPx(-900), worldToPx(-900), worldToPx(1800) - worldToPx(0), worldToPx(1800) - worldToPx(0), 26)
+      ctx.fill()
+      ctx.strokeStyle = '#2f6b4f'
+      ctx.lineWidth = 2
+      ctx.stroke()
+
+      ctx.fillStyle = '#2d6a4c'
+      for (let i = 0; i < 40; i++) {
+        const a = i * 2.399
+        const r = 120 + (i % 9) * 70
+        ctx.beginPath()
+        ctx.arc(worldToPx(Math.cos(a) * r), worldToPx(Math.sin(a) * r), 4.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+
+      // 网格刻度标签
+      ctx.fillStyle = '#5b7096'
+      ctx.font = '11px monospace'
+      for (let g = -8000; g <= 8000; g += 4000) {
+        ctx.fillText(`E ${g / 1000}km`, worldToPx(g) + 6, 18)
+        ctx.fillText(`N ${-g / 1000}km`, 8, worldToPx(g) - 8)
+      }
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      return tex
+    }
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(EXTENT, EXTENT),
+      new THREE.MeshBasicMaterial({ map: makeBaseMap() })
+    )
+    ground.rotation.x = -Math.PI / 2
+    scene.add(ground)
+
+    // 坐标网格 + 轴向（可开关的独立图层）
+    const gridGroup = new THREE.Group()
+    gridGroup.position.y = 6 // 抬离底图，避免 z-fighting
+    {
+      const pts = []
+      for (let g = -10000; g <= 10000; g += 2000) {
+        pts.push(g, 0, -10000, g, 0, 10000)
+        pts.push(-10000, 0, g, 10000, 0, g)
+      }
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
+      gridGroup.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x1e3a5f, transparent: true, opacity: 0.55 })))
+
+      const axisGeo = new THREE.BufferGeometry()
+      axisGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+        0, 8, 0, 6000, 8, 0,
+        0, 8, 0, 0, 8, -6000
+      ], 3))
+      gridGroup.add(new THREE.LineSegments(axisGeo, new THREE.LineBasicMaterial({ color: 0xf87171 })))
+      scene.add(gridGroup)
+    }
+
+    /* ---------- 数据点图钉 ---------- */
+    function makePin(color) {
+      const group = new THREE.Group()
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(340, 1200, 24),
+        new THREE.MeshStandardMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 0.55,
+          roughness: 0.4,
+          metalness: 0.1
+        })
+      )
+      cone.position.y = 620
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(400, 470, 48),
+        new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+      )
+      ring.rotation.x = -Math.PI / 2
+      ring.position.y = 4
+      group.add(cone, ring)
+      group.userData.ring = ring
+      return group
+    }
+
+    const wgsPin = makePin(0x22d3ee)
+    const gcjPin = makePin(0xf97316)
+    scene.add(wgsPin, gcjPin)
+
+    // 两枚图钉之间的错位连线
+    const linkGeo = new THREE.BufferGeometry()
+    linkGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3))
+    const linkLine = new THREE.Line(linkGeo, new THREE.LineBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.9 }))
+    scene.add(linkLine)
+
+    /* ---------- 状态与 GUI ---------- */
+    const params = {
+      lon: ORIGIN.lon,
+      lat: ORIGIN.lat,
+      offset: false,
+      grid: true
+    }
+
+    const fmt = new Intl.NumberFormat('en-US')
+    const hudLL = document.getElementById('hud-ll')
+    const hudMC = document.getElementById('hud-mc')
+    const hudLocal = document.getElementById('hud-local')
+    const hudOff = document.getElementById('hud-off')
+    const hudVerdict = document.getElementById('hud-verdict')
+
+    function refresh() {
+      const merc = lonLatToMercator(params.lon, params.lat)
+      const local = lonLatToLocal(params.lon, params.lat)
+
+      wgsPin.position.set(local.x, 0, local.z)
+      gcjPin.position.set(local.x + OFFSET_E, 0, local.z - OFFSET_N)
+      gcjPin.visible = params.offset
+      linkLine.visible = params.offset
+      if (params.offset) {
+        const arr = linkGeo.attributes.position.array
+        arr[0] = local.x
+        arr[1] = 30
+        arr[2] = local.z
+        arr[3] = local.x + OFFSET_E
+        arr[4] = 30
+        arr[5] = local.z - OFFSET_N
+        linkGeo.attributes.position.needsUpdate = true
+        linkGeo.computeBoundingSphere()
+      }
+
+      hudLL.textContent = `${params.lon.toFixed(6)}°E / ${params.lat.toFixed(6)}°N`
+      hudMC.textContent = `X ${fmt.format(Math.round(merc.x))} m · Y ${fmt.format(Math.round(merc.y))} m`
+      hudLocal.textContent = `E ${local.east.toFixed(1)} m · N ${local.north.toFixed(1)} m\nx ${local.x.toFixed(1)} m · z ${local.z.toFixed(1)} m`
+
+      const fromOrigin = Math.hypot(local.x, local.z)
+      if (params.offset) {
+        hudOff.textContent = `东 ${OFFSET_E} m / 北 ${OFFSET_N} m\n合计错位 ${OFFSET_LEN.toFixed(0)} m（距原点 ${(fromOrigin / 1000).toFixed(2)} km）`
+        hudVerdict.textContent = `✗ GCJ-02 数据落到 WGS84 底图：错位 ${OFFSET_LEN.toFixed(0)} m`
+        hudVerdict.className = 'verdict bad'
+      } else {
+        hudOff.textContent = '未启用：数据点直接使用 WGS84 落图'
+        hudVerdict.textContent = '✓ 坐标系一致：数据点与底图重合'
+        hudVerdict.className = 'verdict ok'
+      }
+    }
+
+    const gui = new GUI({ title: '坐标参数' })
+    const ctrlLon = gui.add(params, 'lon', 116.28, 116.53, 0.000001).name('经度 λ（度）')
+      .onChange(refresh)
+    const ctrlLat = gui.add(params, 'lat', 39.80, 40.01, 0.000001).name('纬度 φ（度）')
+      .onChange(refresh)
+    gui.add(params, 'offset').name('GCJ-02 偏移开关').onChange(refresh)
+    gui.add(params, 'grid').name('坐标网格 / 轴向').onChange((v) => { gridGroup.visible = v })
+
+    /* ---------- 点击地面选点 ---------- */
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    let downX = 0
+    let downY = 0
+
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+      downX = e.clientX
+      downY = e.clientY
+    })
+
+    renderer.domElement.addEventListener('pointerup', (e) => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return
+      pointer.x = (e.clientX / innerWidth) * 2 - 1
+      pointer.y = -(e.clientY / innerHeight) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hit = raycaster.intersectObject(ground, false)[0]
+      if (!hit) return
+
+      const ll = localToLonLat(
+        Math.max(-10000, Math.min(10000, hit.point.x)),
+        Math.max(-10000, Math.min(10000, hit.point.z))
+      )
+      params.lon = Math.max(116.28, Math.min(116.53, ll.lon))
+      params.lat = Math.max(39.80, Math.min(40.01, ll.lat))
+      ctrlLon.updateDisplay()
+      ctrlLat.updateDisplay()
+      refresh()
+    })
+
+    refresh()
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const t = timer.getElapsed()
+
+      const pulse = 1 + 0.08 * Math.sin(t * 2.4)
+      wgsPin.userData.ring.scale.setScalar(pulse)
+      gcjPin.userData.ring.scale.setScalar(pulse)
+
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>render-pitfalls · 渲染三坑实验室（Three.js 版）</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    #app canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 380px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.7;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .row {
+      font-variant-numeric: tabular-nums;
+      font-size: 12.5px;
+    }
+
+    .note {
+      margin-top: 4px;
+      font-size: 11.5px;
+      color: #9fb4d4;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0 8px;
+      margin-left: 6px;
+      border-radius: 999px;
+      font-size: 11px;
+      line-height: 18px;
+      vertical-align: 1px;
+    }
+
+    .badge.pos {
+      color: #51cf66;
+      background: rgba(81, 207, 102, .12);
+      border: 1px solid rgba(81, 207, 102, .35);
+    }
+
+    .badge.neg {
+      color: #ff6b6b;
+      background: rgba(255, 107, 107, .12);
+      border: 1px solid rgba(255, 107, 107, .35);
+    }
+
+    .ctrls {
+      margin-top: 8px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: auto;
+    }
+
+    .ctrls label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+
+    .ctrls input[type="checkbox"] {
+      accent-color: #7cc4ff;
+      margin: 0;
+    }
+
+    .ctrls input[type="range"] {
+      width: 96px;
+      accent-color: #7cc4ff;
+      margin: 0;
+    }
+
+    .ctrls button {
+      background: rgba(124, 196, 255, .1);
+      color: #7cc4ff;
+      border: 1px solid rgba(124, 196, 255, .35);
+      border-radius: 6px;
+      padding: 2px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .ctrls button:hover {
+      background: rgba(124, 196, 255, .2);
+    }
+
+    .black-hint {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 8px 16px;
+      background: rgba(43, 7, 10, .85);
+      border: 1px solid rgba(255, 107, 107, .5);
+      border-radius: 999px;
+      font-size: 13px;
+      color: #ff8787;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        max-width: 270px;
+        font-size: 12px;
+      }
+
+      .row {
+        font-size: 11.5px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="info">
+    <b>render-pitfalls · 渲染三坑实验室</b>
+    <div class="row">💡 灯光：<span id="vlight">开启</span><span id="blight" class="badge pos"></span></div>
+    <div class="row">📦 绿色魔方：<span id="vcube">已加入场景</span><span id="bcube" class="badge pos"></span></div>
+    <div class="row">🔺 线框：<span id="vwire">关</span> · ⏱ 旋转：<span id="vspd"></span></div>
+    <div class="note">MeshStandardMaterial 是 PBR 材质：灯光全关就输出纯黑；new 完不 scene.add 就游离在内存里；开线框可见"一切皆三角形"。滑块实时换算 180° = π
+      rad。</div>
+    <div class="ctrls">
+      <label><input type="checkbox" id="ckLight" checked>灯光</label>
+      <label><input type="checkbox" id="ckCube" checked>魔方入场景</label>
+      <label><input type="checkbox" id="ckWire">线框</label>
+      <input type="range" id="rngSpeed" min="0" max="90" step="1" value="30" title="旋转速度（度/秒）" />
+      <button id="btnReset" type="button">重置</button>
+    </div>
+  </div>
+
+  <div id="blackHint" class="black-hint" hidden>💡 已关灯：PBR 材质没有光 = 纯黑一片（EP.00 坑点①）</div>
+  <div class="hint">左键旋转视角 · 滚轮缩放 · 右键平移 · 面板开关亲手把三大坑各踩一遍</div>
+
+  <script type="module">
+    // EP.00 第④格「结案：三角形拼出世界」的对应实验：
+    // 把漫画里的三个坑（PBR 没灯黑屏 / 忘 scene.add / 弧度换算）搬进 3D 场景亲手复现。
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    // ---------- 1. 场景 / 相机 / 渲染器 ----------
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100)
+    camera.position.set(4.2, 2.6, 5.2)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    // ---------- 2. 灯光（坑点①的主角） ----------
+    const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x1a2030, 1.2)
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.8)
+    dirLight.position.set(4, 6, 3)
+    scene.add(hemi, dirLight)
+
+    // ---------- 3. 展台：网格地面 + 三个 PBR 物体 ----------
+    const grid = new THREE.GridHelper(9, 9, 0x3a4a6b, 0x232c40)
+    scene.add(grid)  // GridHelper 用 LineBasicMaterial，不受灯光影响，关灯后仍能定位
+
+    const knot = new THREE.Mesh(
+      new THREE.TorusKnotGeometry(0.62, 0.2, 140, 24),
+      new THREE.MeshStandardMaterial({ color: 0x7cc4ff, roughness: 0.3, metalness: 0.35 })
+    )
+    knot.position.set(-1.7, 0.85, 0)
+    const ball = new THREE.Mesh(
+      new THREE.SphereGeometry(0.7, 48, 32),
+      new THREE.MeshStandardMaterial({ color: 0xffa94d, roughness: 0.25, metalness: 0.3 })
+    )
+    ball.position.set(0, 0.72, 0)
+    // 绿色魔方：坑点②的主角——new 出来但不 scene.add，就永远"游离在内存里"
+    const cube = new THREE.Mesh(
+      new THREE.BoxGeometry(0.95),
+      new THREE.MeshStandardMaterial({ color: 0x51cf66, roughness: 0.4, metalness: 0.1 })
+    )
+    cube.position.set(1.75, 0.5, 0)
+    scene.add(knot, ball)
+
+    // ---------- 4. 面板引用与状态 ----------
+    const $ = id => document.getElementById(id)
+    const ckLight = $('ckLight'), ckCube = $('ckCube'), ckWire = $('ckWire')
+    const rngSpeed = $('rngSpeed'), btnReset = $('btnReset'), blackHint = $('blackHint')
+    const elLight = $('vlight'), elLightB = $('blight')
+    const elCube = $('vcube'), elCubeB = $('bcube')
+    const elWire = $('vwire'), elSpd = $('vspd')
+
+    function setText(el, s) { if (el.__v !== s) { el.__v = s; el.textContent = s } }
+    function badge(el, text, cls) {
+      setText(el, text)
+      const c = 'badge ' + cls
+      if (el.__c !== c) { el.__c = c; el.className = c }
+    }
+
+    let degPerSec = 30  // 旋转速度，单位"度/秒"——Three.js 内部全要换算成弧度
+
+    function applyState() {
+      // 坑点①：关灯 → PBR 材质纯黑
+      hemi.visible = dirLight.visible = ckLight.checked
+      blackHint.hidden = ckLight.checked
+      // 坑点②：魔方是否 scene.add（幂等：避免重复 add）
+      if (ckCube.checked && !cube.parent) scene.add(cube)
+      if (!ckCube.checked && cube.parent) scene.remove(cube)
+      // 线框模式：看见"一切皆三角形"
+      knot.material.wireframe = ball.material.wireframe = cube.material.wireframe = ckWire.checked
+      degPerSec = Number(rngSpeed.value)
+
+      if (ckLight.checked) badge(elLightB, 'PBR 显形', 'pos')
+      else badge(elLightB, '纯黑一片', 'neg')
+      setText(elLight, ckLight.checked ? '开启' : '关闭')
+
+      if (ckCube.checked) badge(elCubeB, '渲染中', 'pos')
+      else badge(elCubeB, '看不见', 'neg')
+      setText(elCube, ckCube.checked ? '已加入场景' : '游离在内存')
+
+      setText(elWire, ckWire.checked ? '开' : '关')
+      const rad = degPerSec * Math.PI / 180  // 180° = π rad，这就是坑点③的换算
+      setText(elSpd, `${degPerSec}°/s（${rad.toFixed(2)} rad/s）`)
+    }
+    ckLight.addEventListener('change', applyState)
+    ckCube.addEventListener('change', applyState)
+    ckWire.addEventListener('change', applyState)
+    rngSpeed.addEventListener('input', applyState)
+    btnReset.addEventListener('click', () => {
+      ckLight.checked = true; ckCube.checked = true; ckWire.checked = false; rngSpeed.value = 30
+      applyState()
+    })
+
+    // ---------- 5. 交互视角 + 渲染循环 ----------
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.target.set(0, 0.7, 0)
+    controls.enableDamping = true
+
+    const last = { t: performance.now() }
+    renderer.setAnimationLoop(() => {
+      const now = performance.now()
+      // 帧间隔（秒），钳到 0.1s 防止切后台回来的一帧把物体转飞
+      const dt = Math.min((now - last.t) / 1000, 0.1)
+      last.t = now
+      const rad = THREE.MathUtils.degToRad(degPerSec) * dt
+      knot.rotation.y += rad
+      knot.rotation.x += rad * 0.35
+      ball.rotation.y += rad * 0.3
+      cube.rotation.y += rad * 0.8
+      cube.rotation.x += rad * 0.5
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(window.innerWidth, window.innerHeight)
+    })
+
+    applyState()  // 初始面板与徽章
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>character-controller · 角色控制器</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 350px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 210px;
+        font-size: 12px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>character-controller · 角色控制器</b><br />
+    胶囊体 = 三个球串联 + 锁旋转；移动 = 直接写水平速度；<br />
+    跳跃 = 向下打射线（raycast）确认踩地后给垂直速度。<br />
+    台阶能走上去，贴墙不粘，斜坡不滑——材质两两约定。
+  </div>
+  <div class="hint">WASD 移动 · 空格跳跃 · R 重生</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import * as CANNON from 'cannon-es'
+
+    /* ---------- 渲染世界 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 6, 16)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x1a1a26, 0.9))
+    const sun = new THREE.DirectionalLight(0xffffff, 1.8)
+    sun.position.set(8, 14, 8)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(1024, 1024)
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -22
+    sun.shadow.camera.right = sun.shadow.camera.top = 22
+    scene.add(sun)
+
+    /* ---------- 物理世界 ---------- */
+    const world = new CANNON.World()
+    world.gravity.set(0, -9.82, 0)
+
+    // 物理材质：角色/地面/墙 三种
+    const matPlayer = new CANNON.Material('player')
+    const matGround = new CANNON.Material('ground')
+    const matWall = new CANNON.Material('wall')
+    world.addContactMaterial(new CANNON.ContactMaterial(matPlayer, matGround, {
+      friction: 0.4, restitution: 0     // 角色↔地面：起步利落、不打滑、不弹跳
+    }))
+    world.addContactMaterial(new CANNON.ContactMaterial(matPlayer, matWall, {
+      friction: 0, restitution: 0       // 角色↔墙：零摩擦，贴墙不粘
+    }))
+
+    /* ---------- 场地：地面 + 围墙 + 台阶 + 斜坡 + 悬浮平台 ---------- */
+    const floorMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(40, 40),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 })
+    )
+    floorMesh.rotation.x = -Math.PI / 2
+    floorMesh.receiveShadow = true
+    scene.add(floorMesh)
+    scene.add(new THREE.GridHelper(40, 40, 0x334155, 0x1e293b))
+
+    const floorBody = new CANNON.Body({
+      type: CANNON.Body.STATIC, shape: new CANNON.Plane(), material: matGround
+    })
+    floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0)
+    world.addBody(floorBody)
+
+    // 通用：静态方块（渲染 Mesh + 物理 Body 一体创建）
+    const blockMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 })
+    function addBlock(x, y, z, w, h, d, { rotX = 0, material = matGround, color } = {}) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
+        color ? new THREE.MeshStandardMaterial({ color, roughness: 0.8 }) : blockMat)
+      mesh.position.set(x, y, z)
+      mesh.rotation.x = rotX
+      mesh.castShadow = mesh.receiveShadow = true
+      scene.add(mesh)
+      const body = new CANNON.Body({
+        type: CANNON.Body.STATIC,
+        shape: new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)),
+        position: new CANNON.Vec3(x, y, z),
+        material
+      })
+      body.quaternion.setFromEuler(rotX, 0, 0)
+      world.addBody(body)
+      return body
+    }
+
+    // 四周围墙（低，防掉出）
+    addBlock(0, 1, -20, 40, 2, 1, { material: matWall })
+    addBlock(0, 1, 20, 40, 2, 1, { material: matWall })
+    addBlock(-20, 1, 0, 1, 2, 40, { material: matWall })
+    addBlock(20, 1, 0, 1, 2, 40, { material: matWall })
+
+    // 三级台阶 → 高台
+    addBlock(5, 0.25, -4, 2.4, 0.5, 2.4)
+    addBlock(5, 0.75, -7, 2.4, 1.5, 2.4)
+    addBlock(5, 1.25, -10, 2.4, 2.5, 2.4)
+    addBlock(5, 1.8, -14.5, 6, 0.4, 6, { color: 0x2a4a6b }) // 高台（顶面 y=2）
+
+    // 斜坡：从地面通往高台另一侧
+    const rampAngle = Math.atan2(2, 4)
+    addBlock(-5, 1, -8.5, 2.6, 0.3, 4.9, { rotX: rampAngle, color: 0x3b3f5c })
+
+    // 悬浮平台（跳跃才能上去）
+    addBlock(-6, 1.6, 4, 3, 0.3, 3, { color: 0x4a3a6b })
+
+    /* ---------- 角色：胶囊刚体（三球串联 + 锁旋转） ---------- */
+    const R = 0.35
+    const playerBody = new CANNON.Body({
+      mass: 5,
+      position: new CANNON.Vec3(0, 1.5, 10),
+      material: matPlayer,
+      fixedRotation: true              // 锁死旋转，角色永不翻倒
+    })
+    playerBody.updateMassProperties()  // 锁旋转后重算质量分布
+    playerBody.addShape(new CANNON.Sphere(R), new CANNON.Vec3(0, 0.45, 0))
+    playerBody.addShape(new CANNON.Sphere(R), new CANNON.Vec3(0, 0, 0))
+    playerBody.addShape(new CANNON.Sphere(R), new CANNON.Vec3(0, -0.45, 0))
+    playerBody.collisionFilterGroup = 2 // 玩家归 group 2，地面检测射线好排除自己
+    world.addBody(playerBody)
+
+    const playerMesh = new THREE.Mesh(
+      new THREE.CapsuleGeometry(R, 0.9, 8, 16),
+      new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.5 })
+    )
+    playerMesh.castShadow = true
+    scene.add(playerMesh)
+    // 朝向指示小鼻子
+    const nose = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.12, 0.12),
+      new THREE.MeshStandardMaterial({ color: 0x0b0e14 })
+    )
+    nose.position.set(0, 0.45, R + 0.02)
+    playerMesh.add(nose)
+
+    /* ---------- 键盘输入 ---------- */
+    const keys = { w: false, a: false, s: false, d: false, space: false }
+    const KEYMAP = { KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', Space: 'space' }
+    addEventListener('keydown', (e) => {
+      const k = KEYMAP[e.code]
+      if (k) { keys[k] = true; e.preventDefault() }
+      if (e.code === 'KeyR') respawn()
+    })
+    addEventListener('keyup', (e) => {
+      const k = KEYMAP[e.code]
+      if (k) keys[k] = false
+    })
+
+    /* ---------- 地面检测：向下短射线 ---------- */
+    const rayTo = new CANNON.Vec3()
+    const rayHit = new CANNON.RaycastResult()
+    function isOnGround() {
+      const p = playerBody.position
+      rayTo.set(p.x, p.y - 0.95, p.z) // 胶囊底在 -0.8，多打 0.15 余量
+      rayHit.reset()
+      return world.raycastClosest(p, rayTo, {
+        collisionFilterMask: 1,       // 只测 group 1（地面/平台/墙），排除玩家自身
+        skipBackfaces: true
+      }, rayHit)
+    }
+
+    /* ---------- 重生 ---------- */
+    function respawn() {
+      playerBody.position.set(0, 1.5, 10)
+      playerBody.velocity.set(0, 0, 0)
+      playerBody.angularVelocity.set(0, 0, 0)
+    }
+
+    /* ---------- 第三人称跟随相机 ---------- */
+    const desiredCam = new THREE.Vector3()
+    const lookTarget = new THREE.Vector3()
+    const UP = new THREE.Vector3(0, 1, 0)
+
+    /* ---------- 主循环 ---------- */
+    const SPEED = 5
+    const JUMP_SPEED = 7
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+
+      // ① 键盘 → 期望水平方向（相机相对：W 永远是屏幕前方）
+      const input = new THREE.Vector3(
+        (keys.d ? 1 : 0) - (keys.a ? 1 : 0), 0,
+        (keys.s ? 1 : 0) - (keys.w ? 1 : 0)
+      )
+      if (input.lengthSq() > 0) {
+        input.normalize()
+        const yaw = Math.atan2(
+          camera.position.x - playerBody.position.x,
+          camera.position.z - playerBody.position.z
+        )
+        input.applyAxisAngle(UP, yaw)
+      }
+
+      // ② 地面检测 + 跳跃（只给垂直速度，水平速度照常托管）
+      if (keys.space && isOnGround()) {
+        playerBody.velocity.y = JUMP_SPEED
+        keys.space = false            // 按住不连跳
+      }
+
+      // ③ 速度控制：水平直接写，垂直交给物理
+      playerBody.velocity.x = input.x * SPEED
+      playerBody.velocity.z = input.z * SPEED
+
+      // ④ 物理推进一步
+      world.step(1 / 60, dt, 3)
+
+      // ⑤ 同步渲染
+      playerMesh.position.copy(playerBody.position)
+      if (input.lengthSq() > 0) {
+        playerMesh.rotation.y = Math.atan2(input.x, input.z)
+      }
+
+      // ⑥ 掉出世界 → 重生
+      if (playerBody.position.y < -5) respawn()
+
+      // ⑦ 相机平滑跟随
+      desiredCam.set(
+        playerBody.position.x,
+        playerBody.position.y + 4.5,
+        playerBody.position.z + 7.5
+      )
+      camera.position.lerp(desiredCam, 1 - Math.pow(0.001, dt))
+      lookTarget.set(playerMesh.position.x, playerMesh.position.y + 1, playerMesh.position.z)
+      camera.lookAt(lookTarget)
+
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

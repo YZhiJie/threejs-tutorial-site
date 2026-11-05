@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ibl-compare · IBL 环境对比</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 350px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 260px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>同一组 PBR 球 × 三种环境</b><br />
+    列 = roughness 0.05→0.9，行 = metalness 0（非金属）/ 1（金属）。<br />
+    无环境：金属球发灰；RoomEnvironment：程序化摄影棚；
+    HDR 日落：金属映出真实天空与落日。
+  </div>
+  <div class="hint" id="hint">右上面板切换环境与背景 · 拖拽旋转视角</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RGBELoader } from 'three/addons/loaders/RGBELoader.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    // jsDelivr 上 three.js r186 仓库自带的 1k HDR（威尼斯日落，约 1.4MB）
+    const HDR_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r186/examples/textures/equirectangular/venice_sunset_1k.hdr'
+
+    const scene = new THREE.Scene()
+    const BG_COLOR = new THREE.Color(0x0b0e14)
+    scene.background = BG_COLOR
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 2.4, 6.6)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping // HDR 光照必须配色调映射，否则过曝
+    renderer.toneMappingExposure = 1.0
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.55, 0)
+    controls.autoRotate = true
+    controls.autoRotateSpeed = 0.8
+
+    // 一盏恒定的方向光做"钥匙光"，三种环境下保持一致，突出环境差异
+    scene.add(new THREE.AmbientLight(0xffffff, 0.12))
+    const sun = new THREE.DirectionalLight(0xffffff, 1.4)
+    sun.position.set(3, 5, 4)
+    scene.add(sun)
+
+    // ---- 球体矩阵：列=粗糙度递增，行=非金属/金属 ----
+    const roughnessList = [0.05, 0.25, 0.45, 0.65, 0.9]
+    const sphereGeo = new THREE.SphereGeometry(0.45, 64, 48)
+    roughnessList.forEach((r, i) => {
+      ;[0, 1].forEach((m, row) => {
+        const ball = new THREE.Mesh(sphereGeo, new THREE.MeshStandardMaterial({
+          color: 0xffffff, roughness: r, metalness: m
+        }))
+        ball.position.set((i - 2) * 1.12, 0.55, row === 0 ? -0.72 : 0.72)
+        scene.add(ball)
+      })
+    })
+
+    // 行标签（canvas 贴图 Sprite）
+    function makeLabel(text) {
+      const cv = document.createElement('canvas')
+      cv.width = 360; cv.height = 64
+      const ctx = cv.getContext('2d')
+      ctx.fillStyle = 'rgba(11,14,20,0.8)'
+      ctx.beginPath()
+      ctx.roundRect(4, 4, 352, 56, 10)
+      ctx.fill()
+      ctx.font = '600 22px -apple-system, sans-serif'
+      ctx.fillStyle = '#9fb4d4'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(text, 180, 33)
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false
+      }))
+      sp.scale.set(1.9, 0.34, 1)
+      return sp
+    }
+    const labelA = makeLabel('非金属 metalness 0')
+    labelA.position.set(0, 0.55, -1.55)
+    scene.add(labelA)
+    const labelB = makeLabel('金属 metalness 1')
+    labelB.position.set(0, 0.55, 1.55)
+    scene.add(labelB)
+
+    // ---- 环境管理：RoomEnvironment 与 HDR 都经 PMREM 预过滤 ----
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    const cache = { room: null, hdr: null, hdrRaw: null }
+    cache.room = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+
+    const hintEl = document.getElementById('hint')
+    new RGBELoader().load(HDR_URL, (tex) => {
+      tex.mapping = THREE.EquirectangularReflectionMapping // 标记为等距柱状全景图
+      cache.hdrRaw = tex                                   // 原始图留给背景用（清晰）
+      cache.hdr = pmrem.fromEquirectangular(tex).texture   // 预过滤版给光照用
+      applyEnv()
+    }, undefined, () => {
+      hintEl.textContent = 'HDR 加载失败，已回退到 RoomEnvironment（检查网络/CDN）'
+      params.env = 'room'
+      applyEnv()
+      gui.controllersRecursive().forEach(c => c.updateDisplay())
+    })
+
+    const params = {
+      env: 'hdr',            // 环境：hdr / room / none
+      bg: 'env',             // 背景：env 环境贴图 / solid 纯色
+      envIntensity: 1.0,     // scene.environmentIntensity
+      exposure: 1.0,         // renderer.toneMappingExposure
+      autoRotate: true
+    }
+
+    function applyEnv() {
+      // 光照来源：HDR 没加载完时先用 RoomEnvironment 顶着
+      scene.environment =
+        params.env === 'none' ? null :
+        params.env === 'room' ? cache.room :
+        (cache.hdr || cache.room)
+      scene.environmentIntensity = params.envIntensity
+
+      // 背景与光照分设：可以"HDR 供光照 + 纯色背景"
+      if (params.bg === 'env' && params.env !== 'none') {
+        scene.background =
+          params.env === 'hdr' && cache.hdrRaw ? cache.hdrRaw : cache.room
+        // 背景是给人看的，压暗一点突出主体；PMREM 纹理当背景会偏糊，正是预过滤的样子
+        scene.backgroundIntensity = params.env === 'hdr' ? 0.55 : 1.0
+      } else {
+        scene.background = BG_COLOR
+      }
+      renderer.toneMappingExposure = params.exposure
+    }
+    applyEnv()
+
+    const gui = new GUI({ title: 'IBL 环境' })
+    gui.add(params, 'env', { 'HDR 日落': 'hdr', '摄影棚 RoomEnvironment': 'room', '无环境': 'none' })
+      .name('环境').onChange(applyEnv)
+    gui.add(params, 'bg', { '环境贴图': 'env', '纯色': 'solid' })
+      .name('背景').onChange(applyEnv)
+    gui.add(params, 'envIntensity', 0, 2, 0.05).name('环境强度').onChange(applyEnv)
+    gui.add(params, 'exposure', 0.2, 2, 0.05).name('曝光').onChange(applyEnv)
+    gui.add(params, 'autoRotate').name('自动旋转')
+      .onChange(v => controls.autoRotate = v)
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update()
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

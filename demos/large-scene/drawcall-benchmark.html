@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>drawcall-benchmark · 独立 Mesh vs InstancedMesh</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 320px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hud {
+      position: fixed; top: 14px; left: 352px;
+      padding: 12px 14px; background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px;
+      font-size: 13px; line-height: 1.8; pointer-events: none;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .hud b { color: #34d399; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 250px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .hud { left: 14px; top: 190px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>drawcall-benchmark · 同样 2000 个立方体，两种提交方式</b><br />
+    独立 Mesh：每物体一次 draw call，共 ~2000 次<br />
+    InstancedMesh：全部实例一次提交，仅 1 次<br />
+    右上角 Stats 面板可点击切换 FPS / MS / MB 页。
+  </div>
+  <div class="hud" id="hud">FPS：-- draw calls：--</div>
+  <div class="hint">右上角切换渲染模式 · 观察 draw calls 与 FPS 的此消彼长</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+    import Stats from 'three/addons/libs/stats.module.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(0, 14, 26)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    const stats = new Stats()
+    document.body.appendChild(stats.dom)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x202020, 1))
+    const dir = new THREE.DirectionalLight(0xffffff, 2)
+    dir.position.set(5, 10, 6)
+    scene.add(dir)
+
+    const COUNT = 2000
+    const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5)
+    const material = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.1 })
+
+    const group = new THREE.Group()
+    scene.add(group)
+    const dummy = new THREE.Object3D()
+    const color = new THREE.Color()
+    const SIDE = Math.ceil(Math.cbrt(COUNT))
+
+    function clearGroup() {
+      for (const m of group.children) if (m.dispose) m.dispose()
+      group.clear()
+    }
+
+    // 模式一：2000 个独立 Mesh —— 约 2000 次 draw call
+    function buildIndividual() {
+      clearGroup()
+      let i = 0
+      for (let x = 0; x < SIDE && i < COUNT; x++)
+        for (let y = 0; y < SIDE && i < COUNT; y++)
+          for (let z = 0; z < SIDE && i < COUNT; z++) {
+            const m = new THREE.Mesh(geometry, material.clone())
+            m.position.set(x - SIDE / 2, y + 0.4, z - SIDE / 2)
+            m.material.color.setHSL(i / COUNT, 0.7, 0.55)
+            group.add(m)
+            i++
+          }
+    }
+
+    // 模式二：1 个 InstancedMesh —— 1 次 draw call 画全部
+    function buildInstanced() {
+      clearGroup()
+      const mesh = new THREE.InstancedMesh(geometry, material, COUNT)
+      let i = 0
+      for (let x = 0; x < SIDE && i < COUNT; x++)
+        for (let y = 0; y < SIDE && i < COUNT; y++)
+          for (let z = 0; z < SIDE && i < COUNT; z++) {
+            dummy.position.set(x - SIDE / 2, y + 0.4, z - SIDE / 2)
+            dummy.updateMatrix()
+            mesh.setMatrixAt(i, dummy.matrix)
+            mesh.setColorAt(i, color.setHSL(i / COUNT, 0.7, 0.55))
+            i++
+          }
+      group.add(mesh)
+    }
+
+    const params = { mode: 'InstancedMesh (1 call)', spinning: true }
+    const gui = new GUI({ title: '渲染模式' })
+    gui.add(params, 'mode', ['独立 Mesh ×2000', 'InstancedMesh (1 call)']).name('模式')
+      .onChange(v => v.startsWith('独立') ? buildIndividual() : buildInstanced())
+    gui.add(params, 'spinning').name('整体旋转')
+    buildInstanced()
+
+    const hud = document.getElementById('hud')
+    let frames = 0, statTime = performance.now(), fps = 0
+    const timer = new THREE.Timer()
+    timer.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      if (params.spinning) group.rotation.y += timer.getDelta() * 0.2
+      controls.update()
+      renderer.render(scene, camera)
+      stats.update()
+
+      frames++
+      const now = performance.now()
+      if (now - statTime >= 500) { // 0.5s 采样窗口刷新 HUD
+        fps = Math.round((frames * 1000) / (now - statTime))
+        frames = 0
+        statTime = now
+        const info = renderer.info
+        hud.innerHTML =
+          `FPS：<b>${fps}</b>　draw calls：<b>${info.render.calls}</b><br>` +
+          `triangles：<b>${info.render.triangles.toLocaleString()}</b><br>` +
+          `geometries：${info.memory.geometries}　textures：${info.memory.textures}`
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

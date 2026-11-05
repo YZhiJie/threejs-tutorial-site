@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>banding-precision-lab · 色带与精度实验室</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 386px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .mode {
+      display: block;
+      margin: 5px 0 3px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .note {
+      display: block;
+      color: #9fb4d4;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 270px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 210px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 200px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>色带与精度实验室 · Banding Lab</b><br />
+    同一段平滑渐变，先写进渲染目标（RT），再复制到屏幕。只换 RT 精度与抖动开关。<br />
+    <span class="mode" id="modeInfo"></span>
+    <span class="note" id="modeNote"></span>
+  </div>
+  <div class="hint">右上角切换精度模式 · 抖动强度 / HDR 峰值可实时调</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const renderer = new THREE.WebGLRenderer({ antialias: false })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.NoToneMapping
+    renderer.toneMappingExposure = 1
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    /* ---------- 渐变场景：全屏着色器，值保持在「线性空间」 ---------- */
+    const gradientMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uDither: { value: 0 },
+        uGain: { value: 1 }
+      },
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform float uDither;
+        uniform float uGain;
+        varying vec2 vUv;
+
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        void main() {
+          vec3 dark = vec3(0.015, 0.020, 0.030);
+          vec3 warm = vec3(0.080, 0.055, 0.075);
+          float t = vUv.y;
+          vec3 col = mix(dark, warm, t) * uGain;
+
+          float n = hash(gl_FragCoord.xy) - 0.5;
+          col += n * uDither * (1.0 / 255.0);
+
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+      depthTest: false,
+      depthWrite: false
+    })
+
+    const gradientScene = new THREE.Scene()
+    gradientScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), gradientMat))
+
+    /* ---------- 复制场景：把 RT 当贴图铺满屏幕 ---------- */
+    const copyMat = new THREE.MeshBasicMaterial({ toneMapped: true })
+    const copyScene = new THREE.Scene()
+    copyScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat))
+
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
+    camera.position.z = 1
+
+    /* ---------- 渲染目标：8bit 或 HalfFloat ---------- */
+    let rt = null
+    function buildRenderTarget() {
+      if (rt) rt.dispose()
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2())
+      const hdr = params.mode === 'HalfFloat HDR'
+      rt = new THREE.WebGLRenderTarget(size.x, size.y, {
+        type: hdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
+        format: THREE.RGBAFormat,
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        depthBuffer: false,
+        stencilBuffer: false,
+        generateMipmaps: false
+      })
+      rt.texture.colorSpace = THREE.NoColorSpace // RT 里存的是线性数值
+      copyMat.map = rt.texture
+      copyMat.needsUpdate = true
+    }
+
+    /* ---------- 模式切换 ---------- */
+    const params = {
+      mode: '8bit · 无抖动',
+      dither: 1.6,
+      hdrGain: 12.0
+    }
+
+    function applyMode() {
+      const isHDR = params.mode === 'HalfFloat HDR'
+      const useDither = params.mode === '8bit · 抖动'
+      gradientMat.uniforms.uDither.value = useDither ? params.dither : 0
+      gradientMat.uniforms.uGain.value = isHDR ? params.hdrGain : 1
+
+      renderer.toneMapping = isHDR ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping
+      renderer.toneMappingExposure = isHDR ? 0.8 : 1
+      // 8bit 模式放大对比度，让量化台阶更容易被肉眼看见
+      copyMat.color.setScalar(isHDR ? 1 : 4)
+      copyMat.needsUpdate = true
+
+      buildRenderTarget()
+
+      const info = document.getElementById('modeInfo')
+      const note = document.getElementById('modeNote')
+      if (params.mode === '8bit · 无抖动') {
+        info.textContent = 'UnsignedByte RT · 每通道 8bit · 量化步长 1/256 ≈ 0.0039（线性）'
+        note.textContent = '暗部渐变被切成一条条硬边色带——这就是 banding。'
+      } else if (params.mode === '8bit · 抖动') {
+        info.textContent = `UnsignedByte RT · 8bit · 抖动噪声 ±${(params.dither / 255).toFixed(4)}（线性）`
+        note.textContent = '写入前加一点随机噪声，把硬色带打散成肉眼难辨的细颗粒。'
+      } else {
+        info.textContent = `HalfFloat RT · 16bit 浮点 · 渐变峰值 ${params.hdrGain.toFixed(1)}（HDR）`
+        note.textContent = '浮点 RT 保留高光细节，最后由 ACES 色调映射压回屏幕范围。'
+      }
+    }
+
+    const gui = new GUI({ title: '精度与抖动' })
+    gui.add(params, 'mode', ['8bit · 无抖动', '8bit · 抖动', 'HalfFloat HDR'])
+      .name('精度模式').onChange(applyMode)
+    gui.add(params, 'dither', 0, 2.5, 0.01).name('抖动强度（1/255 为单位）')
+      .onChange(() => { if (params.mode === '8bit · 抖动') applyMode() })
+    gui.add(params, 'hdrGain', 2, 30, 0.1).name('HDR 峰值')
+      .onChange(() => { if (params.mode === 'HalfFloat HDR') applyMode() })
+
+    applyMode()
+
+    /* ---------- 主循环：先画进 RT，再复制到屏幕 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+
+      renderer.setRenderTarget(rt)
+      renderer.render(gradientScene, camera)
+
+      renderer.setRenderTarget(null)
+      renderer.render(copyScene, camera)
+    })
+
+    addEventListener('resize', () => {
+      renderer.setSize(innerWidth, innerHeight)
+      // 用新尺寸重建 RT，保持 1:1 像素映射
+      applyMode()
+    })
+  </script>
+</body>
+
+</html>

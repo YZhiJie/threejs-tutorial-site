@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>bootstrap · 项目骨架与分层架构</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    /* 启动加载层 */
+    #boot {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: #0b0e14;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      transition: opacity .5s;
+    }
+
+    #boot.done {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .bar {
+      width: min(320px, 70vw);
+      height: 6px;
+      background: #1c2330;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, #3b82f6, #22d3ee);
+      transition: width .25s;
+    }
+
+    #bootText {
+      font: 12.5px ui-monospace, Menlo, Consolas, monospace;
+      color: #7cc4ff;
+    }
+
+    .log {
+      position: fixed;
+      left: 14px;
+      bottom: 12px;
+      max-width: 340px;
+      padding: 10px 12px;
+      background: rgba(11, 14, 20, .7);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 8px;
+      font: 11.5px/1.8 ui-monospace, Menlo, Consolas, monospace;
+      pointer-events: none;
+      opacity: .85;
+    }
+
+    .log .ok {
+      color: #4ade80;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 330px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .log {
+        display: none;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div id="boot">
+    <div style="font-size:15px;font-weight:700;letter-spacing:1px">MINI ENGINE · 启动中</div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div id="bootText">初始化…</div>
+  </div>
+  <div class="info">
+    <b>分层架构骨架</b>：代码按职责拆成
+    <b>Stage（基础设施）/ Resizer（自适应）/ WorldBuilder（场景内容）/
+      Loop（主循环）</b>，最后由 App 编排启动。<br />
+    左下角是带耗时统计的启动日志。
+  </div>
+  <div class="log" id="log"></div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+
+    /* =========================================================
+     * 工具层：统一日志（带毫秒耗时）
+     * ========================================================= */
+    const bootEl = document.getElementById('boot')
+    const bootText = document.getElementById('bootText')
+    const barFill = document.getElementById('barFill')
+    const logEl = document.getElementById('log')
+    const t0 = performance.now()
+    function log(msg) {
+      const ms = (performance.now() - t0).toFixed(0).padStart(4, ' ')
+      logEl.innerHTML += `<div><span class="ok">✓ ${ms}ms</span> ${msg}</div>`
+    }
+    function bootProgress(pct, msg) {
+      barFill.style.width = `${pct}%`
+      bootText.textContent = msg
+    }
+
+    /* =========================================================
+     * Stage 层：渲染器 / 场景 / 相机 / 控制器 / 环境
+     * 只负责“基础设施”，不知道具体放了什么物体
+     * ========================================================= */
+    class Stage {
+      constructor(container) {
+        this.renderer = new THREE.WebGLRenderer({ antialias: true })
+        this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+        this.renderer.setSize(innerWidth, innerHeight)
+        this.renderer.shadowMap.enabled = true
+        this.renderer.shadowMap.type = THREE.PCFShadowMap // r186 默认（PCFSoft 已移除）
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+        container.appendChild(this.renderer.domElement)
+
+        this.scene = new THREE.Scene()
+        this.scene.background = new THREE.Color(0x0b0e14)
+
+        this.camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+        this.camera.position.set(4, 3, 5.5)
+
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement)
+        this.controls.enableDamping = true
+        this.controls.target.set(0, 0.6, 0)
+
+        const pmrem = new THREE.PMREMGenerator(this.renderer)
+        this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+      }
+    }
+
+    /* =========================================================
+     * Resizer 层：尺寸自适应（窗口/容器变化时同步相机与渲染器）
+     * ========================================================= */
+    class Resizer {
+      constructor(stage) {
+        this.stage = stage
+        addEventListener('resize', () => this.resize())
+      }
+      resize() {
+        const { camera, renderer } = this.stage
+        camera.aspect = innerWidth / innerHeight
+        camera.updateProjectionMatrix()
+        renderer.setSize(innerWidth, innerHeight)
+      }
+    }
+
+    /* =========================================================
+     * WorldBuilder 层：只往 scene 里“摆放内容”
+     * 返回可被主循环驱动的对象列表
+     * ========================================================= */
+    class WorldBuilder {
+      constructor(scene) {
+        this.scene = scene
+        this.updatables = []
+      }
+
+      buildLights() {
+        this.scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x202020, 0.6))
+        const sun = new THREE.DirectionalLight(0xfff3d6, 2.2)
+        sun.position.set(4, 7, 3)
+        sun.castShadow = true
+        sun.shadow.mapSize.set(2048, 2048)
+        sun.shadow.camera.left = -6
+        sun.shadow.camera.right = 6
+        sun.shadow.camera.top = 6
+        sun.shadow.camera.bottom = -6
+        sun.shadow.bias = -0.0002
+        this.scene.add(sun)
+      }
+
+      buildGround() {
+        const ground = new THREE.Mesh(
+          new THREE.CircleGeometry(8, 64),
+          new THREE.MeshStandardMaterial({ color: 0x222a36, roughness: 0.9 })
+        )
+        ground.rotation.x = -Math.PI / 2
+        ground.receiveShadow = true
+        this.scene.add(ground)
+      }
+
+      buildObjects() {
+        const defs = [
+          new THREE.BoxGeometry(1, 1, 1),
+          new THREE.SphereGeometry(0.62, 32, 24),
+          new THREE.TorusKnotGeometry(0.5, 0.16, 120, 20)
+        ]
+        const colors = [0x60a5fa, 0xf472b6, 0x34d399]
+        defs.forEach((geo, i) => {
+          const mesh = new THREE.Mesh(
+            geo,
+            new THREE.MeshStandardMaterial({ color: colors[i], roughness: 0.35 })
+          )
+          mesh.position.set((i - 1) * 2.4, 0.8, 0)
+          mesh.castShadow = mesh.receiveShadow = true
+          this.scene.add(mesh)
+          // 注册每帧更新逻辑，主循环不需要知道具体是谁
+          const speed = 0.5 + i * 0.25
+          this.updatables.push({
+            update(dt, elapsed) {
+              mesh.rotation.y += dt * speed
+              mesh.position.y = 0.8 + Math.sin(elapsed * 1.5 + i) * 0.18
+            }
+          })
+        })
+      }
+
+      build() {
+        this.buildLights()
+        this.buildGround()
+        this.buildObjects()
+        return this.updatables
+      }
+    }
+
+    /* =========================================================
+     * Loop 层：时钟驱动，负责更新 + 渲染；可暂停
+     * ========================================================= */
+    class Loop {
+      constructor(stage, updatables) {
+        this.stage = stage
+        this.updatables = updatables
+        this.clock = new THREE.Timer()
+        this.clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+        this.paused = false
+      }
+      start() {
+        this.stage.renderer.setAnimationLoop(() => this.tick())
+      }
+      tick() {
+        this.clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+        const dt = this.clock.getDelta()
+        if (!this.paused) {
+          for (const item of this.updatables) item.update(dt, this.clock.getElapsed())
+        }
+        this.stage.controls.update()
+        this.stage.renderer.render(this.stage.scene, this.stage.camera)
+      }
+    }
+
+    /* =========================================================
+     * App 层：按顺序编排一切（真实项目可再拆成 main.js）
+     * ========================================================= */
+    async function boot() {
+      bootProgress(15, '创建 Stage（渲染器/相机/环境）…')
+      const stage = new Stage(document.getElementById('app'))
+      log('Stage 就绪')
+
+      await new Promise(r => setTimeout(r, 120))      // 模拟异步资源阶段
+      bootProgress(45, '注册 Resizer…')
+      new Resizer(stage)
+      log('Resizer 就绪')
+
+      await new Promise(r => setTimeout(r, 120))
+      bootProgress(70, '构建世界内容…')
+      const world = new WorldBuilder(stage.scene)
+      const updatables = world.build()
+      log(`World 构建完成（${updatables.length} 个可更新对象）`)
+
+      await new Promise(r => setTimeout(r, 150))
+      bootProgress(100, '启动主循环')
+      const loop = new Loop(stage, updatables)
+      loop.start()
+      log('Loop 已启动')
+
+      // 演示用：双击暂停/继续
+      addEventListener('dblclick', () => {
+        loop.paused = !loop.paused
+        log(loop.paused ? 'Loop 已暂停（双击恢复）' : 'Loop 已恢复')
+      })
+
+      setTimeout(() => bootEl.classList.add('done'), 350)
+    }
+
+    boot()
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>material-lab · 材质参数实验室</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 320px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 270px; }
+    @media (max-width: 600px) { .info { max-width: 200px; font-size: 12px; } .lil-gui.root { --width: 190px; } }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>材质参数实验室</b>：把 StandardMaterial 的常用开关集中到一处，
+    边调边看，建立“参数 ↔ 观感”的直觉。金属度高时需要环境反射才不会发黑。
+  </div>
+  <div class="hint">先把 metalness 拉到 1，再调 envMapIntensity 观察反射</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.6, 4.6)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(6, 48),
+      new THREE.MeshStandardMaterial({ color: 0x1c2330, roughness: 0.9 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.position.y = -1.05
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x4f9cf9,
+      roughness: 0.5,
+      metalness: 0.1,
+      flatShading: false,
+      transparent: false,
+      opacity: 1,
+      side: THREE.FrontSide,
+      emissive: 0x000000,
+      emissiveIntensity: 1
+    })
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), material)
+    scene.add(ball)
+
+    const wire = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(1.35, 1),
+      new THREE.MeshBasicMaterial({ color: 0x334155, wireframe: true, transparent: true, opacity: 0.4 })
+    )
+    scene.add(wire)
+
+    const params = {
+      color: '#4f9cf9',
+      roughness: 0.5,
+      metalness: 0.1,
+      flatShading: false,
+      wireframe: false,
+      transparent: false,
+      opacity: 1,
+      side: 'FrontSide',
+      emissive: '#000000',
+      emissiveIntensity: 1,
+      envMapIntensity: 1,
+      spin: true
+    }
+    const gui = new GUI({ title: '材质实验室' })
+    gui.addColor(params, 'color').name('基础颜色').onChange(v => material.color.set(v))
+    gui.add(params, 'roughness', 0, 1, 0.01).onChange(v => material.roughness = v)
+    gui.add(params, 'metalness', 0, 1, 0.01).onChange(v => material.metalness = v)
+    gui.add(params, 'flatShading').name('平面着色').onChange(v => material.flatShading = v)
+    gui.add(params, 'wireframe').name('线框').onChange(v => material.wireframe = v)
+    gui.add(params, 'transparent').name('透明开关').onChange(v => material.transparent = v)
+    gui.add(params, 'opacity', 0, 1, 0.01).name('不透明度').onChange(v => material.opacity = v)
+    gui.add(params, 'side', ['FrontSide', 'BackSide', 'DoubleSide']).name('渲染面')
+      .onChange(v => material.side = THREE[v])
+    gui.addColor(params, 'emissive').name('自发光色').onChange(v => material.emissive.set(v))
+    gui.add(params, 'emissiveIntensity', 0, 3, 0.05).name('自发光强度')
+      .onChange(v => material.emissiveIntensity = v)
+    gui.add(params, 'envMapIntensity', 0, 3, 0.05).name('环境反射强度')
+      .onChange(v => material.envMapIntensity = v)
+    gui.add(params, 'spin').name('球体自转')
+    // 透明参数变化后必须告诉材质更新
+    gui.onChange(() => material.needsUpdate = true)
+
+    renderer.setAnimationLoop(() => {
+      if (params.spin) {
+        ball.rotation.y += 0.006
+        wire.rotation.y -= 0.004
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

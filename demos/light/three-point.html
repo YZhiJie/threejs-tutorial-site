@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>three-point · 三点布光工作室</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 350px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .key {
+      color: #fff7cc;
+    }
+
+    .fill {
+      color: #9fc8ff;
+    }
+
+    .rim {
+      color: #ffb3c7;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 270px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 210px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>经典三点布光</b><br />
+    <span class="key">● 主光 Key</span>：最亮，前侧 45°，负责主体造型与阴影<br />
+    <span class="fill">● 补光 Fill</span>：较暗，另一侧，提亮暗部、软化反差<br />
+    <span class="rim">● 轮廓光 Rim</span>：背后打光，勾出边缘，把主体从背景分离
+  </div>
+  <div class="hint">在面板中分别关掉三盏灯，观察各自承担的作用</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.8, 5.2)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFShadowMap // r186 默认（PCFSoft 已移除，详见 8.2）
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1, 0)
+    controls.minDistance = 2.5
+    controls.maxDistance = 10
+    controls.maxPolarAngle = Math.PI / 2 + 0.15
+
+    // 主体：一个半身像风格的组合（球 + 台座），PBR 材质
+    const pedestal = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.8, 0.95, 0.5, 48),
+      new THREE.MeshStandardMaterial({ color: 0x39414e, roughness: 0.85 })
+    )
+    pedestal.position.y = 0.25
+    pedestal.castShadow = pedestal.receiveShadow = true
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.85, 64, 48),
+      new THREE.MeshStandardMaterial({ color: 0xd9dde3, roughness: 0.55, metalness: 0.05 })
+    )
+    head.position.y = 1.45
+    head.castShadow = true
+    scene.add(pedestal, head)
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(8, 64),
+      new THREE.MeshStandardMaterial({ color: 0x171c24, roughness: 1 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    /* ---------- 三盏灯 ---------- */
+    // 主光：前上方右侧，暖色，开阴影
+    const keyLight = new THREE.DirectionalLight(0xfff2d0, 2.6)
+    keyLight.position.set(3.2, 4, 3.4)
+    keyLight.castShadow = true
+    keyLight.shadow.mapSize.set(2048, 2048)
+    keyLight.shadow.camera.left = -4
+    keyLight.shadow.camera.right = 4
+    keyLight.shadow.camera.top = 4
+    keyLight.shadow.camera.bottom = -4
+    keyLight.shadow.bias = -0.0003
+    scene.add(keyLight)
+
+    // 补光：左侧低位，冷色，柔和不投影
+    const fillLight = new THREE.DirectionalLight(0xbcd6ff, 0.8)
+    fillLight.position.set(-3.5, 1.8, 2.6)
+    scene.add(fillLight)
+
+    // 轮廓光：背后上方，品红偏白，强于补光
+    const rimLight = new THREE.DirectionalLight(0xffd5e2, 2.2)
+    rimLight.position.set(0, 3.4, -3.6)
+    scene.add(rimLight)
+
+    /* ---------- 光源可视化标记 ---------- */
+    function makeMarker(light, cssColor) {
+      const m = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 16, 12),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(cssColor) })
+      )
+      m.position.copy(light.position)
+      scene.add(m)
+      return m
+    }
+    const keyMarker = makeMarker(keyLight, '#fff7cc')
+    const fillMarker = makeMarker(fillLight, '#9fc8ff')
+    const rimMarker = makeMarker(rimLight, '#ffb3c7')
+
+    const params = {
+      key: true, keyIntensity: 2.6,
+      fill: true, fillIntensity: 0.8,
+      rim: true, rimIntensity: 2.2,
+      showMarkers: true,
+      autoRotate: true
+    }
+    const gui = new GUI({ title: '三点布光' })
+    const kf = gui.addFolder('主光 Key')
+    kf.add(params, 'key').name('开关')
+    kf.add(params, 'keyIntensity', 0, 6, 0.05).name('强度').onChange(v => keyLight.intensity = v)
+    const ff = gui.addFolder('补光 Fill')
+    ff.add(params, 'fill').name('开关')
+    ff.add(params, 'fillIntensity', 0, 4, 0.05).name('强度').onChange(v => fillLight.intensity = v)
+    const rf = gui.addFolder('轮廓光 Rim')
+    rf.add(params, 'rim').name('开关')
+    rf.add(params, 'rimIntensity', 0, 6, 0.05).name('强度').onChange(v => rimLight.intensity = v)
+    gui.add(params, 'showMarkers').name('显示灯位').onChange(v => {
+      keyMarker.visible = fillMarker.visible = rimMarker.visible = v
+    })
+    gui.add(params, 'autoRotate').name('主体自转')
+
+    renderer.setAnimationLoop(() => {
+      keyLight.visible = params.key
+      fillLight.visible = params.fill
+      rimLight.visible = params.rim
+      if (params.autoRotate) {
+        head.rotation.y += 0.004
+        pedestal.rotation.y += 0.004
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

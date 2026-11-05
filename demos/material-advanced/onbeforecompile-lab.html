@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>onbeforecompile-lab · 材质补丁台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 376px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .stat {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .note {
+      display: block;
+      margin-top: 4px;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 262px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 204px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 196px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>材质补丁台 · onBeforeCompile 三种注入</b><br />
+    左边是打了补丁的 MeshStandardMaterial，右边是原版材质，所有改动都写在同一份内置着色器里。<br />
+    <span class="stat" id="stat"></span>
+    <span class="note">改 uniform 不需要 needsUpdate；补丁不增加 draw call。</span>
+  </div>
+  <div class="hint">右上角开关三种补丁 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 渲染器与场景 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 9, 18)
+
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.15, 8.0)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.05
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.35, 0)
+
+    /* ---------- 程序化环境：只为了 PBR 有反射可看 ---------- */
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    pmrem.dispose()
+
+    /* ---------- 灯光 ---------- */
+    scene.add(new THREE.AmbientLight(0xffffff, 0.18))
+    const key = new THREE.DirectionalLight(0xffffff, 1.6)
+    key.position.set(4, 6, 5)
+    scene.add(key)
+    const rim = new THREE.DirectionalLight(0x7cc4ff, 0.8)
+    rim.position.set(-6, 2, -4)
+    scene.add(rim)
+
+    /* ---------- 地面 ---------- */
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(9, 64),
+      new THREE.MeshStandardMaterial({ color: 0x1a2130, roughness: 0.75, metalness: 0.25 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.position.y = -1.05
+    scene.add(ground)
+
+    /* ---------- 共享 uniform：挂到多个材质也不会重复创建 ---------- */
+    const patchUniforms = {
+      uTime: { value: 0 },
+      uWaveAmp: { value: 0 },
+      uTintColor: { value: new THREE.Color(0xff5fa2) },
+      uTintMix: { value: 0 },
+      uRimColor: { value: new THREE.Color(0x22d3ee) },
+      uRimStrength: { value: 0 }
+    }
+
+    /* ---------- 补丁材质 ---------- */
+    const patchMat = new THREE.MeshStandardMaterial({
+      color: 0x8fa8c8,
+      roughness: 0.34,
+      metalness: 0.55,
+      envMapIntensity: 1.15
+    })
+
+    patchMat.onBeforeCompile = (shader) => {
+      // 1. 把共享 uniform 交给编译器，后续改 .value 即可，无需重新编译
+      Object.assign(shader.uniforms, patchUniforms)
+
+      // 2. 顶点：在 begin_vertex 之后偏移 transformed
+      shader.vertexShader = `
+        uniform float uTime;
+        uniform float uWaveAmp;
+      ` + shader.vertexShader
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        float wave = sin( position.y * 5.0 + uTime * 2.2 ) * 0.045 * uWaveAmp;
+        transformed += objectNormal * wave;`
+      )
+
+      // 3. 片元：在 color_fragment 之后改写 diffuseColor
+      shader.fragmentShader = `
+        uniform vec3 uTintColor;
+        uniform float uTintMix;
+        uniform vec3 uRimColor;
+        uniform float uRimStrength;
+      ` + shader.fragmentShader
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        diffuseColor.rgb = mix( diffuseColor.rgb, uTintColor, uTintMix );`
+      )
+
+      // 4. 片元：在光照结算后叠加菲涅尔边缘光
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        float rimTerm = pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), 3.0 );
+        reflectedLight.indirectSpecular += uRimColor * rimTerm * uRimStrength;`
+      )
+    }
+
+    // 缓存键必须区分「注入内容」，否则不同补丁会复用同一个已编译程序
+    patchMat.customProgramCacheKey = () => 'standard-patch-v1'
+
+    /* ---------- 两颗球：左补丁 / 右原版 ---------- */
+    const sphereGeo = new THREE.SphereGeometry(1.15, 96, 64)
+
+    const patched = new THREE.Mesh(sphereGeo, patchMat)
+    patched.position.set(-1.65, 0.35, 0)
+    scene.add(patched)
+
+    const plain = new THREE.Mesh(
+      sphereGeo,
+      new THREE.MeshStandardMaterial({
+        color: 0x8fa8c8,
+        roughness: 0.34,
+        metalness: 0.55,
+        envMapIntensity: 1.15
+      })
+    )
+    plain.position.set(1.65, 0.35, 0)
+    scene.add(plain)
+
+    /* ---------- 参数与开关 ---------- */
+    const BASE = { wave: 1.0, tint: 0.65, rim: 0.75 }
+    const params = {
+      wave: true,
+      tint: true,
+      rim: true,
+      autoRotate: true
+    }
+
+    function syncUniforms() {
+      patchUniforms.uWaveAmp.value = params.wave ? BASE.wave : 0
+      patchUniforms.uTintMix.value = params.tint ? BASE.tint : 0
+      patchUniforms.uRimStrength.value = params.rim ? BASE.rim : 0
+    }
+    syncUniforms()
+
+    const gui = new GUI({ title: '材质补丁开关' })
+    gui.add(params, 'wave').name('顶点波动 · begin_vertex').onChange(syncUniforms)
+    gui.add(params, 'tint').name('片元染色 · color_fragment').onChange(syncUniforms)
+    gui.add(params, 'rim').name('菲涅尔边缘 · lights_fragment_end').onChange(syncUniforms)
+    gui.add(params, 'autoRotate').name('自动旋转')
+
+    /* ---------- HUD：draw call / 程序数 ---------- */
+    const statEl = document.getElementById('stat')
+    function updateStat() {
+      const r = renderer.info.render
+      const p = renderer.info.programs ? renderer.info.programs.length : 0
+      const on = [params.wave, params.tint, params.rim].filter(Boolean).length
+      statEl.textContent =
+        `draw calls ${r.calls} · 编译程序 ${p} · 补丁 ${on}/3 开`
+    }
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const delta = timer.getDelta()
+      patchUniforms.uTime.value = timer.getElapsed()
+      if (params.autoRotate) {
+        patched.rotation.y += delta * 0.5
+        plain.rotation.y += delta * 0.5
+      }
+      controls.update()
+      renderer.render(scene, camera)
+      updateStat()
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

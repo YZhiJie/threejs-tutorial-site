@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>template · 可复用开发模板</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 320px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .toolbar {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+    }
+
+    .toolbar button {
+      padding: 7px 16px;
+      font-size: 13px;
+      color: #e6edf3;
+      background: rgba(59, 130, 246, .85);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .toolbar button:hover {
+      background: rgba(59, 130, 246, 1);
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>可复用模板</b>：每个正式项目都应具备——<br />
+    ① 统一的初始化参数区　② 阴影地面与灯光<br />
+    ③ 基于时钟 deltaTime 的循环　④ 尺寸自适应　⑤ 可暂停
+  </div>
+  <div class="toolbar">
+    <button id="toggle">⏸ 暂停动画</button>
+    <button id="reset">🎥 重置视角</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    /* ========== ① 参数区：所有可调数字集中在这里 ========== */
+    const params = {
+      background: 0x0b0e14,
+      ground: 0x222831,
+      shadowMapSize: 2048,
+      rotateSpeed: 0.8
+    }
+
+    /* ========== 初始化三件套 ========== */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(params.background)
+
+    const camera = new THREE.PerspectiveCamera(
+      50, innerWidth / innerHeight, 0.1, 100
+    )
+    camera.position.set(4, 3, 5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true                       // 开启阴影
+    renderer.shadowMap.type = THREE.PCFShadowMap       // PCF 百分比渐近过滤，r186 默认；要更柔的模糊用 VSMShadowMap
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.maxPolarAngle = Math.PI / 2 - 0.05            // 不让相机钻到地面下
+
+    /* ========== ② 灯光与地面 ========== */
+    const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x202020, 0.7)
+    scene.add(hemi)
+
+    const sun = new THREE.DirectionalLight(0xffffff, 1.8)
+    sun.position.set(4, 6, 3)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(params.shadowMapSize, params.shadowMapSize)
+    sun.shadow.camera.near = 1
+    sun.shadow.camera.far = 20
+    sun.shadow.camera.left = -6
+    sun.shadow.camera.right = 6
+    sun.shadow.camera.top = 6
+    sun.shadow.camera.bottom = -6
+    scene.add(sun)
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(30, 30),
+      new THREE.MeshStandardMaterial({ color: params.ground, roughness: 1 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    /* ========== 场景物体 ========== */
+    const objects = []
+    const geos = [
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.SphereGeometry(0.65, 32, 24),
+      new THREE.ConeGeometry(0.6, 1.2, 32)
+    ]
+    geos.forEach((geo, i) => {
+      const mesh = new THREE.Mesh(
+        geo,
+        new THREE.MeshStandardMaterial({
+          color: [0x60a5fa, 0xf472b6, 0x34d399][i],
+          roughness: 0.4,
+          metalness: 0.1
+        })
+      )
+      mesh.position.set((i - 1) * 2.2, 0.7, 0)
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+      scene.add(mesh)
+      objects.push(mesh)
+    })
+
+    /* ========== ③ 时钟驱动的渲染循环（deltaTime 与帧率无关） ========== */
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    let paused = false
+
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const delta = clock.getDelta()          // 距上一帧的秒数
+      if (!paused) {
+        objects.forEach((obj, i) => {
+          obj.rotation.y += delta * params.rotateSpeed * (i + 1) * 0.8
+          obj.position.y = 0.7 + Math.abs(Math.sin(clock.getElapsed() + i)) * 0.6
+        })
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    /* ========== ④ 尺寸自适应 ========== */
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+
+    /* ========== ⑤ UI 控制 ========== */
+    const toggleBtn = document.getElementById('toggle')
+    toggleBtn.addEventListener('click', () => {
+      paused = !paused
+      toggleBtn.textContent = paused ? '▶ 继续动画' : '⏸ 暂停动画'
+    })
+    document.getElementById('reset').addEventListener('click', () => {
+      camera.position.set(4, 3, 5)
+      controls.target.set(0, 0.5, 0)
+      controls.update()
+    })
+  </script>
+</body>
+
+</html>

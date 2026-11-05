@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>product-showcase · 产品展示级画面合成</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 350px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>产品展示级画面合成</b><br />
+    链路：Render → Outline（描边）→ Bloom（泛光）→ Vignette（暗角）→ Output。<br />
+    金属 TorusKnot + RoomEnvironment 棚拍反射 + 青色轮廓光。<br />
+    一键关掉后处理，对比"裸渲染"的差距。
+  </div>
+  <div class="hint">拖拽旋转视角 · 右侧面板调合成参数 · 可一键开关对比</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+    import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js'
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+    import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 2.0, 7.2)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.3, 0)
+
+    // 棚拍环境：金属反射的内容来源
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    pmrem.dispose()
+
+    // 灯光：顶部主光 + 侧后青色轮廓光
+    const key = new THREE.DirectionalLight(0xffffff, 1.4)
+    key.position.set(2, 6, 3)
+    scene.add(key)
+    const rim = new THREE.DirectionalLight(0x66ccff, 3.0)
+    rim.position.set(-4, 3, -4)
+    scene.add(rim)
+
+    // 底座 + 主角产品
+    const pedestal = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.5, 1.7, 0.35, 48),
+      new THREE.MeshStandardMaterial({ color: 0x1a2233, roughness: 0.35, metalness: 0.6 })
+    )
+    pedestal.position.y = 0.18
+    scene.add(pedestal)
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(14, 48),
+      new THREE.MeshStandardMaterial({ color: 0x0d1220, roughness: 0.9, metalness: 0 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    scene.add(ground)
+
+    const product = new THREE.Mesh(
+      new THREE.TorusKnotGeometry(0.85, 0.26, 220, 36),
+      new THREE.MeshStandardMaterial({ color: 0xc8ccd4, metalness: 1, roughness: 0.22 })
+    )
+    product.position.y = 1.75
+    scene.add(product)
+
+    // 自定义暗角 ShaderPass
+    const VignetteShader = {
+      uniforms: {
+        tDiffuse: { value: null },   // 上一环输出的画面
+        uStrength: { value: 1.15 }   // 暗角强度
+      },
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform sampler2D tDiffuse;
+        uniform float uStrength;
+        varying vec2 vUv;
+        void main() {
+          vec4 color = texture2D(tDiffuse, vUv);
+          float dist = distance(vUv, vec2(0.5));
+          color.rgb *= smoothstep(0.9, 0.9 - uStrength * 0.5, dist);
+          gl_FragColor = color;
+        }
+      `
+    }
+
+    // —— 合成链：描边 → 泛光 → 暗角 → 输出 ——
+    const composer = new EffectComposer(renderer)
+    composer.addPass(new RenderPass(scene, camera))
+
+    const outline = new OutlinePass(new THREE.Vector2(innerWidth, innerHeight), scene, camera)
+    outline.selectedObjects = [product]
+    outline.edgeStrength = 4.5
+    outline.edgeThickness = 1.5
+    outline.visibleEdgeColor.set(0x7cc4ff)
+    outline.hiddenEdgeColor.set(0x1c3a56)
+    composer.addPass(outline)
+
+    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.5, 0.75)
+    composer.addPass(bloom)
+
+    const vignette = new ShaderPass(VignetteShader)
+    composer.addPass(vignette)
+
+    composer.addPass(new OutputPass())
+
+    const params = {
+      postEnabled: true,
+      autoRotate: true,
+      edgeStrength: 4.5,
+      edgeThickness: 1.5,
+      bloomStrength: 0.5,
+      vignetteStrength: 1.15
+    }
+    const gui = new GUI({ title: '画面合成' })
+    gui.add(params, 'postEnabled').name('启用后处理（对比开关）')
+    gui.add(params, 'autoRotate').name('自动旋转')
+    gui.add(params, 'edgeStrength', 0, 10, 0.1).name('描边发光强度')
+      .onChange(v => outline.edgeStrength = v)
+    gui.add(params, 'edgeThickness', 0, 4, 0.05).name('描边宽度')
+      .onChange(v => outline.edgeThickness = v)
+    gui.add(params, 'bloomStrength', 0, 2, 0.01).name('泛光强度')
+      .onChange(v => bloom.strength = v)
+    gui.add(params, 'vignetteStrength', 0, 2.5, 0.01).name('暗角强度')
+      .onChange(v => vignette.uniforms.uStrength.value = v)
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      if (params.autoRotate) {
+        product.rotation.y += 0.006
+        product.rotation.x += 0.002
+      }
+      controls.update()
+      // 开/关后处理：切渲染入口即可，不用拆链
+      if (params.postEnabled) composer.render()
+      else renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      composer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

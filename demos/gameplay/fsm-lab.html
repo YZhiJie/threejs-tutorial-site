@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fsm-lab · 输入映射与状态机调试台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info,
+    .panel {
+      position: fixed;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 12.5px;
+      line-height: 1.6;
+    }
+
+    .info {
+      top: 14px;
+      left: 14px;
+      width: 274px;
+      padding: 10px 12px;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info kbd {
+      display: inline-block;
+      padding: 0 5px;
+      border: 1px solid #334155;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      background: #111a30;
+      color: #e2e8f0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .badge {
+      display: inline-block;
+      margin-left: 4px;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: #164e63;
+      color: #a5f3fc;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-weight: 600;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .actions button {
+      flex: 1 1 auto;
+      min-width: 56px;
+      padding: 5px 4px;
+      border: 1px solid #334155;
+      border-radius: 7px;
+      background: #111a30;
+      color: #cbd5e1;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .actions button:hover {
+      border-color: #22d3ee;
+      color: #a5f3fc;
+    }
+
+    .actions button:active {
+      transform: translateY(1px);
+    }
+
+    .diagram-panel {
+      top: 158px;
+      left: 14px;
+      width: 274px;
+      padding: 8px 12px 10px;
+    }
+
+    .log-panel {
+      top: 14px;
+      right: 14px;
+      width: 232px;
+      height: 264px;
+      padding: 8px 12px;
+      overflow: hidden;
+    }
+
+    .panel h2 {
+      margin: 0 0 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+
+    .panel h2 small {
+      float: right;
+      color: #64748b;
+      font-weight: 400;
+      font-size: 10.5px;
+    }
+
+    #diagram {
+      position: relative;
+      width: 260px;
+      height: 232px;
+    }
+
+    .node {
+      position: absolute;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 78px;
+      height: 32px;
+      border: 1px solid #31527a;
+      border-radius: 8px;
+      background: #111a30;
+      color: #94a3b8;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+      transition: border-color .18s, color .18s, box-shadow .18s, background .18s;
+    }
+
+    .node small {
+      margin-left: 4px;
+      font-size: 10px;
+      color: #64748b;
+    }
+
+    .node.active {
+      border-color: #22d3ee;
+      background: #0b2b3a;
+      color: #a5f3fc;
+      box-shadow: 0 0 0 2px rgba(34, 211, 238, .16), 0 0 18px rgba(34, 211, 238, .35);
+    }
+
+    .node.active small {
+      color: #67e8f9;
+    }
+
+    .edge {
+      position: absolute;
+      z-index: 1;
+      height: 1.5px;
+      background: #2b4260;
+      transform-origin: 0 50%;
+      opacity: .9;
+    }
+
+    .edge::after {
+      content: '';
+      position: absolute;
+      right: -1px;
+      top: -2.5px;
+      width: 6px;
+      height: 6px;
+      border-top: 1.5px solid #2b4260;
+      border-right: 1.5px solid #2b4260;
+      transform: rotate(45deg);
+    }
+
+    .edge.lit {
+      background: #22d3ee;
+      opacity: 1;
+    }
+
+    .edge.lit::after {
+      border-color: #22d3ee;
+    }
+
+    .edge-label {
+      position: absolute;
+      z-index: 2;
+      transform: translate(-50%, -50%);
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: #0b0e14;
+      border: 1px solid #223055;
+      color: #64748b;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 9.5px;
+      white-space: nowrap;
+    }
+
+    #log {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.45;
+    }
+
+    .log-row {
+      display: flex;
+      gap: 4px;
+      align-items: baseline;
+      padding: 2px 4px;
+      border-radius: 4px;
+      background: rgba(17, 26, 48, .55);
+      color: #94a3b8;
+      animation: slideIn .18s ease-out;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .log-row .ok {
+      color: #34d399;
+    }
+
+    .log-row .warn {
+      color: #fbbf24;
+    }
+
+    .log-row .bad {
+      color: #fb7185;
+    }
+
+    .log-row .force {
+      color: #c4b5fd;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-3px);
+      }
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 214px;
+      top: auto;
+      bottom: 54px;
+      right: 14px;
+    }
+
+    @media (max-width: 620px) {
+      .info {
+        width: 216px;
+        font-size: 11.5px;
+      }
+
+      .diagram-panel {
+        width: 220px;
+      }
+
+      .log-panel {
+        width: 194px;
+        height: 238px;
+        font-size: 11px;
+      }
+
+      #log {
+        font-size: 10px;
+      }
+
+      .hint {
+        font-size: 11px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="info">
+    <b>状态机调试台 · 输入 → 语义动作 → 状态</b><br />
+    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动 · <kbd>空格</kbd> 跳跃 ·
+    <kbd>J</kbd> 攻击 · <kbd>H</kbd> 受伤<br />
+    当前状态：<span class="badge" id="stateBadge">idle</span>
+    <div class="actions">
+      <button type="button" data-action="move">移动开关</button>
+      <button type="button" data-action="jump">跳跃</button>
+      <button type="button" data-action="attack">攻击</button>
+      <button type="button" data-action="hurt">受伤</button>
+    </div>
+  </div>
+
+  <div class="panel diagram-panel">
+    <h2>状态机图 <small>高亮 = 当前状态</small></h2>
+    <div id="diagram"></div>
+  </div>
+
+  <div class="panel log-panel">
+    <h2>转移日志 <small>最近 10 条</small></h2>
+    <div id="log"></div>
+  </div>
+
+  <div class="hint">拖拽旋转视角 · 滚轮缩放 · 右上角切换严格 / 宽容模式</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 场景基础 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 9, 20)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(4.6, 3.6, 6.4)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.05
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.15, 0)
+    controls.minDistance = 4
+    controls.maxDistance = 12
+    controls.maxPolarAngle = Math.PI * 0.48
+
+    scene.add(new THREE.AmbientLight(0x8fa9c9, 1.1))
+    const keyLight = new THREE.DirectionalLight(0xdbeafe, 2.4)
+    keyLight.position.set(4, 7, 5)
+    scene.add(keyLight)
+    const rimLight = new THREE.PointLight(0x22d3ee, 22, 14, 2)
+    rimLight.position.set(-3.5, 3, -2.5)
+    scene.add(rimLight)
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(16, 16),
+      new THREE.MeshStandardMaterial({ color: 0x101827, roughness: 0.82, metalness: 0.12 })
+    )
+    floor.rotation.x = -Math.PI / 2
+    scene.add(floor)
+
+    const grid = new THREE.GridHelper(16, 16, 0x22d3ee, 0x1e2a44)
+    grid.position.y = 0.012
+    grid.material.transparent = true
+    grid.material.opacity = 0.42
+    scene.add(grid)
+
+    // 四角光柱，给空间一点纵深
+    const pillarGeo = new THREE.BoxGeometry(0.14, 2.4, 0.14)
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x1e3a5f, emissive: 0x0e7490, emissiveIntensity: 0.5 })
+    ;[[-4.6, -4.6], [4.6, -4.6], [-4.6, 4.6], [4.6, 4.6]].forEach(([x, z]) => {
+      const pillar = new THREE.Mesh(pillarGeo, pillarMat)
+      pillar.position.set(x, 1.2, z)
+      scene.add(pillar)
+    })
+
+    /* ---------- 几何角色 ---------- */
+    const avatar = new THREE.Group()
+    scene.add(avatar)
+    const bodyGroup = new THREE.Group()
+    avatar.add(bodyGroup)
+
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0x22d3ee,
+      roughness: 0.38,
+      metalness: 0.18,
+      emissive: 0x0e7490,
+      emissiveIntensity: 0.45
+    })
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.58, 8, 18), bodyMat)
+    body.position.y = 0.72
+    bodyGroup.add(body)
+
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xffd9b3, roughness: 0.6 })
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 18), skinMat)
+    head.position.y = 1.34
+    bodyGroup.add(head)
+
+    const hairMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.55 })
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.312, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.58),
+      hairMat
+    )
+    hair.position.y = 1.37
+    bodyGroup.add(hair)
+
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.4 })
+    const eyeGeo = new THREE.SphereGeometry(0.036, 12, 10)
+    ;[-0.1, 0.1].forEach((x) => {
+      const eye = new THREE.Mesh(eyeGeo, eyeMat)
+      eye.position.set(x, 1.35, 0.268)
+      bodyGroup.add(eye)
+    })
+
+    const armGeo = new THREE.CapsuleGeometry(0.07, 0.34, 4, 10)
+    const armMat = new THREE.MeshStandardMaterial({ color: 0xa5f3fc, roughness: 0.45 })
+    ;[-1, 1].forEach((side) => {
+      const arm = new THREE.Mesh(armGeo, armMat)
+      arm.position.set(side * 0.42, 0.86, 0)
+      arm.rotation.z = side * 0.16
+      bodyGroup.add(arm)
+    })
+
+    // 脚底光圈：让角色落地位置更清楚
+    const footRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.36, 0.44, 36),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    )
+    footRing.rotation.x = -Math.PI / 2
+    footRing.position.y = 0.018
+    scene.add(footRing)
+
+    /* ---------- 状态机图（HTML/CSS 节点与连线） ---------- */
+    const NODE_BOX = {
+      idle: { x: 89, y: 2 },
+      move: { x: 89, y: 66 },
+      attack: { x: 8, y: 130 },
+      hurt: { x: 170, y: 130 },
+      jump: { x: 89, y: 194 }
+    }
+    const NODE_LABEL = { idle: '待机', move: '移动', attack: '攻击', hurt: '受伤', jump: '跳跃' }
+    const NODE_CENTER = {}
+    const diagram = document.getElementById('diagram')
+    const nodeEls = {}
+
+    Object.entries(NODE_BOX).forEach(([state, box]) => {
+      const el = document.createElement('div')
+      el.className = 'node'
+      el.dataset.state = state
+      el.style.left = box.x + 'px'
+      el.style.top = box.y + 'px'
+      el.innerHTML = `${state}<small>${NODE_LABEL[state]}</small>`
+      diagram.appendChild(el)
+      nodeEls[state] = el
+      NODE_CENTER[state] = { x: box.x + 39, y: box.y + 16 }
+    })
+
+    const EDGES = [
+      { from: 'idle', to: 'move', label: 'MOVE / STOP', t: 0.5, dx: 0, dy: 0 },
+      { from: 'move', to: 'attack', label: 'ATTACK / DONE', t: 0.5, dx: 0, dy: -7 },
+      { from: 'move', to: 'hurt', label: 'HURT / RECOVER', t: 0.5, dx: 0, dy: -7 },
+      { from: 'move', to: 'jump', label: 'JUMP / LAND', t: 0.5, dx: 0, dy: 0 }
+    ]
+
+    EDGES.forEach((edge) => {
+      const a = NODE_CENTER[edge.from]
+      const b = NODE_CENTER[edge.to]
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const len = Math.hypot(dx, dy)
+      const angle = Math.atan2(dy, dx) * 180 / Math.PI
+      const line = document.createElement('div')
+      line.className = 'edge'
+      line.dataset.from = edge.from
+      line.dataset.to = edge.to
+      line.style.left = a.x + 'px'
+      line.style.top = (a.y - 0.75) + 'px'
+      line.style.width = len + 'px'
+      line.style.transform = `rotate(${angle}deg)`
+      diagram.appendChild(line)
+
+      const label = document.createElement('div')
+      label.className = 'edge-label'
+      label.textContent = edge.label
+      label.style.left = (a.x + dx * edge.t + edge.dx) + 'px'
+      label.style.top = (a.y + dy * edge.t + edge.dy) + 'px'
+      diagram.appendChild(label)
+    })
+
+    /* ---------- 转移表与状态机 ---------- */
+    const TRANSITIONS = {
+      idle: { move: 'move', jump: 'jump', attack: 'attack', hurt: 'hurt' },
+      move: { idle: 'idle', jump: 'jump', attack: 'attack', hurt: 'hurt' },
+      jump: { land: 'idle', hurt: 'hurt' },
+      attack: { done: 'idle', hurt: 'hurt' },
+      hurt: { recover: 'idle' }
+    }
+    const STATE_DURATION = { idle: Infinity, move: Infinity, jump: 0.9, attack: 0.55, hurt: 0.7 }
+    const FALLBACK = { move: 'move', idle: 'idle', jump: 'jump', attack: 'attack', hurt: 'hurt' }
+    const STATE_COLOR = { idle: 0x0e7490, move: 0x0891b2, jump: 0x22d3ee, attack: 0xf472b6, hurt: 0xf97316 }
+
+    let state = 'idle'
+    let stateTime = 0
+    let strict = true
+    let elapsed = 0
+    let bufferAction = null
+    let bufferTime = 0
+
+    const moveHeld = new Set()
+    const stateBadge = document.getElementById('stateBadge')
+    const logEl = document.getElementById('log')
+    const logs = []
+
+    function fmtTime(sec) {
+      return sec.toFixed(2).padStart(5, '0')
+    }
+
+    function addLog(from, to, action, result) {
+      const tagMap = {
+        ok: ['✓', 'ok'],
+        warn: ['!', 'warn'],
+        force: ['~', 'force'],
+        bad: ['✕', 'bad']
+      }
+      const [mark, cls] = tagMap[result]
+      logs.unshift({
+        time: fmtTime(elapsed),
+        text: `${from} → ${to}  ${action}`,
+        mark,
+        cls
+      })
+      if (logs.length > 10) logs.pop()
+      logEl.innerHTML = logs.map((row) => (
+        `<div class="log-row"><span style="color:#475569">${row.time}s</span>` +
+        `<span class="${row.cls}">${row.mark}</span>` +
+        `<span class="${row.cls}">${row.text}</span></div>`
+      )).join('')
+    }
+
+    function highlightState() {
+      Object.entries(nodeEls).forEach(([name, el]) => {
+        el.classList.toggle('active', name === state)
+      })
+      document.querySelectorAll('.edge').forEach((line) => {
+        line.classList.toggle('lit', line.dataset.from === state || line.dataset.to === state)
+      })
+      stateBadge.textContent = state
+    }
+
+    function markMaterials() {
+      bodyMat.emissive.setHex(STATE_COLOR[state])
+      bodyMat.emissiveIntensity = state === 'hurt' ? 1.6 : state === 'attack' ? 1.1 : 0.55
+    }
+
+    function go(next, action, result = 'ok') {
+      const from = state
+      const finalState = next === 'idle' && moveHeld.size > 0 ? 'move' : next
+      state = finalState
+      stateTime = 0
+      markMaterials()
+      highlightState()
+      addLog(from, finalState, action, result)
+    }
+
+    function request(action) {
+      const target = TRANSITIONS[state] ? TRANSITIONS[state][action] : undefined
+      if (target) {
+        go(target, action, 'ok')
+        return true
+      }
+      if (!strict) {
+        go(FALLBACK[action] || action, action + '(宽容)', 'force')
+        return true
+      }
+      addLog(state, state, action + ' 被拒绝', 'bad')
+      return false
+    }
+
+    function bufferOrRequest(action) {
+      // 只有"跳跃"在跳跃 / 攻击中做输入缓冲；攻击、受伤直接走转移表，
+      // 这样才能在严格模式下观察到被拒绝的非法转移。
+      if (action === 'jump' && (state === 'jump' || state === 'attack')) {
+        bufferAction = action
+        bufferTime = 0.22
+        addLog(state, state, action + ' 进入缓冲', 'warn')
+        return
+      }
+      request(action)
+    }
+
+    function flushBuffer() {
+      if (!bufferAction) return
+      const action = bufferAction
+      bufferAction = null
+      bufferTime = 0
+      addLog(state, state, action + ' 缓冲补发', 'warn')
+      request(action)
+    }
+
+    /* ---------- 输入映射：键位 → 语义动作 ---------- */
+    const KEY_TO_ACTION = {
+      KeyW: 'forward',
+      KeyA: 'left',
+      KeyS: 'back',
+      KeyD: 'right',
+      Space: 'jump',
+      KeyJ: 'attack',
+      KeyH: 'hurt'
+    }
+    const MOVE_ACTIONS = new Set(['forward', 'left', 'back', 'right'])
+
+    addEventListener('keydown', (event) => {
+      const action = KEY_TO_ACTION[event.code]
+      if (!action) return
+      event.preventDefault()
+      if (MOVE_ACTIONS.has(action)) {
+        moveHeld.add(action)
+        if (state === 'idle') request('move')
+        return
+      }
+      if (event.repeat) return
+      if (action === 'jump' || action === 'attack') {
+        bufferOrRequest(action)
+        return
+      }
+      request(action)
+    })
+
+    addEventListener('keyup', (event) => {
+      const action = KEY_TO_ACTION[event.code]
+      if (!action || !MOVE_ACTIONS.has(action)) return
+      event.preventDefault()
+      moveHeld.delete(action)
+      if (moveHeld.size === 0 && state === 'move') request('idle')
+    })
+
+    document.querySelectorAll('.actions button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action
+        if (action === 'move') {
+          if (state === 'idle') request('move')
+          else if (state === 'move') request('idle')
+          else request('move')
+          return
+        }
+        bufferOrRequest(action)
+      })
+    })
+
+    function moveVector() {
+      let x = 0
+      let z = 0
+      if (moveHeld.has('forward')) z -= 1
+      if (moveHeld.has('back')) z += 1
+      if (moveHeld.has('left')) x -= 1
+      if (moveHeld.has('right')) x += 1
+      const length = Math.hypot(x, z)
+      if (length > 0) {
+        x /= length
+        z /= length
+      }
+      return { x, z, moving: length > 0 }
+    }
+
+    /* ---------- 每帧更新（dt 积分，帧率无关） ---------- */
+    function update(dt) {
+      elapsed += dt
+      stateTime += dt
+
+      if (bufferAction) {
+        bufferTime -= dt
+        if (bufferTime <= 0) bufferAction = null
+      }
+
+      const dir = moveVector()
+      if (dir.moving && (state === 'move' || state === 'jump')) {
+        const speed = state === 'jump' ? 2.4 : 3.2
+        avatar.position.x = THREE.MathUtils.clamp(avatar.position.x + dir.x * speed * dt, -3.9, 3.9)
+        avatar.position.z = THREE.MathUtils.clamp(avatar.position.z + dir.z * speed * dt, -3.9, 3.9)
+        const targetAngle = Math.atan2(dir.x, dir.z)
+        avatar.rotation.y = THREE.MathUtils.lerp(
+          avatar.rotation.y,
+          targetAngle,
+          Math.min(1, dt * 12)
+        )
+      }
+
+      const duration = STATE_DURATION[state]
+      if (duration !== Infinity && stateTime >= duration) {
+        if (state === 'jump') request('land')
+        else if (state === 'attack') request('done')
+        else if (state === 'hurt') request('recover')
+        if (state === 'idle' || state === 'move') flushBuffer()
+      }
+
+      // 状态驱动的程序化动画
+      let bob = 0
+      let lift = 0
+      let tilt = 0
+      let shake = 0
+      if (state === 'idle') {
+        bob = Math.sin(elapsed * 2.2) * 0.03
+      } else if (state === 'move') {
+        bob = Math.abs(Math.sin(elapsed * 9)) * 0.07
+      } else if (state === 'jump') {
+        const p = THREE.MathUtils.clamp(stateTime / STATE_DURATION.jump, 0, 1)
+        lift = Math.sin(p * Math.PI) * 1.05
+        bob = 0
+      } else if (state === 'attack') {
+        const p = THREE.MathUtils.clamp(stateTime / STATE_DURATION.attack, 0, 1)
+        tilt = Math.sin(p * Math.PI) * 0.42
+        shake = Math.sin(p * Math.PI * 6) * 0.06
+      } else if (state === 'hurt') {
+        shake = Math.sin(elapsed * 48) * 0.09
+        tilt = 0.22
+      }
+
+      bodyGroup.position.y = bob + lift
+      bodyGroup.position.x = shake
+      bodyGroup.rotation.z = tilt
+
+      footRing.position.x = avatar.position.x
+      footRing.position.z = avatar.position.z
+      const ringPulse = 1 + Math.sin(elapsed * 2.4) * 0.06
+      footRing.scale.setScalar(ringPulse)
+    }
+
+    highlightState()
+    markMaterials()
+    addLog('init', 'idle', '初始化', 'ok')
+
+    const gui = new GUI({ title: '状态机调试' })
+    const params = { strict: true }
+    gui.add(params, 'strict').name('严格模式（拒绝非法转移）').onChange((value) => {
+      strict = value
+      addLog(state, state, value ? '切换严格模式' : '切换宽容模式', 'warn')
+    })
+    gui.add({ reset: () => { moveHeld.clear(); bufferAction = null; go('idle', '重置', 'warn') } }, 'reset')
+      .name('重置状态机')
+
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+      update(dt)
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

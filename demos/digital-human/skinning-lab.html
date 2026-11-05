@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>skinning-lab · 骨骼与蒙皮台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 392px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .8);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .stat {
+      display: block;
+      margin-top: 6px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info .note {
+      display: block;
+      margin-top: 5px;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .note.ok {
+      color: #34d399;
+    }
+
+    .note.bad {
+      color: #fb7185;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 208px;
+        font-size: 12px;
+      }
+
+      .hint {
+        white-space: normal;
+        max-width: 88vw;
+        text-align: center;
+      }
+
+      .lil-gui.root {
+        --width: 196px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>骨骼与蒙皮台 · 程序化人形</b><br />
+    一副 17 根骨骼的骨架，网格由 <code>skinIndex / skinWeight</code> 绑定到骨骼上。
+    <span class="stat" id="stat"></span>
+    <span class="note ok" id="note"></span>
+  </div>
+  <div class="hint">拖动关节滑块 · 开关骨骼线 · 切换蒙皮权重 · 拖拽旋转视角</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+    import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
+
+    /* ---------- 基础场景 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 6.5, 13)
+
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0.45, 1.7, 4.7)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.1
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.05, 0)
+    controls.minDistance = 2.2
+    controls.maxDistance = 8
+
+    scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x0b0e14, 1.1))
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2)
+    keyLight.position.set(3, 5, 4)
+    scene.add(keyLight)
+    const rimA = new THREE.PointLight(0x22d3ee, 20, 9, 2)
+    rimA.position.set(-2.6, 2.4, 2.2)
+    scene.add(rimA)
+    const rimB = new THREE.PointLight(0xf472b6, 14, 9, 2)
+    rimB.position.set(2.5, 1.0, -2.5)
+    scene.add(rimB)
+
+    const grid = new THREE.GridHelper(10, 20, 0x223055, 0x162033)
+    grid.position.y = 0.001
+    scene.add(grid)
+
+    const pedestal = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.0, 1.15, 0.1, 48),
+      new THREE.MeshStandardMaterial({ color: 0x111a30, roughness: 0.9, metalness: 0.1 })
+    )
+    pedestal.position.y = -0.06
+    scene.add(pedestal)
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(1.2, 1.26, 64),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.32, side: THREE.DoubleSide })
+    )
+    ring.rotation.x = -Math.PI / 2
+    ring.position.y = 0.002
+    scene.add(ring)
+
+    /* ---------- 1. 程序化骨架：Bone 层级 ---------- */
+    const bones = []
+    const boneIndex = {}
+    function makeBone(name, x, y, z, parent) {
+      const bone = new THREE.Bone()
+      bone.name = name
+      bone.position.set(x, y, z)
+      if (parent) parent.add(bone)
+      bones.push(bone)
+      boneIndex[name] = bones.length - 1
+      return bone
+    }
+
+    const hips = makeBone('hips', 0, 0.95, 0, null)
+    const spine = makeBone('spine', 0, 0.28, 0, hips)
+    const chest = makeBone('chest', 0, 0.28, 0, spine)
+    const neck = makeBone('neck', 0, 0.16, 0, chest)
+    const head = makeBone('head', 0, 0.13, 0, neck)
+
+    const shoulderL = makeBone('shoulderL', 0.30, 0.04, 0, chest)
+    const elbowL = makeBone('elbowL', 0.32, 0, 0, shoulderL)
+    const wristL = makeBone('wristL', 0.30, 0, 0, elbowL)
+
+    const shoulderR = makeBone('shoulderR', -0.30, 0.04, 0, chest)
+    const elbowR = makeBone('elbowR', -0.32, 0, 0, shoulderR)
+    const wristR = makeBone('wristR', -0.30, 0, 0, elbowR)
+
+    const hipL = makeBone('hipL', 0.13, -0.06, 0, hips)
+    const kneeL = makeBone('kneeL', 0, -0.42, 0, hipL)
+    const ankleL = makeBone('ankleL', 0, -0.42, 0, kneeL)
+
+    const hipR = makeBone('hipR', -0.13, -0.06, 0, hips)
+    const kneeR = makeBone('kneeR', 0, -0.42, 0, hipR)
+    const ankleR = makeBone('ankleR', 0, -0.42, 0, kneeR)
+
+    /* ---------- 2. 拼网格：每个顶点写 skinIndex / skinWeight ---------- */
+    const BI = boneIndex
+    const clamp01 = (v) => THREE.MathUtils.clamp(v, 0, 1)
+
+    function torsoWeights(p) {
+      const out = []
+      const tent = (name, centerY, range) => {
+        const w = Math.max(0, 1 - Math.abs(p.y - centerY) / range)
+        if (w > 0.001) out.push([BI[name], w])
+      }
+      tent('hips', 0.95, 0.32)
+      tent('spine', 1.23, 0.32)
+      tent('chest', 1.51, 0.32)
+      return out
+    }
+
+    function armWeights(side) {
+      const sh = BI['shoulder' + side]
+      const el = BI['elbow' + side]
+      const wr = BI['wrist' + side]
+      return {
+        upper(p) {
+          const t = clamp01((Math.abs(p.x) - 0.30) / 0.32)
+          const e = THREE.MathUtils.smoothstep(t, 0.5, 1.0)
+          return [[sh, 1 - e], [el, e]]
+        },
+        fore(p) {
+          const t = clamp01((Math.abs(p.x) - 0.62) / 0.30)
+          const w = THREE.MathUtils.smoothstep(t, 0.5, 1.0)
+          return [[el, 1 - w], [wr, w]]
+        },
+        hand() {
+          return [[wr, 1]]
+        }
+      }
+    }
+
+    function legWeights(side) {
+      const hip = BI['hip' + side]
+      const knee = BI['knee' + side]
+      const ankle = BI['ankle' + side]
+      return {
+        thigh(p) {
+          const t = clamp01((0.91 - p.y) / 0.44)
+          const k = THREE.MathUtils.smoothstep(t, 0.5, 1.0)
+          return [[hip, 1 - k], [knee, k]]
+        },
+        shin(p) {
+          const t = clamp01((0.47 - p.y) / 0.42)
+          const a = THREE.MathUtils.smoothstep(t, 0.55, 1.0)
+          return [[knee, 1 - a], [ankle, a]]
+        },
+        foot() {
+          return [[ankle, 1]]
+        }
+      }
+    }
+
+    const M = (x, y, z, rx = 0, ry = 0, rz = 0) => new THREE.Matrix4().compose(
+      new THREE.Vector3(x, y, z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+      new THREE.Vector3(1, 1, 1)
+    )
+
+    const parts = []
+    const tmpColor = new THREE.Color()
+
+    function addPart(geometry, matrix, hex, weightFn) {
+      geometry.applyMatrix4(matrix)
+      geometry.clearGroups()
+      const pos = geometry.attributes.position
+      const count = pos.count
+      const colors = new Float32Array(count * 3)
+      tmpColor.setHex(hex)
+      for (let i = 0; i < count; i++) {
+        colors[i * 3] = tmpColor.r
+        colors[i * 3 + 1] = tmpColor.g
+        colors[i * 3 + 2] = tmpColor.b
+      }
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+
+      const index = new Uint16Array(count * 4)
+      const weight = new Float32Array(count * 4)
+      const v = new THREE.Vector3()
+      for (let i = 0; i < count; i++) {
+        v.fromBufferAttribute(pos, i)
+        const infs = weightFn(v)
+        let sum = 0
+        for (let k = 0; k < 4; k++) {
+          const inf = infs[k]
+          if (!inf) continue
+          index[i * 4 + k] = inf[0]
+          weight[i * 4 + k] = inf[1]
+          sum += inf[1]
+        }
+        if (sum > 0) {
+          for (let k = 0; k < 4; k++) weight[i * 4 + k] /= sum
+        } else {
+          index[i * 4] = 0
+          weight[i * 4] = 1
+        }
+      }
+      geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(index, 4))
+      geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weight, 4))
+      parts.push(geometry)
+    }
+
+    // 躯干与骨盆
+    addPart(new THREE.CapsuleGeometry(0.20, 0.40, 6, 20), M(0, 1.29, 0), 0x2b3d5c, torsoWeights)
+    addPart(new THREE.CapsuleGeometry(0.17, 0.10, 5, 16), M(0, 0.98, 0), 0x1e2b40, () => [[BI.hips, 1]])
+    addPart(new THREE.CylinderGeometry(0.085, 0.10, 0.16, 12), M(0, 1.66, 0), 0x2b3d5c, () => [[BI.neck, 1]])
+    addPart(new THREE.SphereGeometry(0.20, 26, 20), M(0, 1.80, 0), 0xf0c9a8, () => [[BI.head, 1]])
+
+    // 左右手臂
+    const armL = armWeights('L')
+    const armR = armWeights('R')
+    addPart(new THREE.CapsuleGeometry(0.058, 0.22, 5, 14), M(0.46, 1.55, 0, 0, 0, -Math.PI / 2), 0x2f4a6b, armL.upper)
+    addPart(new THREE.CapsuleGeometry(0.050, 0.20, 5, 14), M(0.77, 1.55, 0, 0, 0, -Math.PI / 2), 0x2f4a6b, armL.fore)
+    addPart(new THREE.SphereGeometry(0.062, 14, 10), M(0.955, 1.55, 0), 0x38bdf8, armL.hand)
+    addPart(new THREE.CapsuleGeometry(0.058, 0.22, 5, 14), M(-0.46, 1.55, 0, 0, 0, Math.PI / 2), 0x2f4a6b, armR.upper)
+    addPart(new THREE.CapsuleGeometry(0.050, 0.20, 5, 14), M(-0.77, 1.55, 0, 0, 0, Math.PI / 2), 0x2f4a6b, armR.fore)
+    addPart(new THREE.SphereGeometry(0.062, 14, 10), M(-0.955, 1.55, 0), 0x38bdf8, armR.hand)
+
+    // 左右腿
+    const legL = legWeights('L')
+    const legR = legWeights('R')
+    addPart(new THREE.CapsuleGeometry(0.085, 0.24, 6, 16), M(0.13, 0.71, 0), 0x263850, legL.thigh)
+    addPart(new THREE.CapsuleGeometry(0.068, 0.26, 6, 16), M(0.13, 0.26, 0), 0x263850, legL.shin)
+    addPart(new THREE.BoxGeometry(0.13, 0.08, 0.28), M(0.13, 0.04, 0.055), 0x141d2b, legL.foot)
+    addPart(new THREE.CapsuleGeometry(0.085, 0.24, 6, 16), M(-0.13, 0.71, 0), 0x263850, legR.thigh)
+    addPart(new THREE.CapsuleGeometry(0.068, 0.26, 6, 16), M(-0.13, 0.26, 0), 0x263850, legR.shin)
+    addPart(new THREE.BoxGeometry(0.13, 0.08, 0.28), M(-0.13, 0.04, 0.055), 0x141d2b, legR.foot)
+
+    const merged = BufferGeometryUtils.mergeGeometries(parts, false)
+
+    /* ---------- 3. 绑定：Skeleton + SkinnedMesh ---------- */
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.62,
+      metalness: 0.12
+    })
+    const skinned = new THREE.SkinnedMesh(merged, material)
+    skinned.frustumCulled = false
+    skinned.add(hips)
+    scene.add(skinned)
+    scene.updateMatrixWorld(true)
+
+    const skeleton = new THREE.Skeleton(bones)
+    skinned.bind(skeleton)
+
+    // 面部小件：直接挂在 head 骨骼上，随骨骼一起转
+    const faceMat = new THREE.MeshStandardMaterial({ color: 0x0b0e14, roughness: 0.35 })
+    for (const sx of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.024, 12, 10), faceMat)
+      eye.position.set(sx * 0.07, 0.035, 0.181)
+      head.add(eye)
+    }
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.012, 0.012), faceMat)
+    mouth.position.set(0, -0.055, 0.187)
+    head.add(mouth)
+
+    const helper = new THREE.SkeletonHelper(skinned)
+    helper.material.color.set(0x22d3ee)
+    helper.material.depthTest = false
+    helper.material.transparent = true
+    helper.material.opacity = 0.85
+    scene.add(helper)
+
+    /* ---------- 4. 正确 / 错误权重 ---------- */
+    const correctIndex = merged.getAttribute('skinIndex')
+    const correctWeight = merged.getAttribute('skinWeight')
+    const vertexCount = merged.attributes.position.count
+
+    const wrongIndex = new THREE.Uint16BufferAttribute(new Uint16Array(vertexCount * 4), 4)
+    const wrongWeightArray = new Float32Array(vertexCount * 4)
+    for (let i = 0; i < vertexCount; i++) wrongWeightArray[i * 4] = 1
+    const wrongWeight = new THREE.Float32BufferAttribute(wrongWeightArray, 4)
+
+    /* ---------- 5. 参数与 HUD ---------- */
+    const params = {
+      肩: 18,
+      肘: 32,
+      髋: 6,
+      膝: 14,
+      呼吸: true,
+      骨骼线: true,
+      蒙皮: '正确蒙皮'
+    }
+
+    const statEl = document.getElementById('stat')
+    const noteEl = document.getElementById('note')
+
+    function refreshHud() {
+      statEl.textContent = `${bones.length} 骨骼 · ${vertexCount} 顶点 · 每顶点 4 个影响槽`
+      const wrong = params.蒙皮 !== '正确蒙皮'
+      noteEl.className = 'note ' + (wrong ? 'bad' : 'ok')
+      noteEl.textContent = wrong
+        ? '全部权重给 hips：网格被钉在绑定姿态，关节转动只让骨骼线弯曲。'
+        : '权重按关节距离平滑分配并归一化：弯曲时网格连续变形。'
+    }
+
+    function applySkinMode() {
+      const useCorrect = params.蒙皮 === '正确蒙皮'
+      merged.setAttribute('skinIndex', useCorrect ? correctIndex : wrongIndex)
+      merged.setAttribute('skinWeight', useCorrect ? correctWeight : wrongWeight)
+      merged.attributes.skinIndex.needsUpdate = true
+      merged.attributes.skinWeight.needsUpdate = true
+      refreshHud()
+    }
+    applySkinMode()
+
+    /* ---------- 6. GUI 与逐帧姿态 ---------- */
+    const gui = new GUI({ title: '骨架与蒙皮' })
+    gui.add(params, '肩', 0, 110, 1).name('肩部抬起 (°)')
+    gui.add(params, '肘', 0, 120, 1).name('肘部弯曲 (°)')
+    gui.add(params, '髋', -35, 45, 1).name('髋部摆动 (°)')
+    gui.add(params, '膝', 0, 100, 1).name('膝部弯曲 (°)')
+    gui.add(params, '呼吸').name('呼吸微动')
+    gui.add(params, '骨骼线').name('SkeletonHelper').onChange((v) => { helper.visible = v })
+    gui.add(params, '蒙皮', ['正确蒙皮', '错误：权重全给 hips']).name('skinWeight').onChange(applySkinMode)
+
+    const DEG = Math.PI / 180
+
+    function applyPose(elapsed) {
+      const s = params.肩 * DEG
+      const e = params.肘 * DEG
+      const h = params.髋 * DEG
+      const k = params.膝 * DEG
+
+      shoulderL.rotation.z = s
+      shoulderR.rotation.z = -s
+      elbowL.rotation.y = -e
+      elbowR.rotation.y = e
+      hipL.rotation.x = -h
+      hipR.rotation.x = -h
+      kneeL.rotation.x = k
+      kneeR.rotation.x = k
+
+      if (params.呼吸) {
+        spine.rotation.x = Math.sin(elapsed * 1.2) * 0.025
+        chest.rotation.y = Math.sin(elapsed * 0.7) * 0.03
+        head.rotation.y = Math.sin(elapsed * 0.5) * 0.08
+      } else {
+        spine.rotation.x = 0
+        chest.rotation.y = 0
+        head.rotation.y = 0
+      }
+    }
+
+    /* ---------- 7. 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      timer.getDelta()
+      const elapsed = timer.getElapsed()
+      applyPose(elapsed)
+      ring.material.opacity = 0.26 + Math.sin(elapsed * 2) * 0.08
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

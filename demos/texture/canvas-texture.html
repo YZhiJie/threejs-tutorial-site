@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>canvas-texture · Canvas 程序化纹理与 UV</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 340px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>无需图片文件也能做纹理</b>：在 &lt;canvas&gt; 上用 2D API 画图，
+    再包成 CanvasTexture 交给材质。<br />
+    立方体每个面都映射了同一张图，这就是 <b>UV 映射</b>：
+    把 2D 图的 (u,v) 坐标贴到 3D 表面。
+  </div>
+  <div class="hint">右侧调整平铺次数，并打开线框对照 UV 边界</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.2, 4.8)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x222222, 0.9))
+    const dl = new THREE.DirectionalLight(0xffffff, 1.6)
+    dl.position.set(3, 5, 4)
+    scene.add(dl)
+
+    /* ---- 用 2D Canvas 程序化绘制一张 256x256 纹理 ---- */
+    function makePatternCanvas() {
+      const cv = document.createElement('canvas')
+      cv.width = cv.height = 256
+      const g = cv.getContext('2d')
+
+      const grad = g.createLinearGradient(0, 0, 256, 256)
+      grad.addColorStop(0, '#1d4ed8')
+      grad.addColorStop(1, '#22d3ee')
+      g.fillStyle = grad
+      g.fillRect(0, 0, 256, 256)
+
+      // 左上 / 右下两块棋盘，帮助看清方向与平铺接缝
+      g.fillStyle = 'rgba(255,255,255,0.85)'
+      g.fillRect(0, 0, 64, 64)
+      g.fillRect(192, 192, 64, 64)
+
+      g.strokeStyle = 'rgba(255,255,255,0.9)'
+      g.lineWidth = 8
+      g.strokeRect(4, 4, 248, 248)
+
+      g.fillStyle = '#0b0e14'
+      g.font = 'bold 110px -apple-system, sans-serif'
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText('UV', 128, 138)
+      return cv
+    }
+
+    const texture = new THREE.CanvasTexture(makePatternCanvas())
+    texture.colorSpace = THREE.SRGBColorSpace   // 颜色纹理应使用 sRGB
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+
+    const material = new THREE.MeshStandardMaterial({
+      map: texture, roughness: 0.5
+    })
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.8, 1.8), material)
+    box.position.x = -1.4
+    scene.add(box)
+
+    // 右侧同纹理平面：对应“UV 展开后”的效果
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.8, 1.8),
+      new THREE.MeshStandardMaterial({ map: texture, roughness: 0.5, side: THREE.DoubleSide })
+    )
+    plane.position.x = 1.4
+    scene.add(plane)
+
+    const params = { repeatX: 1, repeatY: 1, wireframe: false, spin: true }
+    const gui = new GUI({ title: '纹理参数' })
+    gui.add(params, 'repeatX', 1, 6, 1).name('水平平铺 repeat.x').onChange(v => texture.repeat.x = v)
+    gui.add(params, 'repeatY', 1, 6, 1).name('垂直平铺 repeat.y').onChange(v => texture.repeat.y = v)
+    gui.add(params, 'wireframe').name('线框（看 UV）').onChange(v => material.wireframe = v)
+    gui.add(params, 'spin').name('旋转')
+
+    renderer.setAnimationLoop(() => {
+      if (params.spin) {
+        box.rotation.y += 0.007
+        box.rotation.x += 0.004
+        plane.rotation.y += 0.007
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

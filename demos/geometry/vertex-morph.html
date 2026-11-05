@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vertex-morph · 顶点形变动画</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 340px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 250px; }
+    @media (max-width: 600px) { .info { max-width: 200px; font-size: 12px; } .lil-gui.root { --width: 190px; } }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>逐顶点动画</b>：每帧直接改写 position 属性里的 y 坐标，
+    再标记 <b>needsUpdate</b> 把数据重新上传 GPU。<br />
+    平面由此变成波浪；这是旗帜飘动、地形起伏、水面的基础做法。
+  </div>
+  <div class="hint">右侧面板调节波幅/波速/波长，也可切换线框观察顶点网格</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(4.2, 3.2, 4.8)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x182030, 1))
+    const dir = new THREE.DirectionalLight(0xffffff, 2)
+    dir.position.set(3, 6, 4)
+    scene.add(dir)
+
+    // 细分足够多的平面：顶点越多，波浪越平滑
+    const SIZE = 6
+    const SEG = 96
+    const geometry = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG)
+    geometry.rotateX(-Math.PI / 2)        // 平面转到 xz 水平面
+
+    // 用顶点高度映射颜色（低处蓝、高处白），需要逐顶点色
+    const colors = new Float32Array(geometry.attributes.position.count * 3)
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.35,
+      metalness: 0.25,
+      wireframe: false,
+      side: THREE.DoubleSide
+    })
+    const wave = new THREE.Mesh(geometry, material)
+    scene.add(wave)
+
+    const params = {
+      amplitude: 0.55,   // 波幅（高度）
+      wavelength: 3.2,   // 波长（相邻波峰距离）
+      speed: 1.6,
+      secondary: 0.35,   // 第二层波强度
+      wireframe: false
+    }
+    const gui = new GUI({ title: '波浪参数' })
+    gui.add(params, 'amplitude', 0, 1.5, 0.02).name('波幅 amplitude')
+    gui.add(params, 'wavelength', 0.8, 8, 0.1).name('波长 wavelength')
+    gui.add(params, 'speed', 0, 5, 0.05).name('波速 speed')
+    gui.add(params, 'secondary', 0, 1, 0.05).name('副波强度')
+    gui.add(params, 'wireframe').name('线框模式').onChange(v => material.wireframe = v)
+
+    const pos = geometry.attributes.position
+    const colAttr = geometry.attributes.color
+    const low = new THREE.Color(0x1d4ed8)
+    const mid = new THREE.Color(0x22d3ee)
+    const high = new THREE.Color(0xf0f9ff)
+    const tmp = new THREE.Color()
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    function updateWave(t) {
+      const k = (Math.PI * 2) / params.wavelength
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i)
+        const z = pos.getZ(i)
+        // 两个不同方向的正弦波叠加
+        const h1 = Math.sin(x * k + t * params.speed)
+        const h2 = Math.sin(z * k * 1.35 - t * params.speed * 1.25)
+        const y = (h1 + h2 * params.secondary) * params.amplitude
+        pos.setY(i, y)
+
+        // 按高度在 低→中→高 三色间插值
+        const n = THREE.MathUtils.clamp((y + params.amplitude * 1.3) / (params.amplitude * 2.6), 0, 1)
+        if (n < 0.5) tmp.copy(low).lerp(mid, n * 2)
+        else tmp.copy(mid).lerp(high, (n - 0.5) * 2)
+        colAttr.setXYZ(i, tmp.r, tmp.g, tmp.b)
+      }
+      pos.needsUpdate = true                // 关键：通知 GPU 重新上传
+      colAttr.needsUpdate = true
+      geometry.computeVertexNormals()       // 重新算法线，光照才会跟着起伏
+    }
+
+    updateWave(0)
+
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      updateWave(clock.getElapsed())
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

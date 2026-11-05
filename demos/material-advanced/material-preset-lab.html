@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>material-preset-lab · 材质预设库</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 372px;
+      max-width: calc(100vw - 28px);
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .82);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .stat {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .info pre {
+      margin: 6px 0 0;
+      max-height: 132px;
+      overflow: hidden;
+      padding: 8px 10px;
+      background: rgba(2, 6, 14, .72);
+      border: 1px solid rgba(124, 196, 255, .18);
+      border-radius: 8px;
+      color: #9fe0c8;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .info .note {
+      display: block;
+      margin-top: 5px;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 272px;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        width: 210px;
+        font-size: 12px;
+      }
+
+      .info pre {
+        max-height: 96px;
+        font-size: 10px;
+      }
+
+      .lil-gui.root {
+        --width: 198px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>材质预设库 · 运行时切换</b><br />
+    预设 = 参数 + 贴图槽位 + 补丁列表；切换时按需创建、切换后立即 dispose。<br />
+    <span class="stat" id="stat"></span>
+    <pre id="json"></pre>
+    <span class="note">共享实例省显存与编译；每物体独立可单独调参，代价是实例与程序变多。</span>
+  </div>
+  <div class="hint">右上角选择预设 / 共享策略 · 随机打散材质 · 拖拽旋转</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 渲染基础 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 12, 24)
+
+    const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.7, 9.2)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.0
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.1, 0)
+
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    pmrem.dispose()
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.16))
+    const key = new THREE.DirectionalLight(0xffffff, 1.5)
+    key.position.set(5, 7, 5)
+    scene.add(key)
+    const fill = new THREE.DirectionalLight(0x8ab4ff, 0.7)
+    fill.position.set(-6, 2, -3)
+    scene.add(fill)
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(12, 64),
+      new THREE.MeshStandardMaterial({ color: 0x151c29, roughness: 0.82, metalness: 0.18 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.position.y = -1.02
+    scene.add(ground)
+
+    /* ---------- 贴图缓存：同一张拉丝贴图只生成一次 ---------- */
+    const textureCache = new Map()
+
+    function getBrushedRoughnessMap() {
+      if (textureCache.has('brushed')) return textureCache.get('brushed')
+
+      const size = 256
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#808080'
+      ctx.fillRect(0, 0, size, size)
+
+      // 横向细密划痕：模仿拉丝金属的各向异性粗糙度
+      for (let i = 0; i < 620; i++) {
+        const y = Math.random() * size
+        const alpha = 0.05 + Math.random() * 0.16
+        ctx.strokeStyle = Math.random() > 0.5
+          ? `rgba(255,255,255,${alpha})`
+          : `rgba(0,0,0,${alpha})`
+        ctx.lineWidth = 0.6 + Math.random() * 1.6
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(size, y + (Math.random() - 0.5) * 3)
+        ctx.stroke()
+      }
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.NoColorSpace // 数据贴图：绝不能当颜色解码
+      tex.wrapS = THREE.RepeatWrapping
+      tex.wrapT = THREE.RepeatWrapping
+      tex.repeat.set(4, 4)
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      textureCache.set('brushed', tex)
+      return tex
+    }
+
+    /* ---------- 预设资产：纯 JSON，可序列化、可入库 ---------- */
+    const PRESETS = {
+      '哑光塑料': {
+        id: 'matte-plastic',
+        type: 'standard',
+        params: { color: '#e0679f', roughness: 0.84, metalness: 0.0, envMapIntensity: 0.9 },
+        maps: {},
+        patches: []
+      },
+      '拉丝金属': {
+        id: 'brushed-metal',
+        type: 'standard',
+        params: { color: '#c8d4e8', roughness: 0.34, metalness: 1.0, envMapIntensity: 1.45 },
+        maps: { roughnessMap: 'brushed' },
+        patches: []
+      },
+      '清漆车漆': {
+        id: 'clearcoat-paint',
+        type: 'physical',
+        params: {
+          color: '#2251ff', roughness: 0.42, metalness: 0.3,
+          clearcoat: 1.0, clearcoatRoughness: 0.04
+        },
+        maps: {},
+        patches: []
+      },
+      '布料': {
+        id: 'fabric',
+        type: 'physical',
+        params: {
+          color: '#b39df5', roughness: 0.96, metalness: 0.0,
+          sheen: 1.0, sheenRoughness: 0.65, sheenColor: '#f2ecff'
+        },
+        maps: {},
+        patches: []
+      },
+      '发光': {
+        id: 'emissive',
+        type: 'standard',
+        params: {
+          color: '#0a0d14', roughness: 0.35, metalness: 0.1,
+          emissive: '#22d3ee', emissiveIntensity: 1.6
+        },
+        maps: {},
+        patches: []
+      }
+    }
+
+    const MAP_SLOTS = { roughnessMap: getBrushedRoughnessMap }
+
+    /* ---------- 工厂：JSON → 材质实例 ---------- */
+    function buildMaterial(preset) {
+      const Klass = preset.type === 'physical'
+        ? THREE.MeshPhysicalMaterial
+        : THREE.MeshStandardMaterial
+
+      const opts = {}
+      for (const [k, v] of Object.entries(preset.params)) {
+        opts[k] = typeof v === 'string' ? new THREE.Color(v) : v
+      }
+      for (const [slot, texKey] of Object.entries(preset.maps)) {
+        opts[slot] = MAP_SLOTS[slot](texKey)
+      }
+
+      const mat = new Klass(opts)
+      mat.name = preset.id
+      return mat
+    }
+
+    /* ---------- 一排几何体 ---------- */
+    const geoms = [
+      new THREE.SphereGeometry(0.62, 64, 48),
+      new THREE.BoxGeometry(0.98, 0.98, 0.98, 4, 4, 4),
+      new THREE.TorusKnotGeometry(0.42, 0.15, 140, 20),
+      new THREE.CylinderGeometry(0.44, 0.44, 1.05, 48),
+      new THREE.ConeGeometry(0.54, 1.05, 48),
+      new THREE.CapsuleGeometry(0.36, 0.62, 12, 32)
+    ]
+
+    const meshes = geoms.map((g, i) => {
+      const mesh = new THREE.Mesh(g)
+      mesh.position.set(-3.75 + i * 1.5, 0.12, 0)
+      mesh.userData.spin = 0.08 + (i % 3) * 0.045
+      scene.add(mesh)
+      return mesh
+    })
+
+    /* ---------- 运行时状态 ---------- */
+    const params = {
+      preset: '清漆车漆',
+      share: '共享实例',
+      autoRotate: true
+    }
+    let assignments = meshes.map(() => params.preset)
+    let activeMats = []
+
+    function disposeActive() {
+      activeMats.forEach((m) => m.dispose())
+      activeMats = []
+    }
+
+    function rebuild() {
+      disposeActive()
+
+      if (params.share === '共享实例') {
+        // 按预设 id 分组：相同预设复用同一实例，贴图仍由缓存持有
+        const cache = new Map()
+        assignments.forEach((key, i) => {
+          let mat = cache.get(key)
+          if (!mat) {
+            mat = buildMaterial(PRESETS[key])
+            cache.set(key, mat)
+            activeMats.push(mat)
+          }
+          meshes[i].material = mat
+        })
+      } else {
+        assignments.forEach((key, i) => {
+          const mat = buildMaterial(PRESETS[key])
+          activeMats.push(mat)
+          meshes[i].material = mat
+        })
+      }
+
+      updateHud()
+    }
+
+    /* ---------- HUD ---------- */
+    const statEl = document.getElementById('stat')
+    const jsonEl = document.getElementById('json')
+
+    function updateStats() {
+      const r = renderer.info.render
+      const programs = renderer.info.programs ? renderer.info.programs.length : 0
+      const uniquePresets = new Set(assignments).size
+      statEl.textContent =
+        `实例 ${activeMats.length} · 预设 ${uniquePresets} 种 · 程序 ${programs} · draw calls ${r.calls}`
+    }
+
+    function updateHud() {
+      updateStats()
+
+      const preset = PRESETS[params.preset]
+      jsonEl.textContent = JSON.stringify({
+        id: preset.id,
+        type: preset.type,
+        params: preset.params,
+        maps: preset.maps,
+        patches: preset.patches,
+        instances: activeMats.length,
+        share: params.share
+      }, null, 2)
+    }
+
+    /* ---------- 交互 ---------- */
+    function applyPreset() {
+      assignments = meshes.map(() => params.preset)
+      rebuild()
+    }
+
+    const gui = new GUI({ title: '材质预设库' })
+    gui.add(params, 'preset', Object.keys(PRESETS)).name('预设').onChange(applyPreset)
+    gui.add(params, 'share', ['共享实例', '每物体独立']).name('共享策略').onChange(rebuild)
+    gui.add({
+      shuffle() {
+        const keys = Object.keys(PRESETS)
+        assignments = meshes.map(() => keys[Math.floor(Math.random() * keys.length)])
+        rebuild()
+      }
+    }, 'shuffle').name('随机打散材质')
+    gui.add(params, 'autoRotate').name('自动旋转')
+
+    rebuild()
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const delta = timer.getDelta()
+      if (params.autoRotate) {
+        meshes.forEach((m) => { m.rotation.y += delta * m.userData.spin })
+      }
+      controls.update()
+      renderer.render(scene, camera)
+      updateStats()
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

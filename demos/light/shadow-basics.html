@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>shadow-basics · 阴影映射与调优</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 350px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 280px; }
+    @media (max-width: 600px) { .info { max-width: 200px; font-size: 12px; } .lil-gui.root { --width: 190px; } }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>阴影三要素</b>：① 渲染器开 shadowMap　② 光源 castShadow　
+    ③ 物体投射 castShadow、地面接收 receiveShadow。<br />
+    阴影贴图从光源视角渲染场景；<b>阴影相机范围越小越清晰</b>，
+    mapSize 越大越细腻但越耗性能。
+  </div>
+  <div class="hint">把阴影相机尺寸拉大观察锯齿；再用 radius/bias 微调</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(5, 4, 6)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFShadowMap
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.6, 0)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x202020,  0.5))
+
+    // 能产生阴影的方向光（平行光的阴影是正交投影）
+    const sun = new THREE.DirectionalLight(0xfff3d6, 2.4)
+    sun.position.set(4, 7, 3)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(2048, 2048)
+    sun.shadow.camera.near = 1
+    sun.shadow.camera.far = 25
+    sun.shadow.camera.left = -6
+    sun.shadow.camera.right = 6
+    sun.shadow.camera.top = 6
+    sun.shadow.camera.bottom = -6
+    sun.shadow.bias = -0.0002
+    sun.shadow.radius = 4
+    scene.add(sun)
+
+    // 阴影相机辅助线：那个白色方框就是生成阴影贴图的渲染范围
+    const camHelper = new THREE.CameraHelper(sun.shadow.camera)
+    camHelper.visible = false
+    scene.add(camHelper)
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(24, 24),
+      new THREE.MeshStandardMaterial({ color: 0x2b3340, roughness: 0.95 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    const objects = []
+    const defs = [
+      [new THREE.BoxGeometry(1, 1.4, 1), 0x60a5fa, -2, 0.7, 0],
+      [new THREE.SphereGeometry(0.75, 40, 28), 0xf472b6, 0.4, 0.75, 0.6],
+      [new THREE.TorusKnotGeometry(0.5, 0.16, 120, 20), 0x34d399, 2.2, 0.9, -0.8]
+    ]
+    defs.forEach(([geo, color, x, y, z]) => {
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.45 }))
+      m.position.set(x, y, z)
+      m.castShadow = true
+      m.receiveShadow = true
+      scene.add(m)
+      objects.push(m)
+    })
+
+    const params = {
+      enabled: true,
+      mapSize: 2048,
+      frustum: 6,
+      radius: 4,
+      bias: -0.0002,
+      showCamera: false,
+      followSun: true
+    }
+    const gui = new GUI({ title: '阴影调优' })
+    gui.add(params, 'enabled').name('阴影开关').onChange(v => renderer.shadowMap.enabled = v)
+    gui.add(params, 'mapSize', [512, 1024, 2048, 4096]).name('mapSize 分辨率').onChange(v => {
+      sun.shadow.mapSize.set(v, v)
+      sun.shadow.map?.dispose()
+      sun.shadow.map = null              // 置空后下一帧自动按新尺寸重建
+    })
+    gui.add(params, 'frustum', 2, 20, 0.5).name('阴影相机范围').onChange(v => {
+      sun.shadow.camera.left = -v
+      sun.shadow.camera.right = v
+      sun.shadow.camera.top = v
+      sun.shadow.camera.bottom = -v
+      sun.shadow.camera.updateProjectionMatrix()
+    })
+    gui.add(params, 'radius', 0, 12, 0.5).name('radius 柔化').onChange(v => sun.shadow.radius = v)
+    gui.add(params, 'bias', -0.01, 0.01, 0.0001).name('bias 偏移').onChange(v => sun.shadow.bias = v)
+    gui.add(params, 'showCamera').name('显示阴影相机').onChange(v => camHelper.visible = v)
+    gui.add(params, 'followSun').name('光源缓慢移动')
+
+    // 阴影开关、mapSize 这类改动需要强制重新渲染一次阴影
+    gui.onChange(() => {
+      sun.shadow.needsUpdate = true
+      camHelper.update()
+    })
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const t = clock.getElapsed()
+      objects[0].rotation.y += 0.006
+      objects[2].rotation.y += 0.01
+      if (params.followSun) {
+        sun.position.set(Math.cos(t * 0.25) * 5, 7, Math.sin(t * 0.25) * 4)
+        camHelper.update()
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

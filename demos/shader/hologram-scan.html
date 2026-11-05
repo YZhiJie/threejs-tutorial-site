@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>hologram-scan · 扫描线与全息投影</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 260px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>全息投影 = 四个零件的叠加</b><br />
+    ① 菲涅尔边缘发光 ② 世界坐标扫描线<br />
+    ③ glitch 闪烁 ④ 加法混合半透明<br />
+    扫描线固定在空间滚动，模型在线阵中自转。
+  </div>
+  <div class="hint">拖拽旋转视角 · 右侧面板调节全息全部参数</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(
+      45, window.innerWidth / window.innerHeight, 0.1, 100
+    )
+    camera.position.set(0, 2.2, 5.6)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.1, 0)
+
+    scene.add(new THREE.GridHelper(12, 24, 0x1d4ed8, 0x16233f))
+
+    // 底座发光圆环：陪衬全息体的"投影机"
+    const base = new THREE.Mesh(
+      new THREE.RingGeometry(1.5, 1.72, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0x22d3ee, transparent: true, opacity: 0.35,
+        side: THREE.DoubleSide
+      })
+    )
+    base.rotation.x = -Math.PI / 2
+    base.position.y = 0.01
+    scene.add(base)
+
+    // ---------- 顶点着色器：递出法线、视图位置、世界坐标 ----------
+    const vertexShader = /* glsl */ `
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      varying vec3 vWorldPos;
+
+      void main() {
+        vNormal = normalMatrix * normal;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vViewPosition = mvPosition.xyz;
+        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `
+
+    // ---------- 片元着色器：菲涅尔 + 扫描线 + 闪烁 + 半透明 ----------
+    const fragmentShader = /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uTime;
+      uniform float uFresnelPower;
+      uniform float uScanDensity;
+      uniform float uScanSpeed;
+      uniform float uScanStrength;
+      uniform float uFlicker;
+      uniform float uFlickerFreq;
+      uniform float uOpacity;
+
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      varying vec3 vWorldPos;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+
+      void main() {
+        // 1. fresnel rim: bright at grazing angles
+        vec3 viewDir = normalize(-vViewPosition);
+        vec3 n = normalize(vNormal);
+        float fresnel = pow(1.0 - abs(dot(viewDir, n)), uFresnelPower);
+
+        // 2. scanline: scrolls in world space, independent of model rotation
+        float scan = fract(vWorldPos.y * uScanDensity - uTime * uScanSpeed);
+        scan = smoothstep(0.0, 0.15, scan);
+
+        // 3. glitch flicker: quantized time hashed into sudden jumps
+        float cell = floor(uTime * uFlickerFreq);
+        float flicker = 1.0 - uFlicker * step(0.6, hash(vec2(cell, 0.0)));
+
+        // 4. compose: dim body + rim + scan boost, all scaled by flicker
+        float body = uOpacity * 0.25;
+        float energy = clamp(body + fresnel + scan * uScanStrength, 0.0, 1.0);
+        vec3 color = uColor * energy * flicker;
+
+        gl_FragColor = vec4(color, energy * flicker);
+      }
+    `
+
+    const uniforms = {
+      uColor:        { value: new THREE.Color(0x22d3ee) },
+      uTime:         { value: 0 },
+      uFresnelPower: { value: 2.5 },
+      uScanDensity:  { value: 8.0 },
+      uScanSpeed:    { value: 1.5 },
+      uScanStrength: { value: 0.8 },
+      uFlicker:      { value: 0.35 },
+      uFlickerFreq:  { value: 12.0 },
+      uOpacity:      { value: 0.9 }
+    }
+
+    const holoMat = new THREE.ShaderMaterial({
+      uniforms, vertexShader, fragmentShader,
+      transparent: true,
+      blending: THREE.AdditiveBlending, // additive: overlaps get brighter
+      depthWrite: false,                // translucent faces must not occlude
+      side: THREE.DoubleSide
+    })
+
+    const knot = new THREE.Mesh(
+      new THREE.TorusKnotGeometry(1, 0.32, 220, 36),
+      holoMat
+    )
+    knot.position.y = 1.6
+    scene.add(knot)
+
+    // ---------- lil-gui：全息全参数面板 ----------
+    const params = {
+      color: '#22d3ee', fresnelPower: 2.5, opacity: 0.9,
+      scanDensity: 8.0, scanSpeed: 1.5, scanStrength: 0.8,
+      flicker: 0.35, flickerFreq: 12.0,
+      rotate: true
+    }
+    const gui = new GUI({ title: '全息投影' })
+    gui.addColor(params, 'color').name('发光颜色')
+      .onChange(v => uniforms.uColor.value.set(v))
+    gui.add(params, 'fresnelPower', 0.5, 6, 0.1).name('菲涅尔锐度')
+      .onChange(v => uniforms.uFresnelPower.value = v)
+    gui.add(params, 'opacity', 0.1, 1, 0.05).name('基础不透明度')
+      .onChange(v => uniforms.uOpacity.value = v)
+    gui.add(params, 'scanDensity', 1, 30, 0.5).name('扫描线密度')
+      .onChange(v => uniforms.uScanDensity.value = v)
+    gui.add(params, 'scanSpeed', 0, 6, 0.1).name('扫描线速度')
+      .onChange(v => uniforms.uScanSpeed.value = v)
+    gui.add(params, 'scanStrength', 0, 2, 0.05).name('扫描线强度')
+      .onChange(v => uniforms.uScanStrength.value = v)
+    gui.add(params, 'flicker', 0, 1, 0.05).name('闪烁幅度')
+      .onChange(v => uniforms.uFlicker.value = v)
+    gui.add(params, 'flickerFreq', 1, 30, 1).name('闪烁频率')
+      .onChange(v => uniforms.uFlickerFreq.value = v)
+    gui.add(params, 'rotate').name('模型自转')
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update() // 每帧先 update，再读取 delta
+      uniforms.uTime.value += clock.getDelta()
+      if (params.rotate) knot.rotation.y += 0.004
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>data-flow-particles · 万级粒子数据洪流</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 330px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 260px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>万级数据洪流 = 流场公式 + 速度着色 + 泛光</b><br />
+    ① 螺旋管道流场，fract 无限循环零状态<br />
+    ② 顶点着色器差分估速度，按速度混色<br />
+    ③ 鼠标扰动劈开水流 ④ 可选 UnrealBloom 泛光<br />
+    两万粒子，JS 每帧只喂一个 uTime。
+  </div>
+  <div class="hint">移动鼠标扰动洪流 · 右侧面板调节全部参数</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(
+      45, window.innerWidth / window.innerHeight, 0.1, 200
+    )
+    camera.position.set(0, 7, 17)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    // ---------- Canvas 程序化柔点贴图 ----------
+    function makeSoftDotTexture(size = 64) {
+      const cv = document.createElement('canvas')
+      cv.width = cv.height = size
+      const ctx = cv.getContext('2d')
+      const g = ctx.createRadialGradient(
+        size / 2, size / 2, 0, size / 2, size / 2, size / 2
+      )
+      g.addColorStop(0.0, 'rgba(255,255,255,1)')
+      g.addColorStop(0.4, 'rgba(255,255,255,0.6)')
+      g.addColorStop(1.0, 'rgba(255,255,255,0)')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, size, size)
+      return new THREE.CanvasTexture(cv)
+    }
+
+    // ---------- 顶点着色器：螺旋流场 + 鼠标扰动 + 速度差分 ----------
+    const vertexShader = /* glsl */ `
+      uniform float uTime;
+      uniform float uSpeed;
+      uniform float uLength;
+      uniform float uRadius;
+      uniform float uTwist;
+      uniform vec3 uMouse;
+      uniform float uRepel;
+      uniform float uSize;
+      attribute float aOffset;
+      attribute vec4 aSeed;
+      varying float vSpeed;
+      varying float vMix;
+
+      // flow field: one formula answers where a particle is at progress t
+      vec3 flowPos(float t, vec4 seed) {
+        float x = (t - 0.5) * uLength;
+        float angle = seed.x * 6.2831 + t * uTwist;
+        float r = uRadius * (0.3 + 0.7 * seed.y);
+        vec3 p = vec3(x, cos(angle) * r, sin(angle) * r);
+        p.y += sin(uTime * 1.7 + seed.z * 6.2831 + t * 9.0) * 0.35;
+        return p;
+      }
+
+      void main() {
+        float t = fract(aOffset + uTime * uSpeed);
+        vec3 p = flowPos(t, aSeed);
+
+        // mouse disturbance: push away, falls off with squared distance
+        vec3 toP = p - uMouse;
+        float d2 = dot(toP, toP);
+        p += normalize(toP + 0.001) * uRepel / (d2 + 2.0);
+
+        // finite-difference speed of the pure flow for coloring
+        vec3 pNext = flowPos(fract(t + 0.01), aSeed);
+        vSpeed = length(pNext - p) * 100.0;
+        vMix = t;
+
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = uSize * (0.5 + aSeed.w) * (300.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }
+    `
+
+    // ---------- 片元着色器：柔点 × 速度混色 × 两端淡出 ----------
+    const fragmentShader = /* glsl */ `
+      uniform sampler2D uTexture;
+      uniform vec3 uColorSlow;
+      uniform vec3 uColorFast;
+      uniform float uSpeedMax;
+      varying float vSpeed;
+      varying float vMix;
+
+      void main() {
+        vec4 tex = texture2D(uTexture, gl_PointCoord);
+        float k = smoothstep(0.0, uSpeedMax, vSpeed);
+        vec3 color = mix(uColorSlow, uColorFast, k);
+        float fade = smoothstep(0.0, 0.06, vMix) * (1.0 - smoothstep(0.94, 1.0, vMix));
+        gl_FragColor = vec4(color * tex.rgb, tex.a * fade);
+      }
+    `
+
+    const uniforms = {
+      uTime:      { value: 0 },
+      uSpeed:     { value: 0.06 },
+      uLength:    { value: 36.0 },
+      uRadius:    { value: 3.2 },
+      uTwist:     { value: 9.0 },
+      uSize:      { value: 2.2 },
+      uRepel:     { value: 3.0 },
+      uSpeedMax:  { value: 6.0 },
+      uMouse:     { value: new THREE.Vector3(999, 999, 999) },
+      uColorSlow: { value: new THREE.Color(0x1d4ed8) },
+      uColorFast: { value: new THREE.Color(0x7ff3ff) },
+      uTexture:   { value: makeSoftDotTexture() }
+    }
+
+    const material = new THREE.ShaderMaterial({
+      uniforms, vertexShader, fragmentShader,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+
+    // ---------- 几何：只存出生证明（相位 + 种子），position 占位 ----------
+    function buildFlow(count) {
+      const geo = new THREE.BufferGeometry()
+      const offsets = new Float32Array(count)
+      const seeds = new Float32Array(count * 4)
+      for (let i = 0; i < count; i++) {
+        offsets[i] = Math.random()
+        seeds[i * 4]     = Math.random()
+        seeds[i * 4 + 1] = Math.random()
+        seeds[i * 4 + 2] = Math.random()
+        seeds[i * 4 + 3] = Math.random()
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3))
+      geo.setAttribute('aOffset', new THREE.BufferAttribute(offsets, 1))
+      geo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4))
+      // 顶点在 shader 里搬家：手动给足够大的包围球防视锥剔除误杀
+      geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 30)
+      return geo
+    }
+
+    let flow = null
+    function rebuild() {
+      if (flow) {
+        scene.remove(flow)
+        flow.geometry.dispose()
+      }
+      flow = new THREE.Points(buildFlow(params.count), material)
+      scene.add(flow)
+    }
+
+    // ---------- 泛光后处理链（可开关） ----------
+    const composer = new EffectComposer(renderer)
+    composer.addPass(new RenderPass(scene, camera))
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(innerWidth, innerHeight), 0.9, 0.5, 0.25
+    )
+    composer.addPass(bloomPass)
+    composer.addPass(new OutputPass())
+
+    // ---------- 鼠标：NDC 反投影到 z=0 平面作为扰动中心 ----------
+    const raycaster = new THREE.Raycaster()
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
+    const hitPoint = new THREE.Vector3()
+    addEventListener('pointermove', e => {
+      const ndc = new THREE.Vector2(
+        (e.clientX / innerWidth) * 2 - 1,
+        -(e.clientY / innerHeight) * 2 + 1
+      )
+      raycaster.setFromCamera(ndc, camera)
+      if (raycaster.ray.intersectPlane(plane, hitPoint)) {
+        uniforms.uMouse.value.copy(hitPoint)
+      }
+    })
+    addEventListener('pointerleave', () => uniforms.uMouse.value.set(999, 999, 999))
+
+    // ---------- lil-gui 全参数面板 ----------
+    const params = {
+      count: 20000, speed: 0.06, radius: 3.2, twist: 9.0,
+      pointSize: 2.2, repel: 3.0,
+      colorSlow: '#1d4ed8', colorFast: '#7ff3ff',
+      bloom: true, bloomStrength: 0.9
+    }
+    rebuild()
+
+    const gui = new GUI({ title: '数据洪流' })
+    gui.add(params, 'count', 2000, 50000, 2000).name('粒子数量')
+      .onFinishChange(rebuild)
+    gui.add(params, 'speed', 0.01, 0.2, 0.005).name('流速')
+      .onChange(v => uniforms.uSpeed.value = v)
+    gui.add(params, 'radius', 0.5, 8, 0.1).name('管道半径')
+      .onChange(v => uniforms.uRadius.value = v)
+    gui.add(params, 'twist', 0, 30, 0.5).name('螺旋扭转')
+      .onChange(v => uniforms.uTwist.value = v)
+    gui.add(params, 'pointSize', 0.5, 6, 0.1).name('粒子大小')
+      .onChange(v => uniforms.uSize.value = v)
+    gui.add(params, 'repel', 0, 10, 0.1).name('交互强度')
+      .onChange(v => uniforms.uRepel.value = v)
+    gui.addColor(params, 'colorSlow').name('慢速颜色')
+      .onChange(v => uniforms.uColorSlow.value.set(v))
+    gui.addColor(params, 'colorFast').name('高速颜色')
+      .onChange(v => uniforms.uColorFast.value.set(v))
+    gui.add(params, 'bloom').name('泛光开关')
+    gui.add(params, 'bloomStrength', 0, 2, 0.05).name('泛光强度')
+      .onChange(v => bloomPass.strength = v)
+
+    // ---------- 渲染循环：喂时间，按开关选渲染路径 ----------
+    const clock = new THREE.Timer()
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update() // 每帧先 update，再读取 delta
+      uniforms.uTime.value += clock.getDelta()
+      controls.update()
+      if (params.bloom) composer.render()
+      else renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+      composer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

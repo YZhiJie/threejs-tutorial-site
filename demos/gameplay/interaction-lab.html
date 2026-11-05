@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>interaction-lab · 交互系统与任务面板</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info,
+    .task {
+      position: fixed;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .info {
+      top: 14px;
+      left: 14px;
+      width: 286px;
+      padding: 10px 12px;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info kbd {
+      display: inline-block;
+      padding: 0 5px;
+      border: 1px solid #334155;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      background: #111a30;
+      color: #e2e8f0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .task {
+      top: 14px;
+      right: 14px;
+      width: 242px;
+      padding: 10px 12px;
+    }
+
+    .task-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .task-head strong {
+      font-size: 13px;
+      color: #e2e8f0;
+    }
+
+    .task-head button {
+      padding: 3px 8px;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      background: #111a30;
+      color: #94a3b8;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .task-head button:hover {
+      border-color: #22d3ee;
+      color: #a5f3fc;
+    }
+
+    .goal {
+      margin-bottom: 9px;
+    }
+
+    .goal-top {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+
+    .goal-top .count {
+      color: #7dd3fc;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+
+    .goal.done .goal-top {
+      color: #34d399;
+    }
+
+    .goal.done .goal-top .count {
+      color: #34d399;
+    }
+
+    .bar {
+      height: 5px;
+      margin-top: 4px;
+      overflow: hidden;
+      border-radius: 3px;
+      background: #1e293b;
+    }
+
+    .bar i {
+      display: block;
+      width: 0;
+      height: 100%;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #22d3ee, #34d399);
+      transition: width .22s ease;
+    }
+
+    .task-note {
+      margin-top: 2px;
+      padding-top: 7px;
+      border-top: 1px dashed #223055;
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    .prompt {
+      position: fixed;
+      bottom: 56px;
+      left: 50%;
+      transform: translate(-50%, 6px);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      border: 1px solid rgba(34, 211, 238, .45);
+      border-radius: 9px;
+      background: rgba(11, 14, 20, .9);
+      color: #e6edf3;
+      font-size: 13px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .15s, transform .15s;
+      white-space: nowrap;
+    }
+
+    .prompt.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    .prompt kbd {
+      padding: 1px 7px;
+      border: 1px solid #22d3ee;
+      border-radius: 5px;
+      background: #0b2b3a;
+      color: #a5f3fc;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .reticle {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      width: 18px;
+      height: 18px;
+      margin: -9px 0 0 -9px;
+      border: 1px solid rgba(148, 163, 184, .55);
+      border-radius: 50%;
+      pointer-events: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+
+    .reticle::after {
+      content: '';
+      position: absolute;
+      top: 7px;
+      left: 7px;
+      width: 2px;
+      height: 2px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .reticle.ready {
+      border-color: #22d3ee;
+      box-shadow: 0 0 10px rgba(34, 211, 238, .6);
+    }
+
+    .reticle.ready::after {
+      background: #a5f3fc;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(4, 7, 12, .62);
+      backdrop-filter: blur(3px);
+      z-index: 20;
+    }
+
+    .modal.show {
+      display: flex;
+    }
+
+    .modal-card {
+      width: 320px;
+      padding: 24px 26px;
+      border: 1px solid rgba(52, 211, 153, .4);
+      border-radius: 14px;
+      background: #0e1730;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, .55);
+      text-align: center;
+    }
+
+    .modal-kicker {
+      color: #34d399;
+      font-size: 11px;
+      letter-spacing: .18em;
+    }
+
+    .modal-card h2 {
+      margin: 8px 0 6px;
+      font-size: 20px;
+      color: #e2e8f0;
+    }
+
+    .modal-card p {
+      margin: 0 0 18px;
+      color: #94a3b8;
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
+
+    .modal-card button {
+      width: 100%;
+      padding: 9px 0;
+      border: 1px solid #22d3ee;
+      border-radius: 8px;
+      background: #0b2b3a;
+      color: #a5f3fc;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .modal-card button:hover {
+      background: #10495f;
+    }
+
+    .lil-gui.root {
+      --width: 206px;
+      top: auto;
+      bottom: 52px;
+      right: 14px;
+    }
+
+    @media (max-width: 700px) {
+      .info {
+        width: 216px;
+        font-size: 11.5px;
+      }
+
+      .task {
+        width: 190px;
+        font-size: 11.5px;
+      }
+
+      .hint {
+        font-size: 11px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="info">
+    <b>交互系统实验 · 可发现 / 可反馈 / 可追踪</b><br />
+    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 走近物体，<kbd>E</kbd> 交互。<br />
+    鼠标拖拽旋转视角，点击物体也能交互。
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <strong>任务面板</strong>
+      <button type="button" id="resetTasks">重置</button>
+    </div>
+    <div id="goals"></div>
+    <div class="task-note">交互事件通过事件总线更新任务，不轮询。</div>
+  </div>
+
+  <div class="reticle" id="reticle"></div>
+  <div class="prompt" id="prompt"></div>
+  <div class="hint">走近物体 → 出现提示 → 按 E 或点击触发 · 全部完成会弹出结算</div>
+
+  <div class="modal" id="modal">
+    <div class="modal-card">
+      <div class="modal-kicker">MISSION COMPLETE</div>
+      <h2>房间已全部交互</h2>
+      <p>终端已激活，箱子 2 / 2 已收集。<br />事件总线把每次交互同步给了任务系统。</p>
+      <button type="button" id="modalReset">重新布置房间</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 场景 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 14, 26)
+
+    const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 3.1, 7.2)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.1
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 0.95, 2.5)
+    controls.minDistance = 3
+    controls.maxDistance = 11
+    controls.maxPolarAngle = Math.PI * 0.49
+
+    scene.add(new THREE.AmbientLight(0xaabfd6, 1.15))
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.0)
+    keyLight.position.set(5, 8, 6)
+    scene.add(keyLight)
+
+    // 房间主灯，开关控制
+    const roomLight = new THREE.PointLight(0x22d3ee, 22, 18, 2)
+    roomLight.position.set(0, 3.4, -1)
+    scene.add(roomLight)
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(12, 9),
+      new THREE.MeshStandardMaterial({ color: 0x121a2b, roughness: 0.86, metalness: 0.08 })
+    )
+    floor.rotation.x = -Math.PI / 2
+    scene.add(floor)
+
+    const grid = new THREE.GridHelper(12, 12, 0x2b4a66, 0x1c2740)
+    grid.position.y = 0.012
+    grid.scale.z = 0.75
+    grid.material.transparent = true
+    grid.material.opacity = 0.4
+    scene.add(grid)
+
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x151f33, roughness: 0.9, metalness: 0.05 })
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(12, 3, 0.3), wallMat)
+    backWall.position.set(0, 1.5, -4.6)
+    scene.add(backWall)
+    ;[-1, 1].forEach((side) => {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3, 9), wallMat)
+      wall.position.set(side * 6, 1.5, 0)
+      scene.add(wall)
+    })
+
+    // 墙上的霓虹灯带，开关会改变它的颜色
+    const stripMat = new THREE.MeshStandardMaterial({
+      color: 0x0b2b3a,
+      emissive: 0x22d3ee,
+      emissiveIntensity: 1.4
+    })
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(11.2, 0.05, 0.05), stripMat)
+    strip.position.set(0, 2.9, -4.43)
+    scene.add(strip)
+
+    /* ---------- 角色 ---------- */
+    const player = new THREE.Group()
+    player.position.set(0, 0, 2.5)
+    scene.add(player)
+
+    const playerBody = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.3, 0.56, 8, 16),
+      new THREE.MeshStandardMaterial({ color: 0x34d399, roughness: 0.4, metalness: 0.15 })
+    )
+    playerBody.position.y = 0.7
+    player.add(playerBody)
+
+    const playerHead = new THREE.Mesh(
+      new THREE.SphereGeometry(0.27, 22, 16),
+      new THREE.MeshStandardMaterial({ color: 0xffd9b3, roughness: 0.65 })
+    )
+    playerHead.position.y = 1.28
+    player.add(playerHead)
+
+    const playerHair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.282, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.58),
+      new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.55 })
+    )
+    playerHair.position.y = 1.3
+    player.add(playerHair)
+
+    const eyeGeo = new THREE.SphereGeometry(0.032, 10, 8)
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x0b1220 })
+    ;[-0.09, 0.09].forEach((x) => {
+      const eye = new THREE.Mesh(eyeGeo, eyeMat)
+      eye.position.set(x, 1.29, 0.242)
+      player.add(eye)
+    })
+
+    /* ---------- 事件总线 ---------- */
+    const bus = {
+      handlers: new Map(),
+      on(event, handler) {
+        if (!this.handlers.has(event)) this.handlers.set(event, [])
+        this.handlers.get(event).push(handler)
+      },
+      emit(event, payload) {
+        const list = this.handlers.get(event)
+        if (!list) return
+        list.forEach((handler) => handler(payload))
+      }
+    }
+
+    /* ---------- 可交互对象注册表 ---------- */
+    const interactables = []
+    const pickMeshes = []
+    const range = 3.1
+
+    function register(config) {
+      const item = {
+        id: config.id,
+        type: config.type,
+        label: config.label,
+        cooldown: config.cooldown ?? 0.45,
+        lastTrigger: -Infinity,
+        collected: false,
+        pick: config.pick,
+        group: config.group,
+        onInteract: config.onInteract,
+        baseScale: 1,
+        baseEmissive: config.baseEmissive ?? 0
+      }
+      config.pick.userData.item = item
+      interactables.push(item)
+      pickMeshes.push(config.pick)
+      return item
+    }
+
+    /* ---------- 开关 ---------- */
+    const switchGroup = new THREE.Group()
+    switchGroup.position.set(-3.45, 1.35, -4.3)
+    scene.add(switchGroup)
+
+    const switchPlateMat = new THREE.MeshStandardMaterial({
+      color: 0x1e2a44,
+      roughness: 0.55,
+      metalness: 0.35,
+      emissive: 0x0e7490,
+      emissiveIntensity: 0.3
+    })
+    const switchPlate = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.82, 0.16), switchPlateMat)
+    switchGroup.add(switchPlate)
+
+    const lever = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.34, 0.1),
+      new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.35, metalness: 0.4, emissive: 0x78350f, emissiveIntensity: 0.4 })
+    )
+    lever.position.set(0, 0.04, 0.12)
+    lever.rotation.x = 0.5
+    switchGroup.add(lever)
+
+    let switchOn = false
+
+    const switchItem = register({
+      id: 'switch',
+      type: 'switch',
+      label: '拨动灯光开关',
+      pick: switchPlate,
+      group: switchGroup,
+      baseEmissive: 0.3,
+      onInteract() {
+        switchOn = !switchOn
+        roomLight.color.setHex(switchOn ? 0xfbbf24 : 0x22d3ee)
+        roomLight.intensity = switchOn ? 30 : 22
+        stripMat.emissive.setHex(switchOn ? 0xfbbf24 : 0x22d3ee)
+        lever.rotation.x = switchOn ? -0.5 : 0.5
+        beep(switchOn ? 520 : 740, 0.09)
+      }
+    })
+
+    /* ---------- 两个箱子 ---------- */
+    const crateMat = new THREE.MeshStandardMaterial({
+      color: 0x8b5e34,
+      roughness: 0.72,
+      metalness: 0.1,
+      emissive: 0x0e7490,
+      emissiveIntensity: 0.22
+    })
+    const crates = []
+    ;[[-2.4, 0.44, 0.4], [2.3, 0.44, 1.1]].forEach(([x, y, z], index) => {
+      const group = new THREE.Group()
+      group.position.set(x, y, z)
+      scene.add(group)
+
+      const material = crateMat.clone()
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.86, 0.86), material)
+      group.add(box)
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(box.geometry),
+        new THREE.LineBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.5 })
+      )
+      group.add(edges)
+
+      group.rotation.y = index === 0 ? 0.35 : -0.2
+
+      const item = register({
+        id: 'crate-' + index,
+        type: 'crate',
+        label: '收集箱子',
+        pick: box,
+        group,
+        baseEmissive: 0.22,
+        onInteract() {
+          item.collected = true
+          group.visible = false
+          beep(880, 0.08)
+        }
+      })
+      crates.push(item)
+    })
+
+    /* ---------- 终端 ---------- */
+    const terminalGroup = new THREE.Group()
+    terminalGroup.position.set(2.9, 0, -4.05)
+    scene.add(terminalGroup)
+
+    const desk = new THREE.Mesh(
+      new THREE.BoxGeometry(1.05, 0.9, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7, metalness: 0.25 })
+    )
+    desk.position.y = 0.45
+    terminalGroup.add(desk)
+
+    const screenMat = new THREE.MeshStandardMaterial({
+      color: 0x0b1220,
+      roughness: 0.25,
+      metalness: 0.3,
+      emissive: 0x22d3ee,
+      emissiveIntensity: 0.9
+    })
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.82, 0.5), screenMat)
+    screen.position.set(0, 1.24, 0.19)
+    terminalGroup.add(screen)
+
+    const screenLight = new THREE.PointLight(0x22d3ee, 4, 5, 2)
+    screenLight.position.set(0, 1.2, 0.6)
+    terminalGroup.add(screenLight)
+
+    let terminalActive = false
+
+    const terminalItem = register({
+      id: 'terminal',
+      type: 'terminal',
+      label: '激活终端',
+      pick: screen,
+      group: terminalGroup,
+      baseEmissive: 0.9,
+      onInteract() {
+        terminalActive = true
+        screenMat.emissive.setHex(0x34d399)
+        screenMat.emissiveIntensity = 1.6
+        screenLight.color.setHex(0x34d399)
+        beep(660, 0.12)
+      }
+    })
+
+    /* ---------- 音效占位 ---------- */
+    let audioCtx = null
+    function beep(freq, duration) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+        if (audioCtx.state === 'suspended') audioCtx.resume()
+        const osc = audioCtx.createOscillator()
+        const gain = audioCtx.createGain()
+        const now = audioCtx.currentTime
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(freq, now)
+        gain.gain.setValueAtTime(0.0001, now)
+        gain.gain.exponentialRampToValueAtTime(0.08, now + 0.01)
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
+        osc.connect(gain)
+        gain.connect(audioCtx.destination)
+        osc.start(now)
+        osc.stop(now + duration + 0.02)
+      } catch (error) {
+        // 音频不可用时静默降级，交互本身不受影响
+      }
+    }
+
+    /* ---------- 任务系统：订阅事件，而不是每帧轮询 ---------- */
+    const goals = [
+      { type: 'terminal', label: '打开终端', need: 1, got: 0 },
+      { type: 'crate', label: '收集箱子', need: 2, got: 0 }
+    ]
+    let taskComplete = false
+    let completeTimer = null
+    const goalsEl = document.getElementById('goals')
+    const modal = document.getElementById('modal')
+
+    function renderGoals() {
+      goalsEl.innerHTML = goals.map((goal) => {
+        const done = goal.got >= goal.need
+        return `<div class="goal${done ? ' done' : ''}">
+          <div class="goal-top"><span>${goal.label}</span><span class="count">${goal.got} / ${goal.need}</span></div>
+          <div class="bar"><i style="width:${(goal.got / goal.need) * 100}%"></i></div>
+        </div>`
+      }).join('')
+    }
+
+    bus.on('interact', (payload) => {
+      const goal = goals.find((g) => g.type === payload.type)
+      if (!goal || goal.got >= goal.need) return
+      goal.got += 1
+      renderGoals()
+      if (goals.every((g) => g.got >= g.need) && !taskComplete) {
+        taskComplete = true
+        completeTimer = setTimeout(() => modal.classList.add('show'), 420)
+        bus.emit('tasks:complete', {})
+      }
+    })
+
+    bus.on('tasks:reset', () => {
+      taskComplete = false
+      if (completeTimer) {
+        clearTimeout(completeTimer)
+        completeTimer = null
+      }
+      modal.classList.remove('show')
+    })
+
+    /* ---------- 交互判定与反馈 ---------- */
+    let elapsed = 0
+    let promptItem = null
+    let hoveredItem = null
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2(0, 0)
+    const camForward = new THREE.Vector3()
+    const camRight = new THREE.Vector3()
+    const objWorld = new THREE.Vector3()
+    const playerWorld = new THREE.Vector3()
+    const UP = new THREE.Vector3(0, 1, 0)
+    const promptEl = document.getElementById('prompt')
+    const reticle = document.getElementById('reticle')
+
+    function flatCameraForward(target) {
+      camera.getWorldDirection(target)
+      target.y = 0
+      target.normalize()
+      return target
+    }
+
+    function itemInRange(item) {
+      if (!item.group.visible || item.collected) return false
+      item.group.getWorldPosition(objWorld)
+      player.getWorldPosition(playerWorld)
+      playerWorld.y += 0.85
+      const distance = playerWorld.distanceTo(objWorld)
+      if (distance > range) return false
+      const toObject = objWorld.clone().sub(playerWorld)
+      toObject.y = 0
+      toObject.normalize()
+      return toObject.dot(flatCameraForward(camForward)) > 0.25
+    }
+
+    function findPromptItem() {
+      let best = null
+      let bestDistance = Infinity
+      interactables.forEach((item) => {
+        if (!itemInRange(item)) return
+        item.group.getWorldPosition(objWorld)
+        player.getWorldPosition(playerWorld)
+        const distance = playerWorld.distanceTo(objWorld)
+        if (distance < bestDistance) {
+          best = item
+          bestDistance = distance
+        }
+      })
+      return best
+    }
+
+    function evaluateHover() {
+      raycaster.setFromCamera(pointer, camera)
+      const hits = raycaster.intersectObjects(pickMeshes.filter((m) => m.visible), false)
+      const hit = hits.find((entry) => {
+        const item = entry.object.userData.item
+        return item && !item.collected && item.group.visible
+      })
+      hoveredItem = hit ? hit.object.userData.item : null
+    }
+
+    function canTrigger(item) {
+      if (!item || item.collected || !item.group.visible) return false
+      if (!itemInRange(item)) return false
+      if (elapsed - item.lastTrigger < item.cooldown) return false
+      return true
+    }
+
+    function interact(item) {
+      if (!canTrigger(item)) return
+      item.lastTrigger = elapsed
+      item.onInteract()
+      bus.emit('interact', { id: item.id, type: item.type })
+    }
+
+    function resetInteractionState() {
+      goals.forEach((goal) => { goal.got = 0 })
+      crates.forEach((item) => {
+        item.collected = false
+        item.group.visible = true
+        item.lastTrigger = -Infinity
+      })
+      terminalActive = false
+      terminalItem.lastTrigger = -Infinity
+      switchItem.lastTrigger = -Infinity
+      screenMat.emissive.setHex(0x22d3ee)
+      screenMat.emissiveIntensity = 0.9
+      screenLight.color.setHex(0x22d3ee)
+      if (switchOn) switchItem.onInteract()
+      switchItem.lastTrigger = -Infinity
+      renderGoals()
+      bus.emit('tasks:reset', {})
+    }
+
+    document.getElementById('resetTasks').addEventListener('click', resetInteractionState)
+    document.getElementById('modalReset').addEventListener('click', resetInteractionState)
+
+    /* ---------- 键盘移动与交互 ---------- */
+    const held = new Set()
+    const KEY_MAP = { KeyW: 'forward', KeyA: 'left', KeyS: 'back', KeyD: 'right', KeyE: 'interact' }
+
+    addEventListener('keydown', (event) => {
+      const action = KEY_MAP[event.code]
+      if (!action) return
+      event.preventDefault()
+      if (action === 'interact') {
+        if (event.repeat) return
+        interact(promptItem || hoveredItem)
+        return
+      }
+      held.add(action)
+    })
+
+    addEventListener('keyup', (event) => {
+      const action = KEY_MAP[event.code]
+      if (!action || action === 'interact') return
+      event.preventDefault()
+      held.delete(action)
+    })
+
+    /* ---------- 鼠标点击交互 ---------- */
+    let downX = 0
+    let downY = 0
+    const clickPointer = new THREE.Vector2()
+    renderer.domElement.addEventListener('pointerdown', (event) => {
+      downX = event.clientX
+      downY = event.clientY
+    })
+    renderer.domElement.addEventListener('pointerup', (event) => {
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) > 6) return
+      clickPointer.x = (event.clientX / innerWidth) * 2 - 1
+      clickPointer.y = -(event.clientY / innerHeight) * 2 + 1
+      raycaster.setFromCamera(clickPointer, camera)
+      const hits = raycaster.intersectObjects(pickMeshes.filter((m) => m.visible), false)
+      const hit = hits.find((entry) => {
+        const item = entry.object.userData.item
+        return item && !item.collected && item.group.visible
+      })
+      if (hit) interact(hit.object.userData.item)
+    })
+
+    /* ---------- 移动、相机跟随、反馈动画 ---------- */
+    const moveDir = new THREE.Vector3()
+    const playerDelta = new THREE.Vector3()
+    const followTarget = new THREE.Vector3()
+
+    function updatePlayer(dt) {
+      flatCameraForward(camForward)
+      camRight.crossVectors(camForward, UP).normalize()
+
+      moveDir.set(0, 0, 0)
+      if (held.has('forward')) moveDir.add(camForward)
+      if (held.has('back')) moveDir.sub(camForward)
+      if (held.has('right')) moveDir.add(camRight)
+      if (held.has('left')) moveDir.sub(camRight)
+
+      const moving = moveDir.lengthSq() > 0
+      if (moving) {
+        moveDir.normalize()
+        playerDelta.copy(moveDir).multiplyScalar(3.1 * dt)
+        player.position.add(playerDelta)
+        player.position.x = THREE.MathUtils.clamp(player.position.x, -5.3, 5.3)
+        player.position.z = THREE.MathUtils.clamp(player.position.z, -3.85, 3.85)
+        player.rotation.y = THREE.MathUtils.lerp(
+          player.rotation.y,
+          Math.atan2(moveDir.x, moveDir.z),
+          Math.min(1, dt * 12)
+        )
+        playerBody.position.y = 0.7 + Math.abs(Math.sin(elapsed * 9)) * 0.05
+      } else {
+        playerBody.position.y = 0.7 + Math.sin(elapsed * 2.2) * 0.02
+      }
+
+      // 相机跟随角色，保持用户当前的环绕角度
+      followTarget.copy(player.position)
+      followTarget.y += 0.9
+      const targetDelta = followTarget.clone().sub(controls.target)
+      camera.position.add(targetDelta)
+      controls.target.copy(followTarget)
+    }
+
+    function updateFeedback(dt) {
+      evaluateHover()
+      promptItem = findPromptItem()
+
+      const active = promptItem || (hoveredItem && itemInRange(hoveredItem) ? hoveredItem : null)
+      interactables.forEach((item) => {
+        if (!item.group.visible) return
+        const isActive = item === active
+        item.pick.scale.x = THREE.MathUtils.lerp(item.pick.scale.x, isActive ? 1.13 : 1, Math.min(1, dt * 10))
+        item.pick.scale.y = item.pick.scale.x
+        item.pick.scale.z = item.pick.scale.x
+        if (item === terminalItem && terminalActive) {
+          screenMat.emissiveIntensity = 1.6
+        } else if (item.pick.material && item.pick.material.emissive) {
+          item.pick.material.emissiveIntensity = item.baseEmissive + (isActive ? 0.75 : 0)
+        }
+      })
+
+      if (promptItem) {
+        promptEl.innerHTML = `<kbd>E</kbd> ${promptItem.label}`
+        promptEl.classList.add('show')
+        reticle.classList.add('ready')
+      } else if (hoveredItem && !itemInRange(hoveredItem)) {
+        promptEl.innerHTML = '再靠近一点'
+        promptEl.classList.add('show')
+        reticle.classList.add('ready')
+      } else {
+        promptEl.classList.remove('show')
+        reticle.classList.remove('ready')
+      }
+    }
+
+    renderGoals()
+
+    const timer = new THREE.Timer()
+    timer.connect(document)
+
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05)
+      elapsed += dt
+      updatePlayer(dt)
+      controls.update()
+      updateFeedback(dt)
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

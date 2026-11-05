@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>physics-basic · 第一个下落小球</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 350px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 250px;
+    }
+
+    @media (max-width: 600px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .lil-gui.root {
+        --width: 190px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>physics-basic · 第一个下落小球</b><br />
+    物理世界（cannon-es）负责算坐标，渲染世界（Three.js）负责画出来。<br />
+    每帧：<code>world.step</code> → <code>mesh.position.copy(body.position)</code>。<br />
+    右上角调重力 / 弹性 / 摩擦，把球调成超级弹球或月球漫步。
+  </div>
+  <div class="hint">空格 / 按钮投放小球 · 拖拽旋转视角 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+    import * as CANNON from 'cannon-es'
+
+    /* ---------- 渲染世界：Three.js ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 4.5, 11)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1.5, 0)
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x1a1a26, 0.9))
+    const sun = new THREE.DirectionalLight(0xffffff, 1.8)
+    sun.position.set(5, 10, 6)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(1024, 1024)
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -9
+    sun.shadow.camera.right = sun.shadow.camera.top = 9
+    scene.add(sun)
+
+    /* ---------- 物理世界：cannon-es ---------- */
+    const world = new CANNON.World()
+    world.gravity.set(0, -9.82, 0) // 重力加速度
+    world.allowSleep = true        // 静止刚体自动休眠，省 CPU
+
+    // 物理材质：只管碰撞手感，与视觉材质无关
+    const matBall = new CANNON.Material('ball')
+    const matGround = new CANNON.Material('ground')
+    const contactBallGround = new CANNON.ContactMaterial(matBall, matGround, {
+      restitution: 0.7,            // 弹性：撞地保留约 70% 垂直速度
+      friction: 0.3                // 摩擦：滚动逐渐减速
+    })
+    const contactBallBall = new CANNON.ContactMaterial(matBall, matBall, {
+      restitution: 0.6, friction: 0.1
+    })
+    world.addContactMaterial(contactBallGround)
+    world.addContactMaterial(contactBallBall)
+
+    /* ---------- 地面：渲染 Mesh + 物理 Body 各一份 ---------- */
+    const groundMesh = new THREE.Mesh(
+      new THREE.CircleGeometry(9, 48),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 })
+    )
+    groundMesh.rotation.x = -Math.PI / 2   // 渲染侧放平
+    groundMesh.receiveShadow = true
+    scene.add(groundMesh)
+    scene.add(new THREE.GridHelper(18, 18, 0x334155, 0x1e293b))
+
+    const groundBody = new CANNON.Body({
+      type: CANNON.Body.STATIC,            // 静态刚体：不受力、永不移动
+      shape: new CANNON.Plane(),
+      material: matGround
+    })
+    groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0) // 物理侧同样放平
+    world.addBody(groundBody)
+
+    /* ---------- 小球工厂 ---------- */
+    const balls = [] // { mesh, body }
+    const sphereGeo = new THREE.SphereGeometry(0.5, 32, 24)
+    const MAX_BALLS = 30
+
+    function removeBall(pair) {
+      scene.remove(pair.mesh)
+      pair.mesh.material.dispose()
+      world.removeBody(pair.body)
+      balls.splice(balls.indexOf(pair), 1)
+    }
+
+    function dropBall() {
+      if (balls.length >= MAX_BALLS) removeBall(balls[0]) // 回收最早的球
+      const color = new THREE.Color().setHSL(Math.random(), 0.7, 0.58)
+      const mesh = new THREE.Mesh(sphereGeo, new THREE.MeshStandardMaterial({
+        color, roughness: 0.35, metalness: 0.1
+      }))
+      mesh.castShadow = true
+      scene.add(mesh)
+
+      const body = new CANNON.Body({
+        mass: 1,                           // 有质量 = 动态刚体
+        shape: new CANNON.Sphere(0.5),
+        position: new CANNON.Vec3(
+          (Math.random() - 0.5) * 7,       // 随机水平位置
+          6 + Math.random() * 3,           // 6~9 米高空
+          (Math.random() - 0.5) * 7
+        ),
+        material: matBall
+      })
+      world.addBody(body)
+      balls.push({ mesh, body })
+    }
+
+    function clearBalls() {
+      while (balls.length) removeBall(balls[0])
+    }
+
+    function wakeAll() {
+      balls.forEach(b => b.body.wakeUp())  // 参数变了，叫醒休眠中的球
+    }
+
+    /* ---------- 初始投放 + 键盘 ---------- */
+    dropBall()
+    addEventListener('keydown', (e) => {
+      if (e.code === 'Space') { e.preventDefault(); dropBall() }
+    })
+
+    /* ---------- lil-gui 调参 ---------- */
+    const params = {
+      gravity: 9.82,
+      restitution: 0.7,
+      friction: 0.3,
+      投放小球: () => dropBall(),
+      清空: () => clearBalls()
+    }
+    const gui = new GUI({ title: '物理参数' })
+    gui.add(params, 'gravity', 0, 25, 0.01).name('重力 (m/s²)').onChange(v => {
+      world.gravity.set(0, -v, 0)
+      wakeAll()
+    })
+    gui.add(params, 'restitution', 0, 1.1, 0.01).name('弹性').onChange(v => {
+      contactBallGround.restitution = v
+      wakeAll()
+    })
+    gui.add(params, 'friction', 0, 1, 0.01).name('摩擦').onChange(v => {
+      contactBallGround.friction = v
+      wakeAll()
+    })
+    gui.add(params, '投放小球')
+    gui.add(params, '清空')
+
+    /* ---------- 主循环：先 step，再同步 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      const dt = Math.min(timer.getDelta(), 0.05) // 截断大跳变，防隧道效应
+      world.step(1 / 60, dt, 3)                   // 固定步长 1/60，最多追 3 步
+
+      // 物理世界 → 渲染世界：抄坐标与姿态
+      for (const { mesh, body } of balls) {
+        mesh.position.copy(body.position)
+        mesh.quaternion.copy(body.quaternion)
+      }
+      // 掉出世界的球回收
+      for (let i = balls.length - 1; i >= 0; i--) {
+        if (balls[i].body.position.y < -10) removeBall(balls[i])
+      }
+
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

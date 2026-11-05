@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>debugging · 坐标轴 / 网格 / GUI 调试</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 300px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .stats {
+      position: fixed; top: 14px; right: 14px; padding: 4px 10px;
+      background: rgba(11,14,20,.72); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px; font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace;
+      color: #7ee08a; pointer-events: none;
+    }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 250px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 200px; }
+      .stats { display: none; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>debugging 调试三件套</b><br />
+    <b style="color:#ff5f57">红 X</b> / <b style="color:#4ec96a">绿 Y</b> /
+    <b style="color:#5aaaff">蓝 Z</b> 是 AxesHelper 坐标轴；<br />
+    地面是 GridHelper 网格；右上角面板是 lil-gui 参数调节器；
+    FPS 为自行统计的实时帧率。
+  </div>
+  <div class="stats" id="stats">FPS: --</div>
+  <div class="hint">用右侧面板调整参数 · 拖拽旋转视角</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(
+      50, innerWidth / innerHeight, 0.1, 100
+    )
+    camera.position.set(3, 2.4, 4)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    // —— 调试辅助对象 ——
+    scene.add(new THREE.AxesHelper(2))            // 坐标轴，长度 2
+    scene.add(new THREE.GridHelper(10, 20))      // 10x10 网格，20 格
+
+    // —— 被调试的物体 ——
+    const cube = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 1.2),
+      new THREE.MeshStandardMaterial({ color: 0x3b82f6 })
+    )
+    cube.position.y = 0.6
+    scene.add(cube)
+
+    // 一盏方向光 + 环境光，StandardMaterial 必须有光才看得见
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5))
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.6)
+    dirLight.position.set(3, 5, 2)
+    scene.add(dirLight)
+
+    // —— lil-gui 参数面板 ——
+    const params = {
+      speed: 1,
+      scale: 1,
+      wireframe: false,
+      visible: true,
+      color: '#3b82f6'
+    }
+    const gui = new GUI({ title: '调试面板' })
+    gui.add(params, 'speed', 0, 5, 0.1).name('旋转速度')
+    gui.add(params, 'scale', 0.3, 2.5, 0.05).name('整体缩放')
+    gui.add(params, 'wireframe').name('线框模式').onChange(v => {
+      cube.material.wireframe = v
+    })
+    gui.add(params, 'visible').name('是否显示')
+    gui.addColor(params, 'color').name('颜色').onChange(v => {
+      cube.material.color.set(v)
+    })
+
+    // —— 简易 FPS 统计 ——
+    const statsEl = document.getElementById('stats')
+    let frames = 0
+    let lastStatsTime = performance.now()
+
+    renderer.setAnimationLoop(() => {
+      cube.rotation.y += 0.01 * params.speed
+      cube.rotation.x += 0.006 * params.speed
+      cube.scale.setScalar(params.scale)
+      cube.visible = params.visible
+      controls.update()
+      renderer.render(scene, camera)
+
+      frames++
+      const now = performance.now()
+      if (now - lastStatsTime >= 500) {
+        const fps = Math.round((frames * 1000) / (now - lastStatsTime))
+        statsEl.textContent = `FPS: ${fps}`
+        frames = 0
+        lastStatsTime = now
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

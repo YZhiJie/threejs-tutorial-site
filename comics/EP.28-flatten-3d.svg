@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" font-family="'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <linearGradient id="smoothGrad28" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1e293b" />
+      <stop offset="1" stop-color="#f1f5f9" />
+    </linearGradient>
+    <radialGradient id="glow28a" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.18" />
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="840" fill="#070b14" />
+  <circle cx="120" cy="70" r="180" fill="url(#glow28a)" />
+  <circle cx="1080" cy="780" r="210" fill="url(#glow28a)" />
+  <circle cx="700" cy="40" r="3" fill="#f97316" opacity="0.8" />
+  <circle cx="760" cy="22" r="2" fill="#22d3ee" opacity="0.7" />
+  <circle cx="1150" cy="420" r="2.5" fill="#a78bfa" opacity="0.8" />
+
+  <g transform="translate(20,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055" stroke-width="1.5" />
+    <polygon points="380,0 450,0 120,361 50,361" fill="#22d3ee" opacity="0.045" />
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#22d3ee" />
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">1</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">困境：渲染像一张贴纸</text>
+
+    <g transform="translate(48,92)">
+      <rect x="4" y="42" width="56" height="34" rx="10" fill="#2563eb" />
+      <rect x="26" y="46" width="12" height="30" rx="4" fill="#1d4ed8" />
+      <circle cx="32" cy="24" r="26" fill="#f4c9a3" stroke="#334155" stroke-width="1.5" />
+      <path d="M6 20 L12 8 L18 18 L26 4 L34 16 L42 6 L50 18 L58 22 Z" fill="#111827" />
+      <circle cx="23" cy="24" r="2.5" fill="#0b1220" />
+      <circle cx="41" cy="24" r="2.5" fill="#0b1220" />
+      <path d="M27 32 Q32 36 37 32" stroke="#0b1220" stroke-width="2" fill="none" />
+      <rect x="44" y="10" width="13" height="9" rx="3" fill="#22d3ee" opacity="0.85" />
+      <text x="50.5" y="17.5" text-anchor="middle" font-size="7" font-weight="bold" fill="#06202a">28</text>
+    </g>
+
+    <rect x="100" y="64" width="272" height="66" rx="10" fill="#e6edf3" stroke="#94a3b8" stroke-width="1" />
+    <polygon points="100,92 86,104 100,108" fill="#e6edf3" stroke="#94a3b8" stroke-width="1" />
+    <text x="114" y="86" font-size="13.5" fill="#0b1220">面数拉到十万，截图还是一片糊。</text>
+    <text x="114" y="105" font-size="13.5" fill="#0b1220">物体和背景粘在一起，没有边界。</text>
+    <text x="114" y="124" font-size="13.5" fill="#0b1220">这不像渲染，更像一张贴纸。</text>
+
+    <rect x="390" y="62" width="166" height="104" rx="8" fill="#0a0f1c" stroke="#f97316" stroke-width="1.2" />
+    <text x="404" y="84" font-size="12" font-weight="bold" fill="#f97316">资产状态</text>
+    <text x="404" y="106" font-size="12" fill="#e2e8f0">面数：120k</text>
+    <text x="404" y="128" font-size="12" fill="#e2e8f0">材质：PBR</text>
+    <text x="404" y="150" font-size="12" fill="#94a3b8">观感：贴纸</text>
+
+    <rect x="24" y="186" width="524" height="68" rx="8" fill="#0a0f1c" stroke="#22d3ee" stroke-width="1" />
+    <text x="40" y="208" font-size="12" fill="#7dd3fc">写实：连续光照</text>
+    <rect x="150" y="198" width="200" height="12" rx="2" fill="url(#smoothGrad28)" />
+    <text x="40" y="238" font-size="12" fill="#fbbf24">卡通：三档硬切</text>
+    <rect x="150" y="228" width="66" height="12" rx="2" fill="#343a4d" />
+    <rect x="220" y="228" width="66" height="12" rx="2" fill="#8d8e9a" />
+    <rect x="290" y="228" width="66" height="12" rx="2" fill="#f4e7cf" />
+    <text x="380" y="238" font-size="11.5" fill="#94a3b8">同一颗球，两种读法</text>
+
+    <rect x="24" y="270" width="524" height="56" rx="8" fill="#111c33" stroke="#f59e0b" stroke-width="1.2" />
+    <rect x="24" y="270" width="4" height="56" rx="2" fill="#f59e0b" />
+    <text x="40" y="293" font-size="13" fill="#fcd34d">结论：边界靠描边，体积靠色阶。</text>
+    <text x="40" y="314" font-size="13" fill="#e2e8f0">面数只决定轮廓圆滑，不决定风格。</text>
+  </g>
+
+  <g transform="translate(608,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055" stroke-width="1.5" />
+    <polygon points="380,0 450,0 120,361 50,361" fill="#a78bfa" opacity="0.05" />
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#a78bfa" />
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">2</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">揭秘：把光照切成台阶</text>
+
+    <g transform="translate(48,88)">
+      <rect x="0" y="42" width="60" height="34" rx="10" fill="#cbd5e1" />
+      <rect x="25" y="46" width="10" height="30" fill="#94a3b8" />
+      <circle cx="30" cy="24" r="25" fill="#e8c9a8" stroke="#334155" stroke-width="1.5" />
+      <path d="M5 22 C5 2, 55 2, 55 22 Z" fill="#cbd5e1" />
+      <path d="M6 20 Q14 12 24 18" fill="#94a3b8" opacity="0.8" />
+      <rect x="13" y="18" width="16" height="11" rx="4" fill="#0ea5e9" opacity="0.25" stroke="#38bdf8" stroke-width="1.5" />
+      <rect x="33" y="18" width="16" height="11" rx="4" fill="#0ea5e9" opacity="0.25" stroke="#38bdf8" stroke-width="1.5" />
+      <line x1="29" y1="23.5" x2="33" y2="23.5" stroke="#38bdf8" stroke-width="1.5" />
+      <circle cx="21" cy="23.5" r="2" fill="#0b1220" />
+      <circle cx="41" cy="23.5" r="2" fill="#0b1220" />
+      <path d="M24 34 Q30 38 36 34" stroke="#0b1220" stroke-width="2" fill="none" />
+    </g>
+
+    <rect x="100" y="64" width="286" height="62" rx="10" fill="#e6edf3" stroke="#94a3b8" stroke-width="1" />
+    <polygon points="100,92 86,104 100,108" fill="#e6edf3" stroke="#94a3b8" stroke-width="1" />
+    <text x="114" y="86" font-size="13.5" fill="#0b1220">连续光照切成三档，位置刚好。</text>
+    <text x="114" y="112" font-size="13.5" fill="#0b1220">暗部再叠一点冷色，别用纯灰。</text>
+
+    <rect x="24" y="168" width="524" height="116" rx="8" fill="#0a0f1c" stroke="#a78bfa" stroke-width="1" />
+    <text x="40" y="191" font-size="12" fill="#94a3b8">// 色阶不是滤镜，是采样</text>
+    <text x="40" y="216" font-size="12.5" fill="#7dd3fc">ramp = texture2D(uRamp, vec2(ndl, 0.5))</text>
+    <text x="40" y="241" font-size="12.5" fill="#fbbf24">col = base * ramp + shadowTint</text>
+    <rect x="40" y="254" width="42" height="16" rx="2" fill="#343a4d" />
+    <rect x="84" y="254" width="42" height="16" rx="2" fill="#8d8e9a" />
+    <rect x="128" y="254" width="42" height="16" rx="2" fill="#f4e7cf" />
+    <text x="184" y="267" font-size="11.5" fill="#94a3b8">暗部 / 中间 / 亮部</text>
+    <text x="380" y="267" font-size="11.5" fill="#a78bfa">美术直接改贴图即可调风格</text>
+
+    <rect x="24" y="292" width="524" height="52" rx="8" fill="#111c33" stroke="#f59e0b" stroke-width="1.2" />
+    <rect x="24" y="292" width="4" height="52" rx="2" fill="#f59e0b" />
+    <text x="40" y="314" font-size="13" fill="#fcd34d">3 档够读体积：亮、中间、暗。</text>
+    <text x="40" y="334" font-size="13" fill="#e2e8f0">高光切块，暗部偏冷，风格就立住了。</text>
+  </g>
+
+  <g transform="translate(20,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055" stroke-width="1.5" />
+    <polygon points="380,0 450,0 120,361 50,361" fill="#f97316" opacity="0.05" />
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f97316" />
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">3</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">实证：四条描边路线</text>
+
+    <g transform="translate(38,58) scale(0.95)">
+      <rect x="4" y="42" width="56" height="34" rx="10" fill="#7c3aed" />
+      <rect x="26" y="46" width="12" height="30" rx="4" fill="#6d28d9" />
+      <circle cx="32" cy="24" r="25" fill="#f7d0b2" stroke="#334155" stroke-width="1.5" />
+      <path d="M7 24 C5 4, 57 2, 57 24 Z" fill="#f97316" />
+      <path d="M52 12 Q66 24 58 46 Q66 32 56 18 Z" fill="#ea580c" />
+      <circle cx="24" cy="26" r="2.5" fill="#0b1220" />
+      <circle cx="42" cy="26" r="2.5" fill="#0b1220" />
+      <path d="M28 33 Q33 37 38 33" stroke="#0b1220" stroke-width="2" fill="none" />
+      <circle cx="18" cy="31" r="3.5" fill="#fb7185" opacity="0.35" />
+      <circle cx="45" cy="31" r="3.5" fill="#fb7185" opacity="0.35" />
+    </g>
+
+    <rect x="110" y="50" width="300" height="58" rx="10" fill="#e6edf3" stroke="#94a3b8" stroke-width="1" />
+    <polygon points="110,74 96,86 110,90" fill="#e6edf3" stroke="#94a3b8" stroke-width="1" />
+    <text x="124" y="72" font-size="13.5" fill="#0b1220">四条路线，成本和线都不一样。</text>
+    <text x="124" y="95" font-size="13.5" fill="#0b1220">先分清外轮廓和内部线。</text>
+
+    <rect x="24" y="152" width="250" height="62" rx="8" fill="#0a0f1c" stroke="#22d3ee" stroke-width="1" />
+    <text x="40" y="176" font-size="13" font-weight="bold" fill="#7dd3fc">① 反向外壳</text>
+    <text x="40" y="198" font-size="11.5" fill="#94a3b8">多 1 draw call · 仅外轮廓</text>
+
+    <rect x="286" y="152" width="262" height="62" rx="8" fill="#0a0f1c" stroke="#a78bfa" stroke-width="1" />
+    <text x="302" y="176" font-size="13" font-weight="bold" fill="#c4b5fd">② 后处理边缘</text>
+    <text x="302" y="198" font-size="11.5" fill="#94a3b8">多 1 次预渲染 · 内外线都有</text>
+
+    <rect x="24" y="222" width="250" height="62" rx="8" fill="#0a0f1c" stroke="#f472b6" stroke-width="1" />
+    <text x="40" y="246" font-size="13" font-weight="bold" fill="#f9a8d4">③ 菲涅尔</text>
+    <text x="40" y="268" font-size="11.5" fill="#94a3b8">零额外绘制 · 随视角变</text>
+
+    <rect x="286" y="222" width="262" height="62" rx="8" fill="#0a0f1c" stroke="#fbbf24" stroke-width="1" />
+    <text x="302" y="246" font-size="13" font-weight="bold" fill="#fcd34d">④ 纹理描边</text>
+    <text x="302" y="268" font-size="11.5" fill="#94a3b8">四次采样 · 内部结构线</text>
+
+    <rect x="24" y="296" width="524" height="50" rx="8" fill="#111c33" stroke="#f59e0b" stroke-width="1.2" />
+    <rect x="24" y="296" width="4" height="50" rx="2" fill="#f59e0b" />
+    <text x="40" y="317" font-size="12.5" fill="#fcd34d">外轮廓用外壳，内部线用纹理或后处理。</text>
+    <text x="40" y="337" font-size="12.5" fill="#e2e8f0">线宽按屏幕像素算，别用世界单位。</text>
+  </g>
+
+  <g transform="translate(608,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055" stroke-width="1.5" />
+    <polygon points="380,0 450,0 120,361 50,361" fill="#22d3ee" opacity="0.045" />
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#22d3ee" />
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">4</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">结案：把纪律写进配置</text>
+
+    <g transform="translate(48,88) scale(0.92)">
+      <rect x="0" y="42" width="60" height="34" rx="10" fill="#cbd5e1" />
+      <rect x="25" y="46" width="10" height="30" fill="#94a3b8" />
+      <circle cx="30" cy="24" r="25" fill="#e8c9a8" stroke="#334155" stroke-width="1.5" />
+      <path d="M5 22 C5 2, 55 2, 55 22 Z" fill="#cbd5e1" />
+      <rect x="13" y="18" width="16" height="11" rx="4" fill="#0ea5e9" opacity="0.25" stroke="#38bdf8" stroke-width="1.5" />
+      <rect x="33" y="18" width="16" height="11" rx="4" fill="#0ea5e9" opacity="0.25" stroke="#38bdf8" stroke-width="1.5" />
+      <line x1="29" y1="23.5" x2="33" y2="23.5" stroke="#38bdf8" stroke-width="1.5" />
+      <circle cx="21" cy="23.5" r="2" fill="#0b1220" />
+      <circle cx="41" cy="23.5" r="2" fill="#0b1220" />
+      <path d="M24 34 Q30 38 36 34" stroke="#0b1220" stroke-width="2" fill="none" />
+    </g>
+
+    <rect x="100" y="64" width="286" height="62" rx="10" fill="#e6edf3" stroke="#94a3b8" stroke-width="1" />
+    <polygon points="100,92 86,104 100,108" fill="#e6edf3" stroke="#94a3b8" stroke-width="1" />
+    <text x="114" y="86" font-size="13.5" fill="#0b1220">风格是管线，不是一层滤镜。</text>
+    <text x="114" y="112" font-size="13.5" fill="#0b1220">参数集中管理，切换才不崩。</text>
+
+    <circle cx="40" cy="198" r="10" fill="#ef4444" opacity="0.18" stroke="#ef4444" stroke-width="1" />
+    <text x="40" y="203" text-anchor="middle" font-size="12" font-weight="bold" fill="#f87171">!</text>
+    <text x="62" y="195" font-size="12.5" fill="#e2e8f0">外壳线宽按世界单位 → 近粗远细</text>
+    <text x="62" y="212" font-size="11.5" fill="#94a3b8">改用屏幕像素外扩，并乘 clip.w</text>
+
+    <circle cx="40" cy="238" r="10" fill="#f59e0b" opacity="0.18" stroke="#f59e0b" stroke-width="1" />
+    <text x="40" y="243" text-anchor="middle" font-size="12" font-weight="bold" fill="#fbbf24">!</text>
+    <text x="62" y="235" font-size="12.5" fill="#e2e8f0">后处理描边没配 SMAA → 细线闪</text>
+    <text x="62" y="252" font-size="11.5" fill="#94a3b8">半径 2px 起，远处做淡出</text>
+
+    <circle cx="40" cy="278" r="10" fill="#a78bfa" opacity="0.18" stroke="#a78bfa" stroke-width="1" />
+    <text x="40" y="283" text-anchor="middle" font-size="12" font-weight="bold" fill="#c4b5fd">!</text>
+    <text x="62" y="275" font-size="12.5" fill="#e2e8f0">噪声每帧随机 → 整幅画在跳</text>
+    <text x="62" y="292" font-size="11.5" fill="#94a3b8">用连续噪声，限制帧间速率</text>
+
+    <rect x="24" y="310" width="524" height="42" rx="8" fill="#111c33" stroke="#22d3ee" stroke-width="1.2" />
+    <rect x="24" y="310" width="4" height="42" rx="2" fill="#22d3ee" />
+    <text x="40" y="330" font-size="12.5" fill="#7dd3fc">写实 / 卡通 / 水墨 = 一组开关。</text>
+    <text x="40" y="346" font-size="12.5" fill="#e2e8f0">切模式同步改材质、色调、雾与 Pass。</text>
+  </g>
+</svg>

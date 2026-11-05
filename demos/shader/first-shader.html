@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>first-shader · 第一个自定义着色器</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0e14; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 320px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    .lil-gui.root { --width: 250px; }
+    @media (max-width: 600px) {
+      .info { max-width: 200px; font-size: 12px; }
+      .lil-gui.root { --width: 190px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>第一个 ShaderMaterial：颜色由自己写</b><br />
+    法线模式：+X 红 / +Y 绿 / +Z 蓝，无需灯光。<br />
+    UV 模式：红绿通道 = 纹理坐标 (u, v)。<br />
+    varying 负责把数据从顶点插值到每个像素。
+  </div>
+  <div class="hint">拖拽旋转视角 · 面板切换 法线 / UV 渐变</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    // 1. 场景 / 相机 / 渲染器（与其它演示同款骨架）
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const camera = new THREE.PerspectiveCamera(
+      45, window.innerWidth / window.innerHeight, 0.1, 100
+    )
+    camera.position.set(0, 1.2, 4.2)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+
+    scene.add(new THREE.GridHelper(10, 10, 0x334155, 0x1e293b))
+
+    // 2. 顶点着色器：把顶点搬上屏幕，并通过 varying 把法线与 uv 递出去
+    //    注意：GLSL 字符串内禁止中文注释与全角标点
+    const vertexShader = /* glsl */ `
+      varying vec3 vNormal;
+      varying vec2 vUv;
+
+      void main() {
+        // normal / position / uv are injected by ShaderMaterial for free
+        vNormal = normal;
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `
+
+    // 3. 片元着色器：两种渐变模式，用 uMode 切换
+    const fragmentShader = /* glsl */ `
+      uniform float uMode;  // 0 = normal gradient, 1 = uv gradient
+      varying vec3 vNormal;
+      varying vec2 vUv;
+
+      void main() {
+        vec3 n = normalize(vNormal);      // interpolation breaks unit length
+        vec3 normalColor = n * 0.5 + 0.5; // map (-1,1) to (0,1)
+        vec3 uvColor = vec3(vUv, 0.4);    // r = u, g = v, b fixed
+        vec3 color = mix(normalColor, uvColor, step(0.5, uMode));
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `
+
+    // 4. 材质 + 网格
+    const uniforms = {
+      uMode: { value: 0 }
+    }
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(1.2, 64, 32),
+      new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader })
+    )
+    sphere.position.y = 1.2
+    scene.add(sphere)
+
+    // 5. 参数面板：切换渐变模式
+    const params = { mode: '法线渐变' }
+    const gui = new GUI({ title: '着色器模式' })
+    gui.add(params, 'mode', ['法线渐变', 'UV 渐变']).name('渐变依据')
+      .onChange(v => { uniforms.uMode.value = v === 'UV 渐变' ? 1 : 0 })
+
+    // 6. 渲染循环（r186：Clock 已弃用，用 Timer）
+    const clock = new THREE.Timer()
+    clock.connect(document)
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      sphere.rotation.y += clock.getDelta() * 0.5
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    // 7. 窗口尺寸变化时自适应
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>

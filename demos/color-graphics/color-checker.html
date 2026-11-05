@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>color-checker · 跨设备色彩校准台</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 356px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .state {
+      display: block;
+      margin-top: 5px;
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .readout {
+      position: fixed;
+      left: 14px;
+      bottom: 48px;
+      width: 318px;
+      padding: 8px 9px;
+      background: rgba(11, 14, 20, .86);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 3px;
+      font-family: 'SF Mono', Consolas, monospace;
+      pointer-events: none;
+    }
+
+    .sw {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      font-size: 8.5px;
+      color: #cbd5e1;
+      line-height: 1.15;
+    }
+
+    .sw i {
+      display: block;
+      width: 100%;
+      height: 11px;
+      border-radius: 2px;
+      border: 1px solid rgba(255, 255, 255, .12);
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .lil-gui.root {
+      --width: 262px;
+    }
+
+    @media (max-width: 640px) {
+      .info {
+        max-width: 200px;
+        font-size: 12px;
+      }
+
+      .readout {
+        width: 238px;
+        font-size: 8px;
+        bottom: 44px;
+      }
+
+      .sw {
+        font-size: 7.5px;
+      }
+
+      .lil-gui.root {
+        --width: 198px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>跨设备色彩校准台 · 24 色卡</b><br />
+    切换色调映射 / 曝光 / 输出色彩空间，看色卡偏移；左下角逐格显示屏幕实际 sRGB 值。
+    <span class="state" id="state"></span>
+  </div>
+  <div class="hint">右上角切换 toneMapping / exposure / outputColorSpace · 左下角实时取色</div>
+  <div class="readout" id="readout"></div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import GUI from 'three/addons/libs/lil-gui.module.min.js'
+
+    /* ---------- 渲染器 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.NoToneMapping
+    renderer.toneMappingExposure = 1
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    /* ---------- 正交相机：色卡平铺，方便按像素取色 ---------- */
+    const FIT_W = 4.9
+    const FIT_H = 2.75
+    function makeCamera() {
+      const aspect = innerWidth / innerHeight
+      const fitAspect = FIT_W / FIT_H
+      let halfW, halfH
+      if (aspect >= fitAspect) {
+        halfH = FIT_H
+        halfW = FIT_H * aspect
+      } else {
+        halfW = FIT_W
+        halfH = FIT_W / aspect
+      }
+      const cam = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.1, 100)
+      cam.position.z = 10
+      return cam
+    }
+    let camera = makeCamera()
+
+    /* ---------- 24 色卡数据（sRGB 十六进制） ---------- */
+    const PATCHES = [
+      '#735244', '#C29682', '#627A9D', '#576C43', '#8580B1', '#67BDAA', '#D67E2C', '#505BA6',
+      '#C15A63', '#5E3C6C', '#9DBC40', '#E0A32E', '#383D96', '#469449', '#AF3C32', '#E7C71F',
+      '#BB5695', '#0885A1', '#F3F3F2', '#88898B', '#797A7C', '#696A6C', '#5A5B5D', '#363738'
+    ]
+
+    const PATCH = 0.82
+    const GAP = 0.08
+    const PITCH = PATCH + GAP
+    const patches = []
+
+    const geo = new THREE.PlaneGeometry(PATCH, PATCH)
+    PATCHES.forEach((hex, i) => {
+      const col = i % 8
+      const row = Math.floor(i / 8)
+      const mesh = new THREE.Mesh(
+        geo,
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(hex), toneMapped: true })
+      )
+      mesh.position.set((col - 3.5) * PITCH, 1.35 - row * PITCH, 0)
+      scene.add(mesh)
+      patches.push(mesh)
+    })
+
+    /* ---------- 9 级参考灰阶 ---------- */
+    const GRAYS = ['#000000', '#202020', '#404040', '#606060', '#808080', '#A0A0A0', '#C0C0C0', '#E0E0E0', '#FFFFFF']
+    const grayGeo = new THREE.PlaneGeometry(0.8, 0.4)
+    GRAYS.forEach((hex, i) => {
+      const mesh = new THREE.Mesh(
+        grayGeo,
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(hex), toneMapped: true })
+      )
+      mesh.position.set((i - 4) * 0.88, -1.5, 0)
+      scene.add(mesh)
+    })
+
+    /* ---------- 左下角实时取色面板 ---------- */
+    const readout = document.getElementById('readout')
+    const cells = patches.map((patch) => {
+      const el = document.createElement('div')
+      el.className = 'sw'
+      const chip = document.createElement('i')
+      const label = document.createElement('b')
+      label.textContent = '----'
+      el.appendChild(chip)
+      el.appendChild(label)
+      readout.appendChild(el)
+      return { patch, chip, label }
+    })
+
+    /* ---------- 状态开关 ---------- */
+    const TONE = {
+      'No（直出）': THREE.NoToneMapping,
+      'ACESFilmic': THREE.ACESFilmicToneMapping,
+      'AgX': THREE.AgXToneMapping,
+      'Reinhard': THREE.ReinhardToneMapping
+    }
+    const COLOR = {
+      'sRGB': THREE.SRGBColorSpace,
+      'Linear': THREE.LinearSRGBColorSpace
+    }
+    const params = {
+      toneMapping: 'No（直出）',
+      exposure: 1.0,
+      outputColorSpace: 'sRGB'
+    }
+
+    let needsRead = true
+
+    function markMaterialsDirty() {
+      scene.traverse((obj) => {
+        if (!obj.material) return
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+        mats.forEach((m) => { m.needsUpdate = true })
+      })
+    }
+
+    function updateState() {
+      document.getElementById('state').textContent =
+        `toneMapping=${params.toneMapping} · exposure=${params.exposure.toFixed(2)} · output=${params.outputColorSpace}`
+    }
+
+    const gui = new GUI({ title: '色彩校准开关' })
+    gui.add(params, 'toneMapping', Object.keys(TONE)).name('toneMapping')
+      .onChange((v) => {
+        renderer.toneMapping = TONE[v]
+        markMaterialsDirty()
+        updateState()
+        needsRead = true
+      })
+    gui.add(params, 'exposure', 0.3, 2.2, 0.01).name('toneMappingExposure')
+      .onChange((v) => {
+        renderer.toneMappingExposure = v
+        updateState()
+        needsRead = true
+      })
+    gui.add(params, 'outputColorSpace', Object.keys(COLOR)).name('outputColorSpace')
+      .onChange((v) => {
+        renderer.outputColorSpace = COLOR[v]
+        markMaterialsDirty()
+        updateState()
+        needsRead = true
+      })
+    updateState()
+    // 让初始参数与渲染器实际状态保持一致
+    renderer.toneMapping = TONE[params.toneMapping]
+    renderer.toneMappingExposure = params.exposure
+    renderer.outputColorSpace = COLOR[params.outputColorSpace]
+
+    /* ---------- 读取屏幕像素：每格中心的真实颜色 ---------- */
+    const pixel = new Uint8Array(4)
+    const worldPos = new THREE.Vector3()
+    const bufferSize = new THREE.Vector2()
+
+    function toHex(r, g, b) {
+      const h = (v) => v.toString(16).padStart(2, '0').toUpperCase()
+      return '#' + h(r) + h(g) + h(b)
+    }
+
+    function readScreenColors() {
+      const gl = renderer.getContext()
+      renderer.getDrawingBufferSize(bufferSize)
+      for (const cell of cells) {
+        cell.patch.getWorldPosition(worldPos)
+        worldPos.project(camera)
+        const px = Math.floor((worldPos.x * 0.5 + 0.5) * bufferSize.x)
+        const py = Math.floor((worldPos.y * 0.5 + 0.5) * bufferSize.y)
+        gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+        const hex = toHex(pixel[0], pixel[1], pixel[2])
+        cell.label.textContent = hex
+        cell.chip.style.background = hex
+      }
+    }
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      renderer.render(scene, camera)
+      if (needsRead) {
+        readScreenColors()
+        needsRead = false
+      }
+    })
+
+    addEventListener('resize', () => {
+      camera = makeCamera()
+      renderer.setSize(innerWidth, innerHeight)
+      needsRead = true
+    })
+  </script>
+</body>
+
+</html>

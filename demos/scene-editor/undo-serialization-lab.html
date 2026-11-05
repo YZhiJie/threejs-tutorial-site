@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>undo-serialization-lab · 撤销栈与序列化</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 322px;
+      padding: 11px 13px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 12.5px;
+      line-height: 1.6;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .info .accent {
+      color: #fbbf24;
+    }
+
+    .panel {
+      position: fixed;
+      background: rgba(15, 20, 30, .9);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 12px;
+      font-size: 12px;
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+    }
+
+    .panel h2 {
+      margin: 0;
+      padding: 10px 12px 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #7cc4ff;
+      border-bottom: 1px solid rgba(255, 255, 255, .07);
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .panel h2 .count {
+      margin-left: auto;
+      color: #94a3b8;
+      font-weight: 400;
+      font-size: 11px;
+    }
+
+    .stack {
+      left: 14px;
+      top: 150px;
+      width: 322px;
+      bottom: 82px;
+    }
+
+    #stack-list {
+      flex: 1;
+      overflow: auto;
+      padding: 8px;
+    }
+
+    #stack-list::-webkit-scrollbar,
+    #json::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    #stack-list::-webkit-scrollbar-thumb,
+    #json::-webkit-scrollbar-thumb {
+      background: #2a3a52;
+      border-radius: 4px;
+    }
+
+    .cmd {
+      display: flex;
+      gap: 8px;
+      padding: 7px 8px;
+      margin-bottom: 5px;
+      background: #111a30;
+      border: 1px solid #1e2a44;
+      border-radius: 7px;
+    }
+
+    .cmd em {
+      flex: none;
+      width: 20px;
+      height: 20px;
+      line-height: 20px;
+      text-align: center;
+      border-radius: 5px;
+      background: #1d4ed8;
+      color: #fff;
+      font-style: normal;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .cmd .cname {
+      display: block;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+      color: #7dd3fc;
+    }
+
+    .cmd .carg {
+      display: block;
+      margin-top: 2px;
+      color: #94a3b8;
+      font-size: 10.5px;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+
+    .empty {
+      padding: 14px 10px;
+      color: #64748b;
+      font-size: 11.5px;
+      line-height: 1.6;
+    }
+
+    .stack-foot {
+      padding: 8px 12px 10px;
+      border-top: 1px solid rgba(255, 255, 255, .07);
+      color: #94a3b8;
+      font-size: 11px;
+    }
+
+    .json {
+      right: 14px;
+      top: 14px;
+      width: 360px;
+      bottom: 82px;
+    }
+
+    .stats {
+      padding: 9px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, .07);
+      font-size: 11px;
+      line-height: 1.8;
+      color: #94a3b8;
+    }
+
+    .stats .k {
+      color: #9fb4d4;
+    }
+
+    .stats .v {
+      color: #fbbf24;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+
+    .stats .vs {
+      color: #34d399;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+
+    #json {
+      flex: 1;
+      overflow: auto;
+      margin: 0;
+      padding: 10px 12px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.55;
+      color: #a9c4e8;
+      white-space: pre;
+    }
+
+    .toolbar {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: 8px 10px;
+      background: rgba(11, 14, 20, .82);
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 12px;
+      z-index: 3;
+      max-width: calc(100vw - 24px);
+    }
+
+    .toolbar button {
+      padding: 6px 11px;
+      font-size: 12px;
+      color: #e6edf3;
+      background: #1b2433;
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 7px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    .toolbar button:hover:not(:disabled) {
+      background: #263447;
+    }
+
+    .toolbar button:disabled {
+      opacity: .42;
+      cursor: not-allowed;
+    }
+
+    .toolbar .primary {
+      background: #2563eb;
+      border-color: #3b82f6;
+    }
+
+    .toolbar .sep {
+      width: 1px;
+      height: 22px;
+      background: rgba(255, 255, 255, .12);
+    }
+
+    .color-wrap {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11.5px;
+      color: #9fb4d4;
+    }
+
+    .color-wrap input {
+      width: 30px;
+      height: 24px;
+      padding: 0;
+      border: 1px solid rgba(255, 255, 255, .15);
+      border-radius: 6px;
+      background: none;
+      cursor: pointer;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 66px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 5px 13px;
+      color: #94a3b8;
+      font-size: 11.5px;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 2;
+    }
+
+    @media (max-width: 1080px) {
+      .info {
+        max-width: 240px;
+        font-size: 11.5px;
+      }
+
+      .stack {
+        width: 248px;
+        top: 142px;
+      }
+
+      .json {
+        width: 262px;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .info {
+        max-width: 180px;
+        font-size: 10.5px;
+      }
+
+      .stack {
+        width: 190px;
+        top: 132px;
+        bottom: 92px;
+      }
+
+      .json {
+        width: 196px;
+      }
+
+      .cmd .carg {
+        font-size: 9.5px;
+      }
+
+      #json {
+        font-size: 9.5px;
+      }
+
+      .hint {
+        display: none;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div class="info">
+    <b>撤销栈与序列化实验室</b><br />
+    左栏是<span class="accent">命令栈</span>（每次修改一条 do/undo），右栏是场景的<span class="accent">最小序列化 JSON</span>。
+    拖动物体、改颜色、增删节点，观察栈与 JSON 的同步变化。
+  </div>
+
+  <div class="panel stack">
+    <h2>撤销栈 <span class="count" id="undo-count">0 条</span></h2>
+    <div id="stack-list"></div>
+    <div class="stack-foot" id="redo-count">重做栈为空</div>
+  </div>
+
+  <div class="panel json">
+    <h2>序列化 JSON <span class="count" id="node-count">0 节点</span></h2>
+    <div class="stats">
+      <div><span class="k">JSON 体积</span> <span class="v" id="json-size">0 B</span></div>
+      <div><span class="k">命令栈开销</span> <span class="v" id="stack-size">0 B</span></div>
+      <div><span class="k">若用快照式</span> <span class="vs" id="snap-size">0 B</span></div>
+    </div>
+    <pre id="json"></pre>
+  </div>
+
+  <div class="toolbar">
+    <button type="button" id="add-box">+ 方块</button>
+    <button type="button" id="add-sphere">+ 球体</button>
+    <label class="color-wrap">颜色
+      <input type="color" id="color" value="#5b8def" disabled />
+    </label>
+    <button type="button" id="delete">删除选中</button>
+    <span class="sep"></span>
+    <button type="button" id="undo" class="primary" disabled>撤销</button>
+    <button type="button" id="redo" disabled>重做</button>
+  </div>
+
+  <div class="hint">左键点选 · 拖拽箭头移动 · Ctrl / Cmd + Z 撤销 · Ctrl / Cmd + Shift + Z 重做</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { TransformControls } from 'three/addons/controls/TransformControls.js'
+
+    /* ---------- 渲染基础 ---------- */
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    scene.fog = new THREE.Fog(0x0b0e14, 20, 48)
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(6.4, 6.2, 10.5)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.domElement.style.touchAction = 'none'
+    document.getElementById('app').appendChild(renderer.domElement)
+    const canvas = renderer.domElement
+
+    const orbit = new OrbitControls(camera, canvas)
+    orbit.target.set(0, 0.9, 0)
+    orbit.enableDamping = true
+    orbit.maxPolarAngle = Math.PI / 2 - 0.05
+    orbit.minDistance = 4
+    orbit.maxDistance = 36
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x18202c, 1.1))
+    const sun = new THREE.DirectionalLight(0xffffff, 2.1)
+    sun.position.set(6, 12, 7)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(1024, 1024)
+    sun.shadow.camera.left = -12
+    sun.shadow.camera.right = 12
+    sun.shadow.camera.top = 12
+    sun.shadow.camera.bottom = -12
+    scene.add(sun)
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(50, 50),
+      new THREE.MeshStandardMaterial({ color: 0x1d2b3a, roughness: 0.96 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
+
+    const grid = new THREE.GridHelper(32, 32, 0x334a66, 0x22303f)
+    grid.position.y = 0.012
+    grid.material.transparent = true
+    grid.material.opacity = 0.5
+    scene.add(grid)
+
+    /* ---------- 节点工厂 ---------- */
+    const TYPES = {
+      box: { name: '方块', color: 0x5b8def, height: 0.5, make: () => new THREE.BoxGeometry(1, 1, 1) },
+      sphere: { name: '球体', color: 0xd96b9b, height: 0.55, make: () => new THREE.SphereGeometry(0.55, 32, 24) },
+      torus: { name: '圆环', color: 0xe0a84f, height: 0.62, make: () => new THREE.TorusGeometry(0.45, 0.17, 20, 48) }
+    }
+
+    let idSeq = 1
+    let nameSeq = 1
+    const nodes = []
+
+    function createNode(type, data = {}) {
+      const def = TYPES[type]
+      const mesh = new THREE.Mesh(
+        def.make(),
+        new THREE.MeshStandardMaterial({
+          color: data.color !== undefined ? data.color : def.color,
+          roughness: 0.44,
+          metalness: 0.08
+        })
+      )
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+      mesh.userData.id = data.id || ('n' + idSeq++)
+      mesh.userData.type = type
+      mesh.userData.name = data.name || `${def.name} ${nameSeq++}`
+      const p = data.position || [0, def.height, 0]
+      mesh.position.set(p[0], p[1], p[2])
+      if (data.scale !== undefined) mesh.scale.setScalar(data.scale)
+      return mesh
+    }
+
+    function attachNode(mesh) {
+      scene.add(mesh)
+      if (!nodes.includes(mesh)) nodes.push(mesh)
+    }
+
+    const initial = [
+      createNode('box', { position: [-2.3, 0.5, 0.7] }),
+      createNode('sphere', { position: [0, 0.55, -0.6] }),
+      createNode('torus', { position: [2.3, 0.62, 0.7] })
+    ]
+    initial.forEach(attachNode)
+
+    /* ---------- 选中态 ---------- */
+    let selected = null
+
+    const boxHelper = new THREE.BoxHelper(new THREE.Object3D(), 0xffd166)
+    boxHelper.material.transparent = true
+    boxHelper.material.opacity = 0.92
+    boxHelper.visible = false
+    scene.add(boxHelper)
+
+    const transform = new TransformControls(camera, canvas)
+    transform.setSize(0.9)
+    transform.setMode('translate')
+    transform.setSpace('world')
+    transform.setTranslationSnap(0.5)
+    const gizmoHelper = transform.getHelper ? transform.getHelper() : transform
+    scene.add(gizmoHelper)
+
+    let dragObj = null
+    let dragBefore = null
+
+    transform.addEventListener('dragging-changed', (event) => {
+      orbit.enabled = !event.value
+      if (event.value) {
+        dragObj = selected
+        dragBefore = selected ? snapshot(selected) : null
+      } else {
+        if (dragObj && dragBefore) {
+          const after = snapshot(dragObj)
+          if (!sameSnapshot(dragBefore, after)) pushTransform(dragObj, dragBefore, after)
+        }
+        dragObj = null
+        dragBefore = null
+      }
+    })
+    transform.addEventListener('objectChange', () => {
+      if (!selected) return
+      boxHelper.setFromObject(selected)
+      renderJson()
+    })
+
+    function select(root) {
+      selected = root || null
+      refreshAll()
+    }
+
+    /* ---------- 快照 ---------- */
+    function snapshot(obj) {
+      return {
+        position: obj.position.toArray(),
+        quaternion: obj.quaternion.toArray(),
+        scale: obj.scale.toArray()
+      }
+    }
+
+    function applySnapshot(obj, snap) {
+      obj.position.fromArray(snap.position)
+      obj.quaternion.fromArray(snap.quaternion)
+      obj.scale.fromArray(snap.scale)
+      boxHelper.setFromObject(obj)
+    }
+
+    function sameSnapshot(a, b) {
+      const keys = ['position', 'quaternion', 'scale']
+      for (const key of keys) {
+        for (let i = 0; i < a[key].length; i++) {
+          if (Math.abs(a[key][i] - b[key][i]) > 1e-4) return false
+        }
+      }
+      return true
+    }
+
+    /* ---------- 命令栈 ---------- */
+    const undoStack = []
+    const redoStack = []
+
+    function execute(cmd) {
+      cmd.do()
+      undoStack.push(cmd)
+      redoStack.length = 0
+      refreshAll()
+    }
+
+    function undo() {
+      const cmd = undoStack.pop()
+      if (!cmd) return
+      cmd.undo()
+      redoStack.push(cmd)
+      refreshAll()
+    }
+
+    function redo() {
+      const cmd = redoStack.pop()
+      if (!cmd) return
+      cmd.do()
+      undoStack.push(cmd)
+      refreshAll()
+    }
+
+    const fmt = (v) => (Math.abs(v) < 0.005 ? 0 : v).toFixed(2)
+    const posText = (p) => `(${fmt(p[0])},${fmt(p[1])},${fmt(p[2])})`
+
+    function pushTransform(obj, before, after) {
+      const now = performance.now()
+      const top = undoStack[undoStack.length - 1]
+      // 连续拖拽 / 连点步进：同一对象、间隔小于 700ms 的命令合并成一条
+      if (top && top.type === 'transform' && top.obj === obj && now - top.time < 700) {
+        top.after = after
+        top.argText = `#${obj.userData.id} ${posText(before.position)} → ${posText(after.position)}`
+        top.time = now
+        redoStack.length = 0
+        refreshAll()
+        return
+      }
+      const cmd = {
+        type: 'transform',
+        name: 'TransformCommand',
+        argText: `#${obj.userData.id} ${posText(before.position)} → ${posText(after.position)}`,
+        obj,
+        before,
+        after,
+        time: now,
+        do() {
+          applySnapshot(obj, cmd.after)
+        },
+        undo() {
+          applySnapshot(obj, cmd.before)
+        }
+      }
+      undoStack.push(cmd)
+      redoStack.length = 0
+      refreshAll()
+    }
+
+    function pushColor(obj, before, after) {
+      const cmd = {
+        type: 'material',
+        name: 'MaterialCommand',
+        argText: `#${obj.userData.id} ${before} → ${after}`,
+        obj,
+        before,
+        after,
+        do() {
+          obj.material.color.set(after)
+        },
+        undo() {
+          obj.material.color.set(before)
+        }
+      }
+      undoStack.push(cmd)
+      redoStack.length = 0
+      refreshAll()
+    }
+
+    let spotIndex = 0
+    function nextSpot(height) {
+      const angle = spotIndex * 2.39996
+      const radius = 2.2 + (spotIndex % 4) * 0.6
+      spotIndex++
+      return [Math.cos(angle) * radius, height, Math.sin(angle) * radius]
+    }
+
+    function addNode(type) {
+      const def = TYPES[type]
+      const mesh = createNode(type, { position: nextSpot(def.height) })
+      const cmd = {
+        type: 'add',
+        name: 'AddCommand',
+        argText: `${type} · #${mesh.userData.id}`,
+        obj: mesh,
+        do() {
+          attachNode(mesh)
+        },
+        undo() {
+          scene.remove(mesh)
+          const i = nodes.indexOf(mesh)
+          if (i >= 0) nodes.splice(i, 1)
+        }
+      }
+      execute(cmd)
+      select(mesh)
+    }
+
+    function deleteSelected() {
+      if (!selected) return
+      const obj = selected
+      const index = nodes.indexOf(obj)
+      const cmd = {
+        type: 'delete',
+        name: 'DeleteCommand',
+        argText: `${obj.userData.type} · #${obj.userData.id}`,
+        obj,
+        do() {
+          scene.remove(obj)
+          const i = nodes.indexOf(obj)
+          if (i >= 0) nodes.splice(i, 1)
+        },
+        undo() {
+          if (nodes.includes(obj)) return
+          scene.add(obj)
+          nodes.splice(Math.min(index, nodes.length), 0, obj)
+        }
+      }
+      select(null)
+      execute(cmd)
+    }
+
+    /* ---------- 拾取 ---------- */
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    let downX = 0
+    let downY = 0
+    let gizmoHit = false
+
+    canvas.addEventListener('pointerdown', (event) => {
+      gizmoHit = transform.axis !== null
+      downX = event.clientX
+      downY = event.clientY
+    })
+
+    canvas.addEventListener('pointerup', (event) => {
+      if (event.button !== 0 || gizmoHit) return
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) > 4) return
+      const rect = canvas.getBoundingClientRect()
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hits = raycaster.intersectObjects(nodes, true)
+      if (!hits.length) {
+        select(null)
+        return
+      }
+      let hit = hits[0].object
+      while (hit && !nodes.includes(hit)) hit = hit.parent
+      select(hit && nodes.includes(hit) ? hit : null)
+    })
+
+    /* ---------- 序列化 ---------- */
+    const round = (v, n) => {
+      const r = Number(v.toFixed(n))
+      return r === 0 ? 0 : r
+    }
+
+    function serialize() {
+      return {
+        version: 1,
+        nodes: nodes.map((n) => ({
+          id: n.userData.id,
+          type: n.userData.type,
+          name: n.userData.name,
+          position: n.position.toArray().map((v) => round(v, 3)),
+          rotation: n.quaternion.toArray().map((v) => round(v, 4)),
+          scale: n.scale.toArray().map((v) => round(v, 3)),
+          color: '#' + n.material.color.getHexString()
+        }))
+      }
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+    }
+
+    const stackList = document.getElementById('stack-list')
+    const undoCount = document.getElementById('undo-count')
+    const redoCount = document.getElementById('redo-count')
+    const nodeCount = document.getElementById('node-count')
+    const jsonEl = document.getElementById('json')
+    const jsonSize = document.getElementById('json-size')
+    const stackSize = document.getElementById('stack-size')
+    const snapSize = document.getElementById('snap-size')
+    const undoBtn = document.getElementById('undo')
+    const redoBtn = document.getElementById('redo')
+    const deleteBtn = document.getElementById('delete')
+    const colorInput = document.getElementById('color')
+
+    let colorHex = null
+
+    function renderStack() {
+      const rows = []
+      for (let i = undoStack.length - 1; i >= 0; i--) {
+        const cmd = undoStack[i]
+        rows.push(
+          `<div class="cmd"><em>${i + 1}</em><div>` +
+          `<span class="cname">${escapeHtml(cmd.name)}</span>` +
+          `<span class="carg">${escapeHtml(cmd.argText)}</span>` +
+          `</div></div>`
+        )
+      }
+      stackList.innerHTML = rows.length
+        ? rows.join('')
+        : '<div class="empty">栈空 —— 拖动物体，或点下方按钮添加 / 删除节点</div>'
+      undoCount.textContent = `${undoStack.length} 条`
+      redoCount.textContent = redoStack.length
+        ? `重做栈里还有 ${redoStack.length} 条`
+        : '重做栈为空'
+    }
+
+    function renderJson() {
+      const data = serialize()
+      const text = JSON.stringify(data, null, 2)
+      const bytes = new Blob([text]).size
+      jsonEl.textContent = text
+      nodeCount.textContent = `${data.nodes.length} 节点`
+      jsonSize.textContent = `${bytes} B`
+
+      const jsonBytes = new Blob([JSON.stringify(data)]).size
+      const cmdPlain = undoStack.map((c) => ({ name: c.name, args: c.argText }))
+      const cmdBytes = new Blob([JSON.stringify(cmdPlain)]).size
+      stackSize.textContent = `${cmdBytes} B`
+      snapSize.textContent = `${undoStack.length} × ${jsonBytes} B = ${undoStack.length * jsonBytes} B`
+
+      undoBtn.disabled = undoStack.length === 0
+      redoBtn.disabled = redoStack.length === 0
+    }
+
+    function refreshAll() {
+      if (selected && !nodes.includes(selected)) selected = null
+      if (selected) {
+        transform.attach(selected)
+        boxHelper.setFromObject(selected)
+        boxHelper.visible = true
+        colorInput.disabled = false
+        colorInput.value = '#' + selected.material.color.getHexString()
+        colorHex = colorInput.value
+      } else {
+        transform.detach()
+        boxHelper.visible = false
+        colorInput.disabled = true
+      }
+      deleteBtn.disabled = !selected
+      renderStack()
+      renderJson()
+    }
+
+    /* ---------- 工具栏事件 ---------- */
+    document.getElementById('add-box').addEventListener('click', () => addNode('box'))
+    document.getElementById('add-sphere').addEventListener('click', () => addNode('sphere'))
+    deleteBtn.addEventListener('click', deleteSelected)
+    undoBtn.addEventListener('click', undo)
+    redoBtn.addEventListener('click', redo)
+
+    colorInput.addEventListener('input', () => {
+      if (!selected) return
+      selected.material.color.set(colorInput.value)
+      renderJson()
+    })
+
+    colorInput.addEventListener('change', () => {
+      if (!selected) return
+      const after = '#' + selected.material.color.getHexString()
+      if (colorHex && colorHex !== after) pushColor(selected, colorHex, after)
+      colorHex = after
+    })
+
+    addEventListener('keydown', (event) => {
+      const tag = document.activeElement && document.activeElement.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const key = event.key.toLowerCase()
+      if ((event.metaKey || event.ctrlKey) && key === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) redo()
+        else undo()
+      } else if ((event.metaKey || event.ctrlKey) && key === 'y') {
+        event.preventDefault()
+        redo()
+      } else if ((event.key === 'Delete' || event.key === 'Backspace') && selected) {
+        event.preventDefault()
+        deleteSelected()
+      } else if (event.key === 'Escape') {
+        select(null)
+      }
+    })
+
+    /* ---------- 主循环 ---------- */
+    const timer = new THREE.Timer()
+    timer.connect(document)
+    renderer.setAnimationLoop(() => {
+      timer.update()
+      orbit.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+
+    select(initial[0])
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">
+  <defs>
+    <linearGradient id="bg35" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#101a33"/>
+    </linearGradient>
+    <linearGradient id="titleGrad35" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+    <linearGradient id="green35" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="840" fill="url(#bg35)"/>
+  <polygon points="980,0 1060,0 760,840 680,840" fill="#22d3ee" opacity="0.04"/>
+  <polygon points="150,0 220,0 1040,840 970,840" fill="#f97316" opacity="0.03"/>
+
+  <rect x="20" y="14" width="92" height="36" rx="9" fill="#7C3AED"/>
+  <text x="66" y="38" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffffff">EP.35</text>
+  <text x="126" y="40" font-size="26" font-weight="bold" fill="url(#titleGrad35)">按错一次，悔十次：撤销栈与序列化</text>
+  <text x="1180" y="38" text-anchor="end" font-size="13" fill="#64748b">Three.js 漫画剧场 · 霓虹墨 NEON INK</text>
+  <rect x="20" y="62" width="1160" height="2" rx="1" fill="url(#titleGrad35)" opacity="0.6"/>
+
+  <g transform="translate(20,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#22d3ee" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#22d3ee"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">1</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">困境：拖歪了，回不去了</text>
+
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#f97316"/>
+      <circle cx="15" cy="4" r="6.5" fill="#f97316"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,6 q3,-2 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+    </g>
+    <polygon points="88,92 74,98 88,104" fill="#f8fafc"/>
+    <rect x="88" y="72" width="300" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="94" font-size="15" fill="#0b1220">拖歪了……刚才的位置</text>
+    <text x="102" y="116" font-size="15" fill="#0b1220">还能回去吗？</text>
+
+    <rect x="24" y="186" width="524" height="88" rx="8" fill="#0a0f1c" stroke="#22d3ee" stroke-opacity="0.35"/>
+    <line x1="40" y1="252" x2="532" y2="252" stroke="#1e2a44" stroke-width="2"/>
+    <text x="96" y="204" font-size="11" fill="#64748b">原位置</text>
+    <text x="258" y="204" font-size="11" fill="#64748b">现在的</text>
+    <rect x="96" y="210" width="44" height="42" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <rect x="258" y="210" width="44" height="42" fill="#3b82f6" stroke="#93c5fd" stroke-width="1.5"/>
+    <line x1="148" y1="231" x2="238" y2="231" stroke="#f97316" stroke-width="2" stroke-dasharray="7 5"/>
+    <polygon points="240,231 228,225 228,237" fill="#f97316"/>
+    <text x="330" y="238" font-size="12" fill="#94a3b8">拖拽只留下终点，起点没记录</text>
+
+    <rect x="24" y="288" width="524" height="56" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="288" width="4" height="56" rx="2" fill="#f97316"/>
+    <text x="40" y="311" font-size="12.5" fill="#f472b6" font-family="'SF Mono',Consolas,monospace">obj.position.x += 2</text>
+    <text x="40" y="332" font-size="13" fill="#94a3b8">旧值没留底：想撤销，只能靠记忆。</text>
+  </g>
+
+  <g transform="translate(608,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#a78bfa" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#a78bfa"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">2</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">揭秘：命令模式 do / undo</text>
+
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,92 74,98 88,104" fill="#f8fafc"/>
+    <rect x="88" y="82" width="300" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">每次修改都包成命令：</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">do 做事，undo 还原。</text>
+
+    <rect x="24" y="154" width="160" height="70" rx="8" fill="#111a30" stroke="#22d3ee" stroke-opacity="0.55"/>
+    <text x="36" y="178" font-size="12" font-weight="bold" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">TransformCommand</text>
+    <text x="36" y="200" font-size="11.5" fill="#e2e8f0">do: 应用 after</text>
+    <text x="36" y="216" font-size="11.5" fill="#94a3b8">undo: 应用 before</text>
+
+    <rect x="206" y="154" width="160" height="70" rx="8" fill="#111a30" stroke="#a78bfa" stroke-opacity="0.55"/>
+    <text x="218" y="178" font-size="12" font-weight="bold" fill="#c4b5fd" font-family="'SF Mono',Consolas,monospace">AddCommand</text>
+    <text x="218" y="200" font-size="11.5" fill="#e2e8f0">do: 加入场景</text>
+    <text x="218" y="216" font-size="11.5" fill="#94a3b8">undo: 移除节点</text>
+
+    <rect x="388" y="154" width="160" height="70" rx="8" fill="#111a30" stroke="#f97316" stroke-opacity="0.55"/>
+    <text x="400" y="178" font-size="12" font-weight="bold" fill="#fdba74" font-family="'SF Mono',Consolas,monospace">DeleteCommand</text>
+    <text x="400" y="200" font-size="11.5" fill="#e2e8f0">do: 移除节点</text>
+    <text x="400" y="216" font-size="11.5" fill="#94a3b8">undo: 插回原处</text>
+
+    <rect x="24" y="244" width="524" height="42" rx="8" fill="#0a0f1c" stroke="#a78bfa" stroke-opacity="0.35"/>
+    <text x="38" y="270" font-size="12.5" fill="#c4b5fd" font-family="'SF Mono',Consolas,monospace">{ type, obj, before, after }</text>
+
+    <rect x="24" y="298" width="524" height="44" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="298" width="4" height="44" rx="2" fill="#a78bfa"/>
+    <text x="40" y="318" font-size="13" fill="#e2e8f0">命令存前后快照，</text>
+    <text x="40" y="336" font-size="13" fill="#94a3b8">撤销才能精确回滚，而不是靠猜。</text>
+  </g>
+
+  <g transform="translate(20,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#34d399" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#34d399"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">3</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">工具：两个栈与一次合并</text>
+
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#1d4ed8"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-4,-14 -16,-14 q-12,0 -16,14 z" fill="#0f172a"/>
+      <circle cx="-5" cy="0" r="1.7" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.7" fill="#0b1220"/>
+      <path d="M-3,5 q3,3 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/>
+      <rect x="-6" y="14" width="12" height="6" rx="2" fill="#93c5fd"/>
+    </g>
+    <polygon points="88,92 74,98 88,104" fill="#f8fafc"/>
+    <rect x="88" y="82" width="292" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">撤销栈 + 重做栈，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">连续拖拽合并成一条。</text>
+
+    <text x="24" y="152" font-size="12" font-weight="bold" fill="#34d399">撤销栈</text>
+    <text x="304" y="152" font-size="12" font-weight="bold" fill="#f97316">重做栈</text>
+
+    <rect x="24" y="160" width="250" height="28" rx="6" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="160" width="4" height="28" rx="2" fill="#34d399"/>
+    <text x="38" y="179" font-size="11.5" fill="#e2e8f0" font-family="'SF Mono',Consolas,monospace">3  TransformCommand</text>
+
+    <rect x="24" y="194" width="250" height="28" rx="6" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="194" width="4" height="28" rx="2" fill="#34d399"/>
+    <text x="38" y="213" font-size="11.5" fill="#e2e8f0" font-family="'SF Mono',Consolas,monospace">2  AddCommand</text>
+
+    <rect x="24" y="228" width="250" height="28" rx="6" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="228" width="4" height="28" rx="2" fill="#34d399"/>
+    <text x="38" y="247" font-size="11.5" fill="#e2e8f0" font-family="'SF Mono',Consolas,monospace">1  MaterialCommand</text>
+
+    <rect x="304" y="160" width="244" height="28" rx="6" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="304" y="160" width="4" height="28" rx="2" fill="#f97316"/>
+    <text x="318" y="179" font-size="11.5" fill="#e2e8f0" font-family="'SF Mono',Consolas,monospace">Ctrl+Z 后可重做</text>
+
+    <rect x="304" y="194" width="244" height="28" rx="6" fill="none" stroke="#24344c" stroke-dasharray="5 4"/>
+    <text x="318" y="213" font-size="11.5" fill="#64748b">新操作会清空它</text>
+
+    <rect x="24" y="270" width="524" height="54" rx="8" fill="#0a0f1c" stroke="#34d399" stroke-opacity="0.35"/>
+    <text x="38" y="293" font-size="11.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">{"version":1,"nodes":[...]}</text>
+    <text x="38" y="313" font-size="11.5" fill="#94a3b8">只存 id / type / 变换 / 颜色，不存几何与贴图</text>
+
+    <text x="24" y="344" font-size="12.5" fill="#e2e8f0">新操作清空重做栈；700ms 内同对象合并。</text>
+  </g>
+
+  <g transform="translate(608,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="420,0 480,0 150,361 90,361" fill="#f97316" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f97316"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">4</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">结案：能撤销，才敢真用</text>
+
+    <g transform="translate(52,110)">
+      <rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/>
+      <circle cx="0" cy="-2" r="16" fill="#ffd9b3"/>
+      <path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/>
+      <circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+      <path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/>
+      <circle cx="-5" cy="0" r="1.4" fill="#0b1220"/>
+      <circle cx="5" cy="0" r="1.4" fill="#0b1220"/>
+      <path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/>
+    </g>
+    <polygon points="88,92 74,98 88,104" fill="#f8fafc"/>
+    <rect x="88" y="82" width="300" height="52" rx="10" fill="#f8fafc"/>
+    <text x="102" y="104" font-size="15" fill="#0b1220">所有修改走命令，</text>
+    <text x="102" y="126" font-size="15" fill="#0b1220">场景存成最小 JSON。</text>
+
+    <rect x="24" y="162" width="80" height="26" rx="13" fill="#f97316"/>
+    <text x="64" y="180" text-anchor="middle" font-size="13" font-weight="bold" fill="#0b1220">三个纪律</text>
+
+    <rect x="32" y="208" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="217" font-size="14" fill="#e2e8f0">修改必走命令，别绕过历史</text>
+
+    <rect x="32" y="236" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="245" font-size="14" fill="#e2e8f0">删除是逻辑删除，不销毁对象</text>
+
+    <rect x="32" y="264" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="273" font-size="14" fill="#e2e8f0">先校验、后清场，坏 JSON 不崩</text>
+
+    <rect x="24" y="294" width="524" height="48" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="294" width="4" height="48" rx="2" fill="#22d3ee"/>
+    <text x="40" y="316" font-size="13" font-weight="bold" fill="#22d3ee">码叔总结</text>
+    <text x="40" y="334" font-size="13" fill="#e2e8f0">能撤销才敢真用，能序列化才敢交付。</text>
+  </g>
+
+  <text x="1180" y="832" text-anchor="end" font-size="11" fill="#475569">NEON INK · threejs-tutorial · EP.35</text>
+</svg>

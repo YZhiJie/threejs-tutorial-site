@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>draco-ktx2-compare · 压缩管线对比</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0e14;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .info {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      max-width: 330px;
+      padding: 12px 14px;
+      background: rgba(11, 14, 20, .72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .info b {
+      color: #7cc4ff;
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(11, 14, 20, .72);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fb4d4;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* 压缩数据卡片 */
+    .panel {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      width: 340px;
+      max-height: calc(100vh - 28px);
+      overflow: auto;
+      padding: 14px 16px;
+      background: rgba(11, 14, 20, .78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      font-size: 12.5px;
+      line-height: 1.6;
+    }
+
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #7cc4ff;
+    }
+
+    .panel table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 6px 0 10px;
+    }
+
+    .panel th,
+    .panel td {
+      padding: 5px 6px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, .07);
+      white-space: nowrap;
+    }
+
+    .panel th {
+      color: #9fb4d4;
+      font-weight: 600;
+    }
+
+    .panel td.num {
+      font-family: 'SF Mono', Consolas, monospace;
+      color: #34d399;
+    }
+
+    .panel .tag {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      margin-left: 4px;
+    }
+
+    .tag.ok {
+      background: rgba(52, 211, 153, .15);
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, .4);
+    }
+
+    .tag.warn {
+      background: rgba(251, 191, 36, .12);
+      color: #fbbf24;
+      border: 1px solid rgba(251, 191, 36, .4);
+    }
+
+    .panel code {
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11.5px;
+      color: #7dd3fc;
+      background: rgba(124, 196, 255, .08);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    .panel .cmd {
+      display: block;
+      padding: 8px 10px;
+      margin: 6px 0;
+      background: #0a0f1c;
+      border: 1px solid rgba(34, 211, 238, .25);
+      border-radius: 8px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11.5px;
+      color: #7dd3fc;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .status {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 900px) {
+      .panel {
+        display: none;
+      }
+
+      .info {
+        max-width: 210px;
+        font-size: 12px;
+      }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>DRACO / KTX2 压缩管线</b><br />
+    页面已用 DRACOLoader + KTX2Loader 装配 GLTFLoader（右侧卡片看配置与实测数据）。<br />
+    场景里飞的火烈鸟（Flamingo.glb）是未压缩模型，用 AnimationMixer 播放骨骼动画。
+  </div>
+  <div class="hint">拖拽旋转 · 右侧为 Soldier.glb 真实压缩实测（gltf-transform CLI）</div>
+
+  <div class="panel">
+    <h3>解码器状态</h3>
+    <div class="status">
+      <span>DRACO decoder<span class="tag ok" id="dracoStatus">装配中…</span></span>
+      <span>KTX2 transcoder<span class="tag ok" id="ktx2Status">装配中…</span></span>
+    </div>
+
+    <h3>实测：Soldier.glb 压缩前后（本仓库实测）</h3>
+    <table>
+      <tr><th>处理</th><th>体积</th><th>降幅</th></tr>
+      <tr><td>原始 .glb</td><td class="num">2.06 MB</td><td>—</td></tr>
+      <tr><td>+ DRACO 几何压缩</td><td class="num">1.19 MB</td><td class="num">−42%</td></tr>
+      <tr><td>+ WebP 贴图转码</td><td class="num">1.40 MB</td><td class="num">−32%</td></tr>
+      <tr><td>WebP + DRACO</td><td class="num">0.80 MB</td><td class="num">−62%</td></tr>
+      <tr><td>+ KTX2(ETC1S) 贴图<span class="tag warn">典型值</span></td><td class="num">≈0.5 MB</td><td class="num">−75%</td></tr>
+    </table>
+    KTX2 的另一大收益在<b>显存</b>：贴图在 GPU 上保持块压缩格式，1024² 贴图显存从 5.6 MB 降到约 0.7 MB。
+
+    <h3>本地压缩命令</h3>
+    <span class="cmd">npm i -g @gltf-transform/cli</span>
+    <span class="cmd">gltf-transform draco in.glb out.glb</span>
+    <span class="cmd">gltf-transform webp in.glb out.glb</span>
+    <span class="cmd">gltf-transform etc1s in.glb out.glb <span style="color:#64748b"># 需装 KTX-Software</span></span>
+    <span class="cmd">gltfpack -i in.glb -o out.glb -cc -tc <span style="color:#64748b"># meshopt 路线</span></span>
+
+    <h3>装配代码（本页真实使用）</h3>
+    <span class="cmd">const draco = new DRACOLoader()
+  .setDecoderPath('…/libs/draco/')
+const ktx2 = new KTX2Loader()
+  .setTranscoderPath('…/libs/basis/')
+  .detectSupport(renderer)  // 必须！
+loader.setDRACOLoader(draco)
+loader.setKTX2Loader(ktx2)</span>
+    当前 Flamingo.glb 未压缩（77 KB，直接可读）；遇到带 <code>KHR_draco_mesh_compression</code> / <code>KHR_texture_basisu</code> 扩展的模型时，上面装配的解码器会自动接管。
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
+    import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+
+    const MODEL_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r186/examples/models/gltf/Flamingo.glb'
+
+    // ---- 基础设施 ----
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0b0e14)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 1.8, 6)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    document.getElementById('app').appendChild(renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.target.set(0, 1, 0)
+
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    scene.add(new THREE.GridHelper(10, 10, 0x334155, 0x1e293b))
+
+    // ---- 装配压缩解码器（真实生效，只是当前模型未压缩）----
+    const dracoLoader = new DRACOLoader()
+      .setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/libs/draco/')
+    const ktx2Loader = new KTX2Loader()
+      .setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/libs/basis/')
+      .detectSupport(renderer) // 检测 GPU 支持的压缩纹理格式，必须调用
+
+    const loader = new GLTFLoader()
+    loader.setDRACOLoader(dracoLoader)
+    loader.setKTX2Loader(ktx2Loader)
+    document.getElementById('dracoStatus').textContent = '已就绪'
+    document.getElementById('ktx2Status').textContent = '已就绪'
+
+    // ---- 加载骨骼动画模型并用 AnimationMixer 播放 ----
+    let mixer = null
+    loader.load(
+      MODEL_URL,
+      (gltf) => {
+        const model = gltf.scene
+        // 火烈鸟原始尺寸很大，缩放到合适大小
+        model.scale.setScalar(0.02)
+        model.position.y = 1
+        scene.add(model)
+        // gltf.animations 是模型自带的动画片段数组
+        mixer = new THREE.AnimationMixer(model)
+        mixer.clipAction(gltf.animations[0]).play()
+      },
+      undefined,
+      (err) => {
+        console.error('加载失败：', err)
+        document.querySelector('.info').innerHTML = '<b>模型加载失败</b><br />请检查网络后刷新页面。'
+      }
+    )
+
+    const clock = new THREE.Timer()
+    clock.connect(document) // r183 起 Clock 已弃用，改用 Timer
+    renderer.setAnimationLoop(() => {
+      clock.update()
+      const delta = clock.getDelta()
+      if (mixer) mixer.update(delta) // 忘了这句动画就定格
+      controls.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+
+</html>

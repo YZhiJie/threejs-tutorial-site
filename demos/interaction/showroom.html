@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>showroom · 3D 产品展厅</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #07090d; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .info {
+      position: fixed; top: 14px; left: 14px; max-width: 320px;
+      padding: 12px 14px; background: rgba(11,14,20,.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+      font-size: 13px; line-height: 1.65; pointer-events: none;
+    }
+    .info b { color: #7cc4ff; }
+    .card {
+      position: fixed; top: 14px; right: 14px; width: 250px;
+      padding: 16px 18px; background: rgba(15,19,27,.88);
+      border: 1px solid rgba(255,255,255,.1); border-radius: 12px;
+      backdrop-filter: blur(8px);
+      opacity: 0; transform: translateX(20px); transition: opacity .3s, transform .3s;
+    }
+    .card.show { opacity: 1; transform: translateX(0); }
+    .card h3 { margin: 0 0 4px; font-size: 17px; }
+    .card .tag { font-size: 12px; color: #60a5fa; margin-bottom: 8px; }
+    .card p { margin: 0 0 12px; font-size: 13px; line-height: 1.65; color: #b6c2d2; }
+    .card button {
+      width: 100%; padding: 9px; font-size: 13px; color: #fff;
+      background: #2563eb; border: none; border-radius: 8px; cursor: pointer;
+    }
+    .swatches { display: flex; gap: 8px; margin-bottom: 12px; }
+    .swatches i {
+      width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+      border: 2px solid transparent;
+    }
+    .swatches i.on { border-color: #fff; }
+    .hint {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      padding: 6px 14px; background: rgba(11,14,20,.72);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      font-size: 12px; color: #9fb4d4; pointer-events: none; white-space: nowrap;
+    }
+    @media (max-width: 600px) {
+      .info { max-width: 180px; font-size: 11.5px; }
+      .card { width: 210px; padding: 12px 14px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="info">
+    <b>3D 产品展厅</b><br />
+    点击展品 → Raycaster 选中 → 相机平滑飞向产品 → 右侧弹出信息卡。
+    无操作时自动环绕旋转，开始操作即暂停。
+  </div>
+  <div class="card" id="card">
+    <h3 id="cName"></h3>
+    <div class="tag" id="cTag"></div>
+    <p id="cDesc"></p>
+    <div class="swatches" id="cSwatches"></div>
+    <button id="cBack">← 返回全景</button>
+  </div>
+  <div class="hint">点击展台查看产品 · 拖拽旋转 · 滚轮缩放</div>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x07090d)
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100)
+    camera.position.set(0, 3.2, 7.5)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.domElement.style.touchAction = 'none'
+    document.getElementById('app').appendChild(renderer.domElement)
+
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+
+    const orbit = new OrbitControls(camera, renderer.domElement)
+    orbit.enableDamping = true
+    orbit.target.set(0, 0.8, 0)
+    orbit.minDistance = 2
+    orbit.maxDistance = 12
+    orbit.maxPolarAngle = Math.PI / 2 - 0.05
+    orbit.autoRotate = true
+    orbit.autoRotateSpeed = 0.8
+
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x10131a, 0.5))
+    const key = new THREE.SpotLight(0xffffff, 120, 0, Math.PI / 5, 0.3, 2)
+    key.position.set(0, 8, 2)
+    key.castShadow = true
+    key.shadow.mapSize.set(2048, 2048)
+    scene.add(key)
+    key.target.position.set(0, 0, 0)
+    scene.add(key.target)
+
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(10, 64),
+      new THREE.MeshStandardMaterial({ color: 0x12161e, roughness: 0.4, metalness: 0.6 })
+    )
+    floor.rotation.x = -Math.PI / 2
+    floor.receiveShadow = true
+    scene.add(floor)
+
+    /* ---------- 产品（用几何体组合示意） ---------- */
+    function makeWatch(accent) {
+      const g = new THREE.Group()
+      const face = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.42, 0.12, 48),
+        new THREE.MeshStandardMaterial({ color: 0xdfe5ec, metalness: 1, roughness: 0.2 })
+      )
+      face.rotation.x = Math.PI / 2
+      const screen = new THREE.Mesh(
+        new THREE.CircleGeometry(0.34, 48),
+        new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 0.35, roughness: 0.2 })
+      )
+      screen.position.z = 0.07
+      const strap = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, 0.9, 0.06),
+        new THREE.MeshStandardMaterial({ color: 0x232a36, roughness: 0.8 })
+      )
+      strap.position.z = -0.04
+      g.add(face, screen, strap)
+      g.userData.spinPart = face
+      return g
+    }
+    function makeSpeaker(accent) {
+      const g = new THREE.Group()
+      const body = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.32, 0.5, 8, 32),
+        new THREE.MeshStandardMaterial({ color: 0xe8ebf0, roughness: 0.55 })
+      )
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.2, 0.04, 16, 48),
+        new THREE.MeshStandardMaterial({ color: accent, metalness: 0.6, roughness: 0.3 })
+      )
+      ring.position.z = 0.26
+      ring.rotation.x = 0.3
+      g.add(body, ring)
+      g.userData.spinPart = body
+      return g
+    }
+    function makeGem(accent) {
+      const g = new THREE.Group()
+      const gem = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.5, 0),
+        new THREE.MeshPhysicalMaterial({
+          color: accent, metalness: 0.1, roughness: 0.05,
+          transmission: 0.6, thickness: 1.2, ior: 1.8
+        })
+      )
+      g.add(gem)
+      g.userData.spinPart = gem
+      return g
+    }
+
+    const products = [
+      {
+        name: '智能手表 Pulse', tag: '可穿戴设备',
+        desc: '金属表体搭配发光表盘，实时运动监测与消息提醒。',
+        colors: ['#38bdf8', '#f472b6', '#34d399'],
+        build: makeWatch, pos: [-3, 0, 0]
+      },
+      {
+        name: '胶囊音箱 Orb', tag: '智能家居',
+        desc: '360° 环绕音效，织物质感机身，支持多设备串联。',
+        colors: ['#f59e0b', '#60a5fa', '#a78bfa'],
+        build: makeSpeaker, pos: [0, 0, 0.6]
+      },
+      {
+        name: '能量水晶 Prism', tag: '概念设计',
+        desc: '高折射率透明材质，内部光路随转动折射出彩虹边缘。',
+        colors: ['#22d3ee', '#c084fc', '#f87171'],
+        build: makeGem, pos: [3, 0, 0]
+      }
+    ]
+
+    const clickable = []
+    const stands = []
+    products.forEach((p, i) => {
+      const stand = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.7, 0.85, 0.9, 40),
+        new THREE.MeshStandardMaterial({ color: 0x1c2230, roughness: 0.35, metalness: 0.5 })
+      )
+      stand.position.set(p.pos[0], 0.45, p.pos[2])
+      stand.castShadow = stand.receiveShadow = true
+      scene.add(stand)
+      stands.push(stand)
+
+      const product = p.build(p.colors[0])
+      product.position.set(p.pos[0], 1.45, p.pos[2])
+      product.traverse(o => { if (o.isMesh) o.castShadow = true })
+      scene.add(product)
+      clickable.push(product)
+
+      // 把产品数据挂到组及其所有子网格上，拾取子网格也能找到根
+      product.userData.product = p
+      product.userData.root = product
+      product.traverse(o => {
+        if (o !== product) {
+          o.userData.root = product
+          o.userData.product = p
+        }
+      })
+    })
+
+    /* ---------- 交互：拾取 + 相机飞行 ---------- */
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    let selected = null
+    let cameraTween = null
+
+    const card = document.getElementById('card')
+    const cName = document.getElementById('cName')
+    const cTag = document.getElementById('cTag')
+    const cDesc = document.getElementById('cDesc')
+    const cSwatches = document.getElementById('cSwatches')
+
+    function flyTo(targetPos, camPos, duration = 0.9) {
+      // 简单的相机补间：在动画循环中按 easeInOutCubic 插值
+      cameraTween = {
+        t: 0,
+        duration,
+        fromTarget: orbit.target.clone(),
+        toTarget: targetPos.clone(),
+        fromPos: camera.position.clone(),
+        toPos: camPos.clone()
+      }
+    }
+
+    function select(root) {
+      selected = root
+      orbit.autoRotate = false
+      const p = root.userData.product
+      cName.textContent = p.name
+      cTag.textContent = p.tag
+      cDesc.textContent = p.desc
+      cSwatches.innerHTML = ''
+      p.colors.forEach((col, ci) => {
+        const dot = document.createElement('i')
+        dot.style.background = col
+        if (ci === 0) dot.classList.add('on')
+        dot.addEventListener('click', () => {
+          cSwatches.querySelectorAll('i').forEach(el => el.classList.remove('on'))
+          dot.classList.add('on')
+          // 改变产品中“发光/主色”小件（屏幕、环、水晶整体）
+          root.traverse(o => {
+            if (o.isMesh && o.material.emissive && o.material.emissiveIntensity > 0.1) {
+              o.material.color.set(col)
+              o.material.emissive.set(col)
+            }
+          })
+          if (p.name.includes('水晶')) {
+            root.userData.spinPart.material.color.set(col)
+          }
+        })
+        cSwatches.appendChild(dot)
+      })
+      card.classList.add('show')
+
+      const wp = new THREE.Vector3()
+      root.getWorldPosition(wp)
+      const dir = camera.position.clone().sub(orbit.target).normalize()
+      flyTo(wp.clone(), wp.clone().add(dir.multiplyScalar(2.6)).setY(wp.y + 0.9))
+    }
+
+    function backToOverview() {
+      selected = null
+      card.classList.remove('show')
+      flyTo(new THREE.Vector3(0, 0.8, 0), new THREE.Vector3(0, 3.2, 7.5))
+      // 回到全景后再开启自动旋转
+      setTimeout(() => { if (!selected) orbit.autoRotate = true }, 1000)
+    }
+    document.getElementById('cBack').addEventListener('click', backToOverview)
+
+    let downX = 0, downY = 0
+    renderer.domElement.addEventListener('pointerdown', e => {
+      downX = e.clientX; downY = e.clientY
+      orbit.autoRotate = false
+    })
+    renderer.domElement.addEventListener('pointerup', event => {
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) > 5) return
+      const rect = renderer.domElement.getBoundingClientRect()
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hits = raycaster.intersectObjects(clickable, true)
+      if (hits.length) select(hits[0].object.userData.root)
+    })
+
+    const clock = new THREE.Timer()
+
+    clock.connect(document) // r186：Clock 已弃用，改用 Timer；接入页面可见性自动避免切后台大跳变
+    renderer.setAnimationLoop(() => {
+      clock.update() // Timer 每帧先 update，再读取 delta/elapsed
+      const dt = clock.getDelta()
+      const t = clock.getElapsed()
+
+      // 产品轻微浮动 + 旋转
+      clickable.forEach((g, i) => {
+        g.position.y = 1.45 + Math.sin(t * 1.4 + i * 2) * 0.06
+        if (g.userData.spinPart) g.userData.spinPart.rotation.y += dt * 0.5
+      })
+
+      // 相机补间
+      if (cameraTween) {
+        cameraTween.t += dt
+        const k = Math.min(cameraTween.t / cameraTween.duration, 1)
+        const e = k < 0.5 ? 2 * k * k : 1 - ((-2 * k + 2) ** 2) / 2
+        camera.position.lerpVectors(cameraTween.fromPos, cameraTween.toPos, e)
+        orbit.target.lerpVectors(cameraTween.fromTarget, cameraTween.toTarget, e)
+        if (k >= 1) cameraTween = null
+      }
+
+      orbit.update()
+      renderer.render(scene, camera)
+    })
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(innerWidth, innerHeight)
+    })
+  </script>
+</body>
+</html>
